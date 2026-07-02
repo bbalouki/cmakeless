@@ -46,6 +46,14 @@ __pycache__/
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the cmakeless command line.
+
+    Args:
+        argv: Arguments to parse; None reads sys.argv (console script use).
+
+    Returns:
+        The process exit code: 0 on success, 1 on any CmakelessError.
+    """
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
@@ -62,13 +70,35 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Assemble the argument parser with every subcommand.
+
+    Returns:
+        The configured top-level parser.
+    """
     parser = argparse.ArgumentParser(
         prog="cmakeless",
         description="Write your C++ builds in Python. Keep CMake. Lose the pain.",
     )
     parser.add_argument("--version", action="version", version=f"cmakeless {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
+    _add_script_verbs(subparsers)
+    init_parser = subparsers.add_parser(
+        "init", help="scaffold a new project (build.py, src/main.cpp, .gitignore)"
+    )
+    init_parser.add_argument(
+        "--name",
+        default=None,
+        help="project name (default: the current directory's name)",
+    )
+    return parser
 
+
+def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Register the verbs that execute the project's build.py.
+
+    Args:
+        subparsers: The subcommand registry of the top-level parser.
+    """
     help_by_verb = {
         "build": "run the project's build.py (freeze, emit, configure, compile)",
         "configure": "generate build files and run the CMake configure step only",
@@ -89,30 +119,41 @@ def _build_parser() -> argparse.ArgumentParser:
                 "(default: ninja when available)",
             )
 
-    init_parser = subparsers.add_parser(
-        "init", help="scaffold a new project (build.py, src/main.cpp, .gitignore)"
-    )
-    init_parser.add_argument(
-        "--name",
-        default=None,
-        help="project name (default: the current directory's name)",
-    )
-    return parser
-
 
 def _run_build_script(script: Path) -> None:
+    """Execute the user's build description as if run directly.
+
+    The script is the tool: running it under __main__ makes 'cmakeless
+    build' behave exactly like 'python build.py'.
+
+    Args:
+        script: Path of the build description to execute.
+
+    Raises:
+        ConfigurationError: When the script does not exist.
+    """
     if not script.is_file():
         raise ConfigurationError(
             f"No build description found at '{script}'. Run cmakeless from the "
             f"directory containing {BUILD_SCRIPT_NAME}, or point at one with "
             f"--file path/to/{BUILD_SCRIPT_NAME}."
         )
-    # The script is the tool: running it under __main__ makes 'cmakeless build'
-    # behave exactly like 'python build.py'.
     runpy.run_path(str(script), run_name="__main__")
 
 
 def _init_project(directory: Path, *, name: str | None) -> None:
+    """Scaffold a new project in the given directory.
+
+    Writes build.py, src/main.cpp, and .gitignore, refusing to overwrite an
+    existing build.py and leaving other existing files untouched.
+
+    Args:
+        directory: Where to scaffold (the CLI passes the working directory).
+        name: The project name; None derives it from the directory name.
+
+    Raises:
+        ConfigurationError: When a build.py already exists there.
+    """
     project_name = name if name is not None else _sanitize_name(directory.name)
     script = directory / BUILD_SCRIPT_NAME
     if script.exists():
@@ -136,6 +177,14 @@ def _init_project(directory: Path, *, name: str | None) -> None:
 
 
 def _sanitize_name(raw: str) -> str:
+    """Derive a valid project name from a directory name.
+
+    Args:
+        raw: The directory name, which may contain anything.
+
+    Returns:
+        A name that passes project-name validation.
+    """
     cleaned = "".join(ch if ch.isalnum() or ch in "_.+-" else "_" for ch in raw)
     if not cleaned or not (cleaned[0].isalpha() or cleaned[0] == "_"):
         cleaned = f"project_{cleaned}" if cleaned else "my_project"

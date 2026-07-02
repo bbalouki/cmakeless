@@ -19,6 +19,7 @@ project.build()
 
 @pytest.fixture
 def demo_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A buildable demo project in a temporary working directory."""
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.cpp").write_text(
         "auto main() -> int { return 0; }\n", encoding="utf-8"
@@ -29,6 +30,7 @@ def demo_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def test_clean_removes_build_directory(demo_project: Path) -> None:
+    """Clean removes build directory."""
     build_dir = demo_project / "build"
     build_dir.mkdir()
     (build_dir / "junk.txt").write_text("junk", encoding="utf-8")
@@ -37,10 +39,12 @@ def test_clean_removes_build_directory(demo_project: Path) -> None:
 
 
 def test_clean_on_clean_tree_is_fine(demo_project: Path) -> None:
+    """Clean on clean tree is fine."""
     assert main(["clean"]) == 0
 
 
 def test_init_scaffolds_a_buildable_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Init scaffolds a buildable layout."""
     monkeypatch.chdir(tmp_path)
     assert main(["init", "--name", "shiny"]) == 0
     build_py = (tmp_path / "build.py").read_text(encoding="utf-8")
@@ -50,6 +54,7 @@ def test_init_scaffolds_a_buildable_layout(tmp_path: Path, monkeypatch: pytest.M
 
 
 def test_init_refuses_to_overwrite(demo_project: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Init refuses to overwrite."""
     assert main(["init"]) == 1
     assert "refusing" in capsys.readouterr().err
 
@@ -57,6 +62,7 @@ def test_init_refuses_to_overwrite(demo_project: Path, capsys: pytest.CaptureFix
 def test_init_default_name_comes_from_directory(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Init default name comes from directory."""
     project_dir = tmp_path / "my-tool"
     project_dir.mkdir()
     monkeypatch.chdir(project_dir)

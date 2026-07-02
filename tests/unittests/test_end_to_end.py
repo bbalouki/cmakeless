@@ -29,6 +29,7 @@ auto main() -> int
 
 
 def find_binary(build_dir: Path, name: str) -> Path:
+    """Locate a produced executable anywhere under the build tree."""
     executable_name = f"{name}.exe" if os.name == "nt" else name
     matches = [path for path in build_dir.rglob(executable_name) if path.is_file()]
     assert matches, f"no {executable_name} produced under {build_dir}"
@@ -37,6 +38,7 @@ def find_binary(build_dir: Path, name: str) -> Path:
 
 @requires_cmake
 def test_hello_world_builds_and_runs(tmp_path: Path) -> None:
+    """Hello world builds and runs."""
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.cpp").write_text(HELLO_CPP, encoding="utf-8")
 
@@ -79,6 +81,7 @@ auto main() -> int
 
 @requires_cmake
 def test_static_library_links_into_executable(tmp_path: Path) -> None:
+    """Static library links into executable."""
     (tmp_path / "src").mkdir()
     (tmp_path / "include").mkdir()
     (tmp_path / "include" / "greeter.hpp").write_text(GREETER_HPP, encoding="utf-8")
@@ -98,6 +101,7 @@ def test_static_library_links_into_executable(tmp_path: Path) -> None:
 
 @requires_cmake
 def test_compile_failure_becomes_structured_cmake_error(tmp_path: Path) -> None:
+    """Compile failure becomes structured cmake error."""
     (tmp_path / "src").mkdir()
     (tmp_path / "src" / "main.cpp").write_text(
         "auto main() -> int { return undeclared_thing; }\n", encoding="utf-8"

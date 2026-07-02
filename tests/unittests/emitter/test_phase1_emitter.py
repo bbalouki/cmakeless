@@ -26,6 +26,7 @@ def make_model(
     libraries: tuple[LibraryModel, ...] = (),
     subprojects: tuple[SubprojectModel, ...] = (),
 ) -> ProjectModel:
+    """Build a frozen project around the given targets and subprojects."""
     return ProjectModel(
         name="demo",
         version="1.0.0",
@@ -40,6 +41,7 @@ def make_model(
 
 
 def test_static_library_emission() -> None:
+    """Static library emission."""
     engine = LibraryModel(
         name="engine",
         kind=LibraryKind.STATIC,
@@ -59,6 +61,7 @@ def test_static_library_emission() -> None:
 
 
 def test_shared_library_gets_export_header() -> None:
+    """Shared library gets export header."""
     plugin = LibraryModel(name="plugin", kind=LibraryKind.SHARED, sources=(Path("src/plugin.cpp"),))
     text = emit_cmakelists(make_model(libraries=(plugin,)), tool_version=FIXED_VERSION)
     assert "include(GenerateExportHeader)" in text
@@ -68,6 +71,7 @@ def test_shared_library_gets_export_header() -> None:
 
 
 def test_header_only_library_is_interface() -> None:
+    """Header only library is interface."""
     headers = LibraryModel(
         name="headers",
         kind=LibraryKind.HEADER_ONLY,
@@ -83,6 +87,7 @@ def test_header_only_library_is_interface() -> None:
 
 
 def test_links_use_visibility_keywords() -> None:
+    """Links use visibility keywords."""
     engine = LibraryModel(
         name="engine",
         kind=LibraryKind.STATIC,
@@ -94,6 +99,7 @@ def test_links_use_visibility_keywords() -> None:
 
 
 def test_strict_warnings_are_translated_per_compiler() -> None:
+    """Strict warnings are translated per compiler."""
     app = ExecutableModel(name="app", sources=(Path("src/main.cpp"),))
     text = emit_cmakelists(
         make_model(warnings="strict", executables=(app,)), tool_version=FIXED_VERSION
@@ -105,12 +111,14 @@ def test_strict_warnings_are_translated_per_compiler() -> None:
 
 
 def test_default_warnings_emit_nothing() -> None:
+    """Default warnings emit nothing."""
     app = ExecutableModel(name="app", sources=(Path("src/main.cpp"),))
     text = emit_cmakelists(make_model(executables=(app,)), tool_version=FIXED_VERSION)
     assert "target_compile_options" not in text
 
 
 def test_defines_and_guarded_options() -> None:
+    """Defines and guarded options."""
     app = ExecutableModel(
         name="app",
         sources=(Path("src/main.cpp"),),
@@ -129,6 +137,7 @@ def test_defines_and_guarded_options() -> None:
 
 
 def test_tree_emission_paths() -> None:
+    """Tree emission paths."""
     child = make_model(executables=(ExecutableModel(name="tool", sources=(Path("main.cpp"),)),))
     parent = make_model(
         executables=(ExecutableModel(name="app", sources=(Path("src/main.cpp"),)),),
@@ -140,12 +149,14 @@ def test_tree_emission_paths() -> None:
 
 
 def test_golden_single_project() -> None:
+    """Golden single project."""
     golden = Path(__file__).parent / "golden" / "kitchen_sink.cmake"
     model = kitchen_sink_model()
     assert emit_cmakelists(model, tool_version=FIXED_VERSION) == golden.read_text(encoding="utf-8")
 
 
 def test_golden_subproject_tree() -> None:
+    """Golden subproject tree."""
     golden_dir = Path(__file__).parent / "golden"
     child = make_model(executables=(ExecutableModel(name="tool", sources=(Path("main.cpp"),)),))
     parent = make_model(
@@ -161,8 +172,8 @@ def test_golden_subproject_tree() -> None:
     )
 
 
-def kitchen_sink_model() -> ProjectModel:
-    """One model exercising every construct the Phase 1 emitter knows."""
+def _kitchen_sink_libraries() -> tuple[LibraryModel, ...]:
+    """One library of each kind, wired into a small link graph."""
     headers = LibraryModel(
         name="headers",
         kind=LibraryKind.HEADER_ONLY,
@@ -183,6 +194,11 @@ def kitchen_sink_model() -> ProjectModel:
         sources=(Path("src/plugin.cpp"),),
         links=(LinkModel(target="engine", public=False),),
     )
+    return (headers, engine, plugin)
+
+
+def kitchen_sink_model() -> ProjectModel:
+    """One model exercising every construct the Phase 1 emitter knows."""
     app = ExecutableModel(
         name="app",
         sources=(Path("src/main.cpp"),),
@@ -195,5 +211,5 @@ def kitchen_sink_model() -> ProjectModel:
     return make_model(
         warnings="strict",
         executables=(app,),
-        libraries=(headers, engine, plugin),
+        libraries=_kitchen_sink_libraries(),
     )

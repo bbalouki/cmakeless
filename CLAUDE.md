@@ -41,7 +41,7 @@
 - Do not declare unused variables, objects, or functions
 - Use a formatted string whenever you want to inject a variable in a string, especially in logging
 - Follow project style: type hints, docstrings, meaningful comments
-- Every function, class, module or method should have a docstring and all parameters, attributes and return values should be documented. 
+- Every function, class, module or method should have a docstring and all parameters, attributes and return values at the library level should be documented. 
 - All functions and methods must be less than 35 lines of code
 
 ## Libraries

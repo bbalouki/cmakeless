@@ -24,12 +24,25 @@ class CMakeDriver:
         build_dir: Path,
         generator: Generator | None = None,
     ) -> None:
+        """Bind the driver to one source tree and build directory.
+
+        Args:
+            source_dir: Directory containing the generated CMakeLists.txt.
+            build_dir: Out-of-source directory to configure and build into.
+            generator: The CMake generator strategy; None auto-selects
+                (Ninja when available, otherwise CMake's default).
+        """
         self._source_dir = source_dir
         self._build_dir = build_dir
         self._generator = generator if generator is not None else select_generator(None)
 
     def configure(self) -> None:
-        """Run the CMake configure and generate step into the build directory."""
+        """Run the CMake configure and generate step into the build directory.
+
+        Raises:
+            ToolchainError: When cmake is not on PATH.
+            CMakeError: When the configure step exits non-zero.
+        """
         command = [
             self._cmake_executable(),
             "-S",
@@ -41,11 +54,24 @@ class CMakeDriver:
         self._run(command, step="configure")
 
     def build(self) -> None:
-        """Run the compile step through cmake --build."""
+        """Run the compile step through cmake --build.
+
+        Raises:
+            ToolchainError: When cmake is not on PATH.
+            CMakeError: When the build step exits non-zero.
+        """
         command = [self._cmake_executable(), "--build", str(self._build_dir)]
         self._run(command, step="build")
 
     def _cmake_executable(self) -> str:
+        """Locate the cmake executable on PATH.
+
+        Returns:
+            The absolute path to cmake.
+
+        Raises:
+            ToolchainError: When cmake is not on PATH, with install guidance.
+        """
         cmake = shutil.which("cmake")
         if cmake is None:
             raise ToolchainError(
@@ -58,6 +84,17 @@ class CMakeDriver:
         return cmake
 
     def _run(self, command: list[str], *, step: str) -> None:
+        """Run one cmake invocation, logging and translating failures.
+
+        Args:
+            command: The full argument vector to execute.
+            step: The pipeline step name ("configure" or "build"), used in
+                console output and error messages.
+
+        Raises:
+            CMakeError: When the command exits non-zero, carrying the exact
+                command, exit code, log path, and parsed diagnostics.
+        """
         print(f"[cmakeless] Running {step}: {subprocess.list2cmdline(command)}")
         completed = subprocess.run(
             command,
@@ -90,6 +127,16 @@ class CMakeDriver:
         command: list[str],
         completed: subprocess.CompletedProcess[str],
     ) -> Path:
+        """Append one invocation's full output to the persistent log file.
+
+        Args:
+            step: The pipeline step name ("configure" or "build").
+            command: The argument vector that was executed.
+            completed: The finished subprocess with captured output.
+
+        Returns:
+            The path of the log file inside the build directory.
+        """
         self._build_dir.mkdir(parents=True, exist_ok=True)
         log_path = self._build_dir / LOG_FILE_NAME
         with log_path.open("a", encoding="utf-8") as log_file:

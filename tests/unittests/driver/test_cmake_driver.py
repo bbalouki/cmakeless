@@ -15,12 +15,14 @@ class FakeRun:
     """Records subprocess invocations and returns a scripted result."""
 
     def __init__(self, returncode: int = 0, stdout: str = "", stderr: str = "") -> None:
+        """Script the result every recorded invocation returns."""
         self.returncode = returncode
         self.stdout = stdout
         self.stderr = stderr
         self.commands: list[list[str]] = []
 
     def __call__(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        """Record the command and return the scripted result."""
         self.commands.append(command)
         return subprocess.CompletedProcess(
             args=command,
@@ -32,10 +34,12 @@ class FakeRun:
 
 @pytest.fixture
 def driver(tmp_path: Path) -> CMakeDriver:
+    """A driver bound to a temporary source and build directory."""
     return CMakeDriver(source_dir=tmp_path, build_dir=tmp_path / "build")
 
 
 def patch_tools(monkeypatch: pytest.MonkeyPatch, *, ninja: bool = True) -> None:
+    """Make cmake (and optionally ninja) discoverable on a fake PATH."""
     tool_paths = {"cmake": "/usr/bin/cmake", "ninja": "/usr/bin/ninja" if ninja else None}
     monkeypatch.setattr(
         "cmakeless.driver.cmake_driver.shutil.which",
@@ -46,6 +50,7 @@ def patch_tools(monkeypatch: pytest.MonkeyPatch, *, ninja: bool = True) -> None:
 def test_configure_invokes_cmake_with_ninja(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Configure invokes cmake with ninja."""
     patch_tools(monkeypatch)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
@@ -59,6 +64,7 @@ def test_configure_invokes_cmake_with_ninja(
 def test_configure_without_ninja_uses_default_generator(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Configure without ninja uses default generator."""
     patch_tools(monkeypatch, ninja=False)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
@@ -72,6 +78,7 @@ def test_configure_without_ninja_uses_default_generator(
 def test_build_invokes_cmake_build(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Build invokes cmake build."""
     patch_tools(monkeypatch)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
@@ -82,6 +89,7 @@ def test_build_invokes_cmake_build(
 def test_missing_cmake_raises_toolchain_error(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Missing cmake raises toolchain error."""
     monkeypatch.setattr("cmakeless.driver.cmake_driver.shutil.which", lambda _: None)
     with pytest.raises(ToolchainError, match=r"cmake\.org"):
         driver.configure()
@@ -90,6 +98,7 @@ def test_missing_cmake_raises_toolchain_error(
 def test_failure_raises_structured_cmake_error(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Failure raises structured cmake error."""
     patch_tools(monkeypatch)
     fake_run = FakeRun(returncode=2, stderr="CMake Error: something broke\n")
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)

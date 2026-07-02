@@ -18,6 +18,7 @@ project.build()
 
 
 def write_child(parent_dir: Path, directory: str, build_py: str = CHILD_BUILD_PY) -> Path:
+    """Write a child project (build.py plus main.cpp) under the parent dir."""
     child_dir = parent_dir / directory
     child_dir.mkdir(parents=True)
     (child_dir / "build.py").write_text(build_py, encoding="utf-8")
@@ -26,6 +27,7 @@ def write_child(parent_dir: Path, directory: str, build_py: str = CHILD_BUILD_PY
 
 
 def test_add_subproject_captures_child_without_building(project_dir: Path) -> None:
+    """Add subproject captures child without building."""
     write_child(project_dir, "tools/stamp")
     parent = Project("demo", root=project_dir)
     parent.add_executable("app", sources=["src/main.cpp"])
@@ -42,12 +44,14 @@ def test_add_subproject_captures_child_without_building(project_dir: Path) -> No
 
 
 def test_missing_child_build_py_is_reported(project_dir: Path) -> None:
+    """Missing child build py is reported."""
     parent = Project("demo", root=project_dir)
     with pytest.raises(ConfigurationError, match="no build description"):
         parent.add_subproject("tools/ghost")
 
 
 def test_child_with_two_projects_is_rejected(project_dir: Path) -> None:
+    """Child with two projects is rejected."""
     two_projects = (
         "from cmakeless import Project\n"
         "first = Project('one', root='.')\n"
@@ -60,6 +64,7 @@ def test_child_with_two_projects_is_rejected(project_dir: Path) -> None:
 
 
 def test_duplicate_subproject_directory_rejected(project_dir: Path) -> None:
+    """Duplicate subproject directory rejected."""
     write_child(project_dir, "tools/stamp")
     parent = Project("demo", root=project_dir)
     parent.add_executable("app", sources=["src/main.cpp"])
@@ -71,6 +76,7 @@ def test_duplicate_subproject_directory_rejected(project_dir: Path) -> None:
 
 def test_subproject_cycle_guard(project_dir: Path) -> None:
     # The child tries to add its own parent directory as a subproject.
+    """Subproject cycle guard."""
     recursive_child = (
         "from cmakeless import Project\n"
         "project = Project('tool')\n"
@@ -89,6 +95,7 @@ def test_subproject_cycle_guard(project_dir: Path) -> None:
 
 
 def test_child_sources_validated_against_child_root(project_dir: Path) -> None:
+    """Child sources validated against child root."""
     child_dir = write_child(project_dir, "tools/stamp")
     (child_dir / "main.cpp").unlink()
     parent = Project("demo", root=project_dir)
@@ -99,6 +106,7 @@ def test_child_sources_validated_against_child_root(project_dir: Path) -> None:
 
 
 def test_generate_writes_one_cmakelists_per_project(project_dir: Path) -> None:
+    """Generate writes one cmakelists per project."""
     write_child(project_dir, "tools/stamp")
     parent = Project("demo", root=project_dir)
     parent.add_executable("app", sources=["src/main.cpp"])

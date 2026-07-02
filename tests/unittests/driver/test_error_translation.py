@@ -35,6 +35,7 @@ collect2: error: ld returned 1 exit status
 
 
 def test_gcc_style_errors() -> None:
+    """Gcc style errors."""
     diagnostics = extract_diagnostics(GCC_OUTPUT)
     assert len(diagnostics) == 1
     assert diagnostics[0].file == "src/main.cpp"
@@ -43,12 +44,14 @@ def test_gcc_style_errors() -> None:
 
 
 def test_clang_fatal_error() -> None:
+    """Clang fatal error."""
     diagnostics = extract_diagnostics(CLANG_FATAL)
     assert diagnostics[0].line == 1
     assert "file not found" in diagnostics[0].message
 
 
 def test_msvc_style_errors_ignore_warnings() -> None:
+    """Msvc style errors ignore warnings."""
     diagnostics = extract_diagnostics(MSVC_OUTPUT)
     assert len(diagnostics) == 1
     assert diagnostics[0].file == "src\\main.cpp"
@@ -56,6 +59,7 @@ def test_msvc_style_errors_ignore_warnings() -> None:
 
 
 def test_cmake_error_with_continuation_lines() -> None:
+    """Cmake error with continuation lines."""
     diagnostics = extract_diagnostics(CMAKE_OUTPUT)
     assert diagnostics[0].file == "CMakeLists.txt"
     assert diagnostics[0].line == 12
@@ -63,14 +67,17 @@ def test_cmake_error_with_continuation_lines() -> None:
 
 
 def test_linker_errors_are_kept() -> None:
+    """Linker errors are kept."""
     diagnostics = extract_diagnostics(LINKER_OUTPUT)
     assert any("undefined reference" in diag.message for diag in diagnostics)
 
 
 def test_clean_output_yields_nothing() -> None:
+    """Clean output yields nothing."""
     assert extract_diagnostics("-- Configuring done\n-- Generating done\n") == ()
 
 
 def test_diagnostic_str_includes_location() -> None:
+    """Diagnostic str includes location."""
     diagnostics = extract_diagnostics(GCC_OUTPUT)
     assert str(diagnostics[0]).startswith("src/main.cpp:5: ")

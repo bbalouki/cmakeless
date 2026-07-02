@@ -18,6 +18,7 @@ def make_model(
     cpp_std: int = 20,
     executables: tuple[ExecutableModel, ...] = (),
 ) -> ProjectModel:
+    """Build a frozen project rooted at the given directory."""
     return ProjectModel(
         name=name,
         version="1.0.0",
@@ -29,6 +30,7 @@ def make_model(
 
 
 def test_valid_project_passes(project_dir: Path) -> None:
+    """Valid project passes."""
     model = make_model(
         project_dir,
         executables=(ExecutableModel(name="app", sources=(Path("src/main.cpp"),)),),
@@ -37,6 +39,7 @@ def test_valid_project_passes(project_dir: Path) -> None:
 
 
 def test_missing_source_reports_what_where_and_what_next(project_dir: Path) -> None:
+    """Missing source reports what where and what next."""
     model = make_model(
         project_dir,
         executables=(ExecutableModel(name="app", sources=(Path("src/nope.cpp"),)),),
@@ -51,12 +54,14 @@ def test_missing_source_reports_what_where_and_what_next(project_dir: Path) -> N
 
 
 def test_empty_sources_rejected(project_dir: Path) -> None:
+    """Empty sources rejected."""
     model = make_model(project_dir, executables=(ExecutableModel(name="app", sources=()),))
     with pytest.raises(ConfigurationError, match="no source files"):
         validate_project(model)
 
 
 def test_duplicate_target_names_rejected(project_dir: Path) -> None:
+    """Duplicate target names rejected."""
     target = ExecutableModel(name="app", sources=(Path("src/main.cpp"),))
     model = make_model(project_dir, executables=(target, target))
     with pytest.raises(ConfigurationError, match="Duplicate target name"):
@@ -65,6 +70,7 @@ def test_duplicate_target_names_rejected(project_dir: Path) -> None:
 
 @pytest.mark.parametrize("bad_name", ["my app", "app;rm", "", "1app$"])
 def test_invalid_project_names_rejected(project_dir: Path, bad_name: str) -> None:
+    """Invalid project names rejected."""
     model = make_model(project_dir, name=bad_name)
     with pytest.raises(ConfigurationError, match="Invalid project name"):
         validate_project(model)
@@ -72,6 +78,7 @@ def test_invalid_project_names_rejected(project_dir: Path, bad_name: str) -> Non
 
 @pytest.mark.parametrize("bad_std", [12, 15, 99, 0])
 def test_unknown_cpp_std_rejected(project_dir: Path, bad_std: int) -> None:
+    """Unknown cpp std rejected."""
     model = make_model(project_dir, cpp_std=bad_std)
     with pytest.raises(ConfigurationError, match="Unknown C\\+\\+ standard"):
         validate_project(model)

@@ -30,7 +30,12 @@ _generator_override: list[str] = []
 
 @contextmanager
 def capturing_projects() -> Generator[list[Project]]:
-    """Enter description mode; projects created inside are captured, not built."""
+    """Enter description mode; projects created inside are captured, not built.
+
+    Yields:
+        The live list that collects every Project constructed while the
+        context is active.
+    """
     captured: list[Project] = []
     _capture_stack.append(captured)
     try:
@@ -40,17 +45,38 @@ def capturing_projects() -> Generator[list[Project]]:
 
 
 def register_project(project: Project) -> None:
+    """Hand a freshly constructed project to the active capture list, if any.
+
+    Args:
+        project: The project that was just constructed.
+    """
     if _capture_stack:
         _capture_stack[-1].append(project)
 
 
 def in_description_mode() -> bool:
+    """Tell whether a subproject's build.py is currently being loaded.
+
+    Returns:
+        True while at least one capturing_projects() context is active.
+    """
     return bool(_capture_stack)
 
 
 @contextmanager
 def loading_script(script: Path) -> Generator[None]:
-    """Guard against subproject recursion (a child adding its own ancestor)."""
+    """Guard against subproject recursion (a child adding its own ancestor).
+
+    Args:
+        script: The build.py about to be executed.
+
+    Yields:
+        Nothing; the guard is active for the duration of the context.
+
+    Raises:
+        ConfigurationError: When the script is already being loaded higher
+            up the chain, which would recurse forever.
+    """
     resolved = script.resolve()
     if resolved in _loading_scripts:
         chain = " -> ".join(str(path) for path in [*_loading_scripts, resolved])
@@ -68,7 +94,14 @@ def loading_script(script: Path) -> Generator[None]:
 
 @contextmanager
 def verb_override(verb: str) -> Generator[None]:
-    """Make project.build() perform the given CLI verb instead of a full build."""
+    """Make project.build() perform the given CLI verb instead of a full build.
+
+    Args:
+        verb: The verb the CLI user asked for ("build", "configure", "clean").
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
     _verb_override.append(verb)
     try:
         yield
@@ -77,12 +110,25 @@ def verb_override(verb: str) -> Generator[None]:
 
 
 def active_verb() -> str:
+    """Look up the verb project.build() should perform.
+
+    Returns:
+        The innermost overridden verb, or "build" when none is active.
+    """
     return _verb_override[-1] if _verb_override else "build"
 
 
 @contextmanager
 def generator_override(generator: str | None) -> Generator[None]:
-    """Make projects prefer the generator the CLI user asked for."""
+    """Make projects prefer the generator the CLI user asked for.
+
+    Args:
+        generator: The generator name from --generator, or None for no
+            preference (the context is then a no-op).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
     if generator is None:
         yield
         return
@@ -94,4 +140,9 @@ def generator_override(generator: str | None) -> Generator[None]:
 
 
 def active_generator() -> str | None:
+    """Look up the generator preference set by the CLI.
+
+    Returns:
+        The innermost overridden generator name, or None when unset.
+    """
     return _generator_override[-1] if _generator_override else None

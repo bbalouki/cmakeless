@@ -10,7 +10,13 @@ from cmakeless.errors import ConfigurationError
 
 @dataclass(frozen=True, slots=True)
 class Generator:
-    """A choice of CMake generator, expressed as extra configure arguments."""
+    """A choice of CMake generator, expressed as extra configure arguments.
+
+    Attributes:
+        name: The user-facing generator name.
+        cmake_args: Arguments appended to the cmake configure command;
+            empty means CMake picks its own default.
+    """
 
     name: str
     cmake_args: tuple[str, ...]
@@ -28,9 +34,19 @@ _KNOWN_GENERATORS = ("ninja", "vs")
 def select_generator(name: str | None) -> Generator:
     """Resolve a user-facing generator name to a strategy.
 
-    None means auto-select: Ninja when available, otherwise CMake's default.
     Any name that is not a known shorthand is passed to CMake verbatim, so
     every generator CMake supports stays reachable.
+
+    Args:
+        name: "ninja", "vs", a raw CMake generator name, or None to
+            auto-select (Ninja when available, otherwise CMake's default).
+
+    Returns:
+        The resolved generator strategy.
+
+    Raises:
+        ConfigurationError: When Ninja is requested explicitly but is not
+            on PATH.
     """
     if name is None:
         return _NINJA if shutil.which("ninja") is not None else _DEFAULT
@@ -49,4 +65,9 @@ def select_generator(name: str | None) -> Generator:
 
 
 def known_generator_names() -> tuple[str, ...]:
+    """List the generator shorthands the CLI documents.
+
+    Returns:
+        The shorthand names accepted by --generator.
+    """
     return _KNOWN_GENERATORS
