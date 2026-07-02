@@ -57,11 +57,14 @@ def test_configure_invokes_cmake_with_ninja(
 
 
 def test_configure_without_ninja_uses_default_generator(
-    driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     patch_tools(monkeypatch, ninja=False)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
+    # Generator auto-selection happens at construction, so build the driver
+    # only after ninja has been made unavailable.
+    driver = CMakeDriver(source_dir=tmp_path, build_dir=tmp_path / "build")
     driver.configure()
     assert "-G" not in fake_run.commands[0]
 

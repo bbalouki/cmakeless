@@ -6,20 +6,20 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 
 ## Timeline at a Glance
 
-| Phase | Release | Theme | Target date |
-|---|---|---|---|
-| 0 | none | Walking skeleton | July 2026 (2 weeks) |
-| 1 | v0.1 | MVP: real projects build | September 2026 |
-| 2 | v0.2 | Dependencies | November 2026 |
-| 3 | v0.3 | Quality of life: tests, presets, install | January 2027 |
-| 4 | v0.4 | Interop and parallelism | March 2027 |
-| 5 | v1.0 | Stability promise | Mid-2027 |
+| Phase | Release | Theme |
+|---|---|---|
+| 0 | none | Walking skeleton | 
+| 1 | v0.1 | MVP: real projects build |
+| 2 | v0.2 | Dependencies |
+| 3 | v0.3 | Quality of life: tests, presets, install |
+| 4 | v0.4 | Interop and parallelism |
+| 5 | v1.0 | Stability promise |
 
-Dates assume a small part-time team; they are direction, not contract. Scope is the fixed variable, order is the promise.
+Scope is the fixed variable, order is the promise.
 
 ---
 
-## Phase 0: Walking Skeleton (2 weeks, July 2026)
+## Phase 0: Walking Skeleton
 
 The thinnest possible slice through all four layers, proving the architecture before investing in it.
 
@@ -31,7 +31,7 @@ The thinnest possible slice through all four layers, proving the architecture be
 
 **Exit criterion:** a newcomer clones the repo, writes a 5-line `build.py`, and gets a running binary on all three OSes.
 
-## Phase 1: MVP, v0.1 (~2 months, September 2026)
+## Phase 1: MVP, v0.1 
 
 The features without which nothing is real. After this phase, a small self-contained project (no external deps) uses CMakeless instead of hand-written CMake.
 
@@ -46,7 +46,7 @@ The features without which nothing is real. After this phase, a small self-conta
 
 **Exit criterion:** the CMakeless examples and at least one real third-party hobby project build with zero raw CMake written.
 
-## Phase 2: Dependencies, v0.2 (~2 months, November 2026)
+## Phase 2: Dependencies, v0.2 
 
 The phase that decides adoption, sequenced by backend difficulty:
 
@@ -59,7 +59,7 @@ The phase that decides adoption, sequenced by backend difficulty:
 
 **Exit criterion:** `app.depends("fmt/10.2.1")` works on all three OSes through at least three of the four backends, and resolution is reproducible from the lockfile alone.
 
-## Phase 3: Quality of Life, v0.3 (~2 months, January 2027)
+## Phase 3: Quality of Life, v0.3 
 
 Everything that turns "it builds" into "it ships":
 
@@ -72,7 +72,7 @@ Everything that turns "it builds" into "it ships":
 
 **Exit criterion:** a library author can build, test (sanitized), install, and package a release on CI using only `build.py`.
 
-## Phase 4: Interop and Parallelism, v0.4 (~2 months, March 2027)
+## Phase 4: Interop and Parallelism, v0.4 
 
 The differentiators:
 
@@ -83,7 +83,7 @@ The differentiators:
 
 **Exit criterion:** a pybind11-based project migrates its entire binding build to one `add_python_module` call, and multi-preset configure shows measurable wall-clock wins on free-threaded 3.14.
 
-## Phase 5: v1.0, the Stability Promise (mid-2027)
+## Phase 5: v1.0, the Stability Promise
 
 v1.0 is a social contract, not a feature list. Declaring it requires:
 

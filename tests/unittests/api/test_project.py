@@ -61,5 +61,5 @@ def test_generate_writes_cmakelists_without_cmake(project_dir: Path) -> None:
     project = Project("demo", root=project_dir)
     project.add_executable("app", sources=["src/main.cpp"])
     written = project.generate()
-    assert written == project_dir / "CMakeLists.txt"
-    assert "add_executable(app)" in written.read_text(encoding="utf-8")
+    assert written == [project_dir / "CMakeLists.txt"]
+    assert "add_executable(app)" in written[0].read_text(encoding="utf-8")

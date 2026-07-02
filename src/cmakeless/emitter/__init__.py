@@ -3,6 +3,6 @@
 Deterministic by contract: same model in, same bytes out.
 """
 
-from cmakeless.emitter.cmake_emitter import emit_cmakelists
+from cmakeless.emitter.cmake_emitter import emit_cmakelists, emit_tree
 
-__all__ = ["emit_cmakelists"]
+__all__ = ["emit_cmakelists", "emit_tree"]

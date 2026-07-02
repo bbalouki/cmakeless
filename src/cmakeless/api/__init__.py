@@ -6,6 +6,6 @@ model, validates, and only then proceeds.
 """
 
 from cmakeless.api.project import Project
-from cmakeless.api.targets import Executable
+from cmakeless.api.targets import Executable, Library
 
-__all__ = ["Executable", "Project"]
+__all__ = ["Executable", "Library", "Project"]

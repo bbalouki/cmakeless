@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from cmakeless.driver.error_translation import extract_diagnostics
+from cmakeless.driver.generators import Generator, select_generator
 from cmakeless.errors import CMakeError, ToolchainError
 
 LOG_FILE_NAME = "cmakeless-log.txt"
@@ -15,9 +17,16 @@ LOG_FILE_NAME = "cmakeless-log.txt"
 class CMakeDriver:
     """Runs the CMake engine against an already-emitted source tree."""
 
-    def __init__(self, *, source_dir: Path, build_dir: Path) -> None:
+    def __init__(
+        self,
+        *,
+        source_dir: Path,
+        build_dir: Path,
+        generator: Generator | None = None,
+    ) -> None:
         self._source_dir = source_dir
         self._build_dir = build_dir
+        self._generator = generator if generator is not None else select_generator(None)
 
     def configure(self) -> None:
         """Run the CMake configure and generate step into the build directory."""
@@ -27,9 +36,8 @@ class CMakeDriver:
             str(self._source_dir),
             "-B",
             str(self._build_dir),
+            *self._generator.cmake_args,
         ]
-        if shutil.which("ninja") is not None:
-            command.extend(["-G", "Ninja"])
         self._run(command, step="configure")
 
     def build(self) -> None:
@@ -63,14 +71,17 @@ class CMakeDriver:
         if completed.stderr:
             print(completed.stderr, end="", file=sys.stderr)
         if completed.returncode != 0:
+            diagnostics = extract_diagnostics(f"{completed.stdout or ''}\n{completed.stderr or ''}")
+            summary = f" First error: {diagnostics[0]}." if diagnostics else ""
             raise CMakeError(
                 f"CMake {step} failed with exit code {completed.returncode} for "
-                f"'{self._source_dir}'. The full output was saved to {log_path}. "
-                f"Fix the first error above, or rerun the exact command by hand: "
-                f"{subprocess.list2cmdline(command)}",
+                f"'{self._source_dir}'.{summary} The full output was saved to "
+                f"{log_path}. Fix the first error, or rerun the exact command by "
+                f"hand: {subprocess.list2cmdline(command)}",
                 command=command,
                 exit_code=completed.returncode,
                 log_path=log_path,
+                diagnostics=diagnostics,
             )
 
     def _append_log(

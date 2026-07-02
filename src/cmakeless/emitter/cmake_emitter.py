@@ -3,18 +3,68 @@
 The generated file is our public face. The contract: modern target-centric
 CMake only, byte-deterministic output, a self-describing header, and the
 result must build with plain cmake on a machine without Python.
+
+Target emission follows a fixed Template Method skeleton (declare, sources,
+include dirs, compile features, properties, definitions, options, links) with
+per-target-kind variations, which is what keeps the output uniform and boring.
 """
 
 from __future__ import annotations
 
-from cmakeless.model.nodes import ExecutableModel, ProjectModel
+from pathlib import Path
+
+from cmakeless.model.nodes import (
+    CompileOptionsModel,
+    ExecutableModel,
+    LibraryKind,
+    LibraryModel,
+    ProjectModel,
+    TargetModel,
+)
 
 CMAKE_MINIMUM_VERSION = "3.25"
 
+# Warning presets translated per compiler family; "default" emits nothing and
+# leaves the compiler's own defaults in charge.
+_STRICT_WARNINGS_MSVC: tuple[str, ...] = ("/W4", "/permissive-")
+_STRICT_WARNINGS_OTHER: tuple[str, ...] = (
+    "-Wall",
+    "-Wextra",
+    "-Wconversion",
+    "-Wsign-conversion",
+    "-pedantic",
+)
+_NO_WARNINGS_MSVC: tuple[str, ...] = ("/W0",)
+_NO_WARNINGS_OTHER: tuple[str, ...] = ("-w",)
+
+# Canonical compiler identifiers (model vocabulary) to CMake compiler ids.
+_CMAKE_ID_BY_COMPILER = {
+    "gnu": "GNU",
+    "clang": "Clang",
+    "appleclang": "AppleClang",
+    "msvc": "MSVC",
+}
+
 
 def emit_cmakelists(model: ProjectModel, *, tool_version: str) -> str:
-    """Generate the complete, standalone CMakeLists.txt for the given model."""
+    """Generate the complete, standalone CMakeLists.txt for one project node."""
     return _CMakeListsVisitor(model, tool_version).emit()
+
+
+def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
+    """Generate every CMakeLists.txt in the project tree.
+
+    Keys are paths relative to the root project's directory; the root file
+    comes first, subprojects follow in path order.
+    """
+    files: dict[Path, str] = {
+        Path("CMakeLists.txt"): emit_cmakelists(model, tool_version=tool_version)
+    }
+    for subproject in sorted(model.subprojects, key=lambda node: node.directory.as_posix()):
+        subtree = emit_tree(subproject.project, tool_version=tool_version)
+        for relative_path, text in subtree.items():
+            files[subproject.directory / relative_path] = text
+    return files
 
 
 class _CMakeListsVisitor:
@@ -26,8 +76,17 @@ class _CMakeListsVisitor:
 
     def emit(self) -> str:
         sections = [self._header(), self._preamble()]
-        # Declaration order in build.py is meaningless to CMake, so targets
-        # are sorted by name to keep the output deterministic and diffable.
+        if any(library.kind is LibraryKind.SHARED for library in self._model.libraries):
+            sections.append("include(GenerateExportHeader)")
+        subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
+        sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
+        # Declaration order in build.py is meaningless to CMake, so targets are
+        # sorted (libraries first, then executables) to keep the output
+        # deterministic and diffable.
+        sections.extend(
+            self._visit_library(library)
+            for library in sorted(self._model.libraries, key=lambda target: target.name)
+        )
         sections.extend(
             self._visit_executable(target)
             for target in sorted(self._model.executables, key=lambda target: target.name)
@@ -54,16 +113,128 @@ class _CMakeListsVisitor:
         )
 
     def _visit_executable(self, target: ExecutableModel) -> str:
-        lines = [f"add_executable({target.name})", ""]
-        lines.extend(self._sources_block(target.name, "PRIVATE", target))
-        lines.append("")
-        lines.append(
+        blocks = [f"add_executable({target.name})"]
+        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.append(
             f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
         )
-        return "\n".join(lines)
+        blocks.extend(self._settings_blocks(target, "PRIVATE"))
+        return "\n\n".join(blocks)
 
-    def _sources_block(self, name: str, visibility: str, target: ExecutableModel) -> list[str]:
-        lines = [f"target_sources({name} {visibility}"]
+    def _visit_library(self, target: LibraryModel) -> str:
+        if target.kind is LibraryKind.HEADER_ONLY:
+            return self._visit_header_only_library(target)
+        keyword = "STATIC" if target.kind is LibraryKind.STATIC else "SHARED"
+        blocks = [f"add_library({target.name} {keyword})"]
+        blocks.append(self._sources_block(target, "PRIVATE"))
+        if target.public_include_dirs:
+            blocks.append(self._include_dirs_block(target, "PUBLIC"))
+        blocks.append(
+            f"target_compile_features({target.name} PUBLIC cxx_std_{self._model.cpp_std})"
+        )
+        # Explicit PIC keeps static libraries linkable into shared ones.
+        blocks.append(
+            f"set_target_properties({target.name} PROPERTIES POSITION_INDEPENDENT_CODE ON)"
+        )
+        if target.kind is LibraryKind.SHARED:
+            blocks.append(self._export_header_block(target))
+        blocks.extend(self._settings_blocks(target, "PRIVATE"))
+        return "\n\n".join(blocks)
+
+    def _visit_header_only_library(self, target: LibraryModel) -> str:
+        blocks = [f"add_library({target.name} INTERFACE)"]
+        blocks.append(self._include_dirs_block(target, "INTERFACE"))
+        blocks.append(
+            f"target_compile_features({target.name} INTERFACE cxx_std_{self._model.cpp_std})"
+        )
+        blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
+        return "\n\n".join(blocks)
+
+    def _sources_block(self, target: TargetModel, visibility: str) -> str:
+        lines = [f"target_sources({target.name} {visibility}"]
         lines.extend(f"    {source.as_posix()}" for source in sorted(target.sources))
         lines.append(")")
-        return lines
+        return "\n".join(lines)
+
+    def _include_dirs_block(self, target: LibraryModel, visibility: str) -> str:
+        lines = [f"target_include_directories({target.name} {visibility}"]
+        lines.extend(
+            # The BUILD_INTERFACE guard keeps the path out of any future
+            # install/export usage of this target.
+            f"    $<BUILD_INTERFACE:${{CMAKE_CURRENT_SOURCE_DIR}}/{directory.as_posix()}>"
+            for directory in sorted(target.public_include_dirs)
+        )
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _export_header_block(self, target: LibraryModel) -> str:
+        # generate_export_header writes <name>_export.h with the correct
+        # __declspec/visibility macros; consumers find it via the binary dir.
+        return (
+            f"generate_export_header({target.name})\n"
+            f"target_include_directories({target.name} PUBLIC\n"
+            f"    $<BUILD_INTERFACE:${{CMAKE_CURRENT_BINARY_DIR}}>\n"
+            f")"
+        )
+
+    def _settings_blocks(
+        self, target: TargetModel, visibility: str, *, warnings: bool = True
+    ) -> list[str]:
+        blocks: list[str] = []
+        if target.defines:
+            blocks.append(self._defines_block(target, visibility))
+        option_lines = []
+        if warnings:
+            option_lines.extend(self._warning_option_lines())
+        option_lines.extend(
+            self._compile_option_line(options) for options in target.compile_options
+        )
+        if option_lines:
+            lines = [f"target_compile_options({target.name} {visibility}"]
+            lines.extend(f"    {line}" for line in option_lines)
+            lines.append(")")
+            blocks.append("\n".join(lines))
+        if target.links:
+            blocks.append(self._links_block(target))
+        return blocks
+
+    def _defines_block(self, target: TargetModel, visibility: str) -> str:
+        lines = [f"target_compile_definitions({target.name} {visibility}"]
+        for define in sorted(target.defines, key=lambda define: define.name):
+            rendered = define.name if define.value is None else f"{define.name}={define.value}"
+            lines.append(f"    {rendered}")
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _warning_option_lines(self) -> list[str]:
+        if self._model.warnings == "strict":
+            msvc_flags, other_flags = _STRICT_WARNINGS_MSVC, _STRICT_WARNINGS_OTHER
+        elif self._model.warnings == "none":
+            msvc_flags, other_flags = _NO_WARNINGS_MSVC, _NO_WARNINGS_OTHER
+        else:
+            return []
+        return [
+            f"$<$<CXX_COMPILER_ID:MSVC>:{';'.join(msvc_flags)}>",
+            f"$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:{';'.join(other_flags)}>",
+        ]
+
+    def _compile_option_line(self, options: CompileOptionsModel) -> str:
+        flags = ";".join(options.flags)
+        if not options.compilers:
+            return flags
+        compiler_ids = ",".join(_CMAKE_ID_BY_COMPILER[compiler] for compiler in options.compilers)
+        return f"$<$<CXX_COMPILER_ID:{compiler_ids}>:{flags}>"
+
+    def _links_block(self, target: TargetModel) -> str:
+        public = sorted(link.target for link in target.links if link.public)
+        private = sorted(link.target for link in target.links if not link.public)
+        is_interface = isinstance(target, LibraryModel) and target.kind is LibraryKind.HEADER_ONLY
+        lines = [f"target_link_libraries({target.name}"]
+        if is_interface:
+            # INTERFACE is the only correct visibility for a header-only library.
+            lines.extend(f"    INTERFACE {name}" for name in sorted({*public, *private}))
+        else:
+            lines.extend(f"    PUBLIC {name}" for name in public)
+            lines.extend(f"    PRIVATE {name}" for name in private)
+        lines.append(")")
+        return "\n".join(lines)
