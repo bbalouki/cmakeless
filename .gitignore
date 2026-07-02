@@ -1,0 +1,20 @@
+PROMPTS.md
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+uv.lock
+
+# CMake build trees (out-of-source, always)
+build/
+CMakeUserPresets.json
+
+# Generated output inside example projects; regenerated from build.py.
+examples/*/CMakeLists.txt
+examples/*/*/CMakeLists.txt
