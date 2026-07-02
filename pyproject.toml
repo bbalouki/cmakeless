@@ -1,0 +1,77 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cmakeless"
+dynamic = ["version"]
+description = "Write your C++ builds in Python. Keep CMake. Lose the pain."
+readme = "README.md"
+authors = [
+    { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
+]
+maintainers = [
+    { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
+]
+requires-python = ">=3.13"
+dependencies = []
+keywords = ["cmake", "build", "c++", "cpp", "build-system", "frontend"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: C++",
+    "Topic :: Software Development :: Build Tools",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/cmakeless/cmakeless"
+Changelog = "https://github.com/cmakeless/cmakeless/blob/main/CHANGELOG.md"
+
+[project.scripts]
+cmakeless = "cmakeless.cli:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "mypy>=1.14",
+    "ruff>=0.9",
+]
+
+[tool.hatch.version]
+path = "src/cmakeless/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cmakeless"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+warn_unreachable = true
+pretty = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+    "PTH", # flake8-use-pathlib
+    "RUF", # ruff-specific
+]
