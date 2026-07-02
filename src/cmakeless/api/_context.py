@@ -12,7 +12,7 @@ Two pieces of state live here:
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -29,7 +29,7 @@ _generator_override: list[str] = []
 
 
 @contextmanager
-def capturing_projects() -> Iterator[list[Project]]:
+def capturing_projects() -> Generator[list[Project]]:
     """Enter description mode; projects created inside are captured, not built."""
     captured: list[Project] = []
     _capture_stack.append(captured)
@@ -49,7 +49,7 @@ def in_description_mode() -> bool:
 
 
 @contextmanager
-def loading_script(script: Path) -> Iterator[None]:
+def loading_script(script: Path) -> Generator[None]:
     """Guard against subproject recursion (a child adding its own ancestor)."""
     resolved = script.resolve()
     if resolved in _loading_scripts:
@@ -67,7 +67,7 @@ def loading_script(script: Path) -> Iterator[None]:
 
 
 @contextmanager
-def verb_override(verb: str) -> Iterator[None]:
+def verb_override(verb: str) -> Generator[None]:
     """Make project.build() perform the given CLI verb instead of a full build."""
     _verb_override.append(verb)
     try:
@@ -81,7 +81,7 @@ def active_verb() -> str:
 
 
 @contextmanager
-def generator_override(generator: str | None) -> Iterator[None]:
+def generator_override(generator: str | None) -> Generator[None]:
     """Make projects prefer the generator the CLI user asked for."""
     if generator is None:
         yield
