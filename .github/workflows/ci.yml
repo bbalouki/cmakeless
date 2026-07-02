@@ -30,10 +30,10 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
+      # setup-uv already provisions and activates .venv when python-version
+      # is set, so installing into it directly is all that is needed.
       - name: Install package with dev dependencies
-        run: |
-          uv venv
-          uv pip install -e ".[dev]"
+        run: uv pip install -e ".[dev]"
 
       - name: Lint
         run: |
