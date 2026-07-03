@@ -42,6 +42,8 @@ auto main() -> int
 _INIT_GITIGNORE = """\
 build/
 CMakeLists.txt
+CMakePresets.json
+compile_commands.json
 __pycache__/
 """
 
@@ -61,13 +63,49 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "init":
             _init_project(Path.cwd(), name=args.name)
         else:
-            generator = getattr(args, "generator", None)
-            with _context.verb_override(args.command), _context.generator_override(generator):
-                _run_build_script(Path(args.file))
+            _run_verb(args)
     except CmakelessError as error:
         print(f"cmakeless: error: {error}", file=sys.stderr)
         return 1
     return 0
+
+
+def _run_verb(args: argparse.Namespace) -> None:
+    """Execute a build.py verb with the CLI's overrides active.
+
+    Args:
+        args: The parsed arguments of one script verb.
+
+    Raises:
+        CmakelessError: Whatever the build description or pipeline raises.
+    """
+    generator = getattr(args, "generator", None)
+    preset = getattr(args, "preset", None)
+    sanitize = _parse_sanitize(getattr(args, "sanitize", None))
+    prefix = getattr(args, "prefix", None)
+    with (
+        _context.verb_override(args.command),
+        _context.generator_override(generator),
+        _context.preset_override(preset),
+        _context.sanitize_override(sanitize),
+        _context.prefix_override(prefix),
+    ):
+        _run_build_script(Path(args.file))
+
+
+def _parse_sanitize(raw: str | None) -> tuple[str, ...]:
+    """Split the --sanitize argument into sanitizer names.
+
+    Args:
+        raw: The comma-separated value, or None when not given.
+
+    Returns:
+        The names, stripped and empties dropped; validation happens at
+        freeze time where the error message has full context.
+    """
+    if raw is None:
+        return ()
+    return tuple(name.strip() for name in raw.split(",") if name.strip())
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -103,23 +141,53 @@ def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
     help_by_verb = {
         "build": "run the project's build.py (freeze, emit, configure, compile)",
         "configure": "generate build files and run the CMake configure step only",
+        "test": "build everything, then run the test suite through CTest",
+        "install": "build everything, then install it through cmake --install",
+        "package": "build everything, then produce packages through CPack",
         "clean": "delete the project's build directory",
         "lock": "resolve dependencies and refresh cmakeless.lock",
     }
     for verb, help_text in help_by_verb.items():
-        verb_parser = subparsers.add_parser(verb, help=help_text)
+        _add_verb_options(subparsers.add_parser(verb, help=help_text), verb)
+
+
+def _add_verb_options(verb_parser: argparse.ArgumentParser, verb: str) -> None:
+    """Register the options one script verb accepts.
+
+    Args:
+        verb_parser: The verb's own subparser.
+        verb: The verb name, deciding which options apply.
+    """
+    verb_parser.add_argument(
+        "--file",
+        default=BUILD_SCRIPT_NAME,
+        help=f"path to the build description (default: {BUILD_SCRIPT_NAME})",
+    )
+    if verb not in ("clean", "lock"):
         verb_parser.add_argument(
-            "--file",
-            default=BUILD_SCRIPT_NAME,
-            help=f"path to the build description (default: {BUILD_SCRIPT_NAME})",
+            "--generator",
+            default=None,
+            help='CMake generator: "ninja", "vs", or any raw -G name '
+            "(default: ninja when available)",
         )
-        if verb not in ("clean", "lock"):
-            verb_parser.add_argument(
-                "--generator",
-                default=None,
-                help='CMake generator: "ninja", "vs", or any raw -G name '
-                "(default: ninja when available)",
-            )
+        verb_parser.add_argument(
+            "--preset",
+            default=None,
+            help="configure and build with this preset from CMakePresets.json",
+        )
+    if verb == "test":
+        verb_parser.add_argument(
+            "--sanitize",
+            default=None,
+            help='comma-separated sanitizers to test under, for example "address" '
+            'or "address,undefined"; runs in its own build tree',
+        )
+    if verb == "install":
+        verb_parser.add_argument(
+            "--prefix",
+            default=None,
+            help="installation prefix (default: CMake's platform default)",
+        )
 
 
 def _run_build_script(script: Path) -> None:
