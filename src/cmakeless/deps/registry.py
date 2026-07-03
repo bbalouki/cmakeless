@@ -89,6 +89,24 @@ _REGISTRY: dict[str, RegistryEntry] = {
         vcpkg_name="gtest",
         conan_name="gtest",
     ),
+    # pybind11 exposes the pybind11_add_module() command and the
+    # pybind11::headers target once fetched; find_package(pybind11) works too.
+    "pybind11": RegistryEntry(
+        cmake_name="pybind11",
+        targets=("pybind11::headers",),
+        url_template="https://github.com/pybind/pybind11/archive/refs/tags/v{version}.tar.gz",
+        vcpkg_name="pybind11",
+        conan_name="pybind11",
+    ),
+    # nanobind exposes the nanobind_add_module() command once fetched; its
+    # release tarballs bundle the robin_map dependency it needs.
+    "nanobind": RegistryEntry(
+        cmake_name="nanobind",
+        targets=("nanobind::nanobind",),
+        url_template="https://github.com/wjakob/nanobind/archive/refs/tags/v{version}.tar.gz",
+        vcpkg_name="nanobind",
+        conan_name="nanobind",
+    ),
     "nlohmann_json": RegistryEntry(
         cmake_name="nlohmann_json",
         targets=("nlohmann_json::nlohmann_json",),
