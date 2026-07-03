@@ -9,8 +9,9 @@ from cmakeless._version import __version__
 from cmakeless.api.dependencies import Dependency
 from cmakeless.api.presets import Preset
 from cmakeless.api.project import Project
-from cmakeless.api.targets import Executable, Library, Test
+from cmakeless.api.targets import Executable, Library, PythonModule, Test
 from cmakeless.api.toolchains import Toolchain
+from cmakeless.driver.file_api import TargetInfo
 from cmakeless.errors import (
     CMakeError,
     CmakelessError,
@@ -19,18 +20,34 @@ from cmakeless.errors import (
     Diagnostic,
     ToolchainError,
 )
+from cmakeless.observer import (
+    BuildEvent,
+    ConsoleObserver,
+    Observer,
+    StepFailed,
+    StepFinished,
+    StepStarted,
+)
 
 __all__ = [
+    "BuildEvent",
     "CMakeError",
     "CmakelessError",
     "ConfigurationError",
+    "ConsoleObserver",
     "Dependency",
     "DependencyError",
     "Diagnostic",
     "Executable",
     "Library",
+    "Observer",
     "Preset",
     "Project",
+    "PythonModule",
+    "StepFailed",
+    "StepFinished",
+    "StepStarted",
+    "TargetInfo",
     "Test",
     "Toolchain",
     "ToolchainError",
