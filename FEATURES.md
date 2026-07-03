@@ -1,8 +1,8 @@
 # CMakeless Features
 
-Everything CMakeless does for you, organized by one rule: **you write the intent, we write the boilerplate.** For each feature you see the Python you write and the CMake ritual you no longer perform. All examples use the same project as [INTRODUCTION.md](INTRODUCTION.md): a game called `mygame` with an `engine` library.
+Everything CMakeless does for you, organized by one rule: **you write the intent, we write the boilerplate.** For each feature you see the Python you write and the CMake ritual you no longer perform. All examples use the same project as [INTRODUCTION](INTRODUCTION.md): a game called `mygame` with an `engine` library.
 
-The design principles behind this surface are in [ARCHITECTURE.md](ARCHITECTURE.md).
+The design principles behind this surface are in [ARCHITECTURE](ARCHITECTURE.md).
 
 ---
 
@@ -62,7 +62,7 @@ app.depends("fmt/10.2.1")
 app.depends("boost/1.84.0", components=["asio", "beast"])
 ```
 
-**We handle:** the entire acquisition strategy, behind an Adapter interface (see [ARCHITECTURE.md](ARCHITECTURE.md#design-patterns-named)):
+**We handle:** the entire acquisition strategy, behind an Adapter interface (see [ARCHITECTURE](ARCHITECTURE.md#design-patterns-named)):
 
 - system packages via `find_package` when present and version-compatible,
 - source builds via `FetchContent` with pinned URL and hash,
@@ -199,13 +199,13 @@ engine.raw_cmake('set_target_properties(engine PROPERTIES UNITY_BUILD ON)')
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 
-Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `build.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `build.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)).
 
 ---
 
 ## What CMakeless Will Not Do
 
-Boundaries, stated as promises (see also the non-goals in [ROADMAP.md](ROADMAP.md)):
+Boundaries, stated as promises (see also the non-goals in [ROADMAP](ROADMAP.md)):
 
 - **It will not become a build system.** Compilation, dependency graphs between object files, incremental rebuilds: CMake and Ninja own these, and they are better at it than anything we would write.
 - **It will not invent a DSL.** `build.py` is plain Python forever.
