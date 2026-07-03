@@ -41,6 +41,34 @@ def test_binding_is_not_a_manual_link_edge(module_project: Project) -> None:
     assert isinstance(module, PythonModule)
 
 
+def test_default_binding_is_pybind11(module_project: Project) -> None:
+    """The default binding backend is pybind11 when none is given."""
+    module = module_project.add_python_module("core", sources=["src/bindings.cpp"])
+    model = module_project.freeze()
+    assert module.binding == "pybind11"
+    assert model.python_modules[0].binding == "pybind11"
+    assert [dep.name for dep in model.dependencies] == ["pybind11"]
+
+
+def test_target_raw_cmake_freezes_in_order(module_project: Project) -> None:
+    """Target raw_cmake snippets freeze verbatim, in the order added."""
+    module = module_project.add_python_module("core", sources=["src/bindings.cpp"])
+    module.raw_cmake('set_target_properties(core PROPERTIES PREFIX "")')
+    module.raw_cmake("target_compile_definitions(core PRIVATE FAST=1)")
+    model = module_project.freeze()
+    assert model.python_modules[0].raw_cmake == (
+        'set_target_properties(core PROPERTIES PREFIX "")',
+        "target_compile_definitions(core PRIVATE FAST=1)",
+    )
+
+
+def test_empty_raw_cmake_is_rejected(module_project: Project) -> None:
+    """An empty raw_cmake snippet fails at the call site."""
+    module = module_project.add_python_module("core", sources=["src/bindings.cpp"])
+    with pytest.raises(ConfigurationError, match="Empty raw_cmake"):
+        module.raw_cmake("   ")
+
+
 def test_module_links_project_libraries(module_project: Project) -> None:
     """Module links project libraries."""
     engine = module_project._libraries[0]
