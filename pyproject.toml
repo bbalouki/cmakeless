@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cmakeless"
 dynamic = ["version"]
-description = "Write your C++ builds in Python. Keep CMake. Lose the pain."
+description = "CMakeless is a pure-Python frontend for CMake: A modern CMake alternative."
 readme = "README.md"
 authors = [
     { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
@@ -15,7 +15,22 @@ maintainers = [
 ]
 requires-python = ">=3.13"
 dependencies = []
-keywords = ["cmake", "build", "c++", "cpp", "build-system", "frontend"]
+keywords = [
+    "cmake",
+    "build",
+    "c++",
+    "cpp",
+    "build-system",
+    "frontend",
+    "cmake-alternative",
+    "cmake-generator",
+    "meson-alternative",
+    "pybind11",
+    "nanobind",
+    "python-bindings",
+    "buildsystem",
+    "cross-platform",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -28,8 +43,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/cmakeless/cmakeless"
-Changelog = "https://github.com/cmakeless/cmakeless/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/bbalouki/cmakeless"
+Repository = "https://github.com/bbalouki/cmakeless"
+Documentation = "https://github.com/bbalouki/cmakeless/blob/main/README.md"
+Changelog = "https://github.com/bbalouki/cmakeless/blob/main/CHANGELOG.md"
+Issues = "https://github.com/bbalouki/cmakeless/issues"
 
 [project.scripts]
 cmakeless = "cmakeless.cli:main"

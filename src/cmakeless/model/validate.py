@@ -43,6 +43,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_name(model.name, kind="project", script=model.source_script)
     _check_cpp_std(model)
     _check_warnings(model)
+    _check_optimize(model)
     _check_package_manager(model)
     _check_target_names(model)
     _check_sources(model)
@@ -57,6 +58,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_presets(model)
     _check_installs(model)
     _check_package_formats(model)
+    _check_raw_cmake_files(model)
     _check_subprojects(model)
     _check_dependency_versions(model)
 
@@ -112,6 +114,26 @@ def _check_warnings(model: ProjectModel) -> None:
         raise ConfigurationError(
             f"Unknown warnings preset {model.warnings!r} for project {model.name!r} "
             f"in {model.source_script}. Pick one of: {presets}."
+        )
+
+
+def _check_optimize(model: ProjectModel) -> None:
+    """Reject a project-level optimize level the emitter cannot translate.
+
+    None means "leave the build type unset", so only a set value is checked.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: If ``model.optimize`` is set to an unknown level.
+    """
+    if model.optimize is not None and model.optimize not in BUILD_TYPE_BY_OPTIMIZE:
+        levels = ", ".join(repr(level) for level in sorted(BUILD_TYPE_BY_OPTIMIZE))
+        raise ConfigurationError(
+            f"Unknown optimize level {model.optimize!r} for project {model.name!r} "
+            f"in {model.source_script}. Pick one of: {levels} (for example "
+            f'project.optimize = "release").'
         )
 
 
@@ -620,6 +642,38 @@ def _check_package_formats(model: ProjectModel) -> None:
             f"no install() rules exist, so the archive would be empty. Add "
             f"project.install(...) calls for the targets you want to ship."
         )
+
+
+def _check_raw_cmake_files(model: ProjectModel) -> None:
+    """Check that every raw_cmake_file names a real file inside the root.
+
+    The snippet form (target.raw_cmake) is emitted verbatim and deliberately
+    unchecked; a file include, by contrast, can be verified to exist before
+    CMake ever runs, just like source and toolchain files.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a path is absolute, escapes the root, or
+            names no existing file.
+    """
+    for raw_file in model.raw_cmake_files:
+        # anchor catches a leading '/' even on Windows, where is_absolute()
+        # needs a drive letter and would miss "/etc/evil.cmake".
+        if raw_file.anchor or raw_file.is_absolute() or ".." in raw_file.parts:
+            raise ConfigurationError(
+                f"raw_cmake_file '{raw_file.as_posix()}' in {model.source_script} "
+                f"must be a relative path inside the project root. Move the file "
+                f"under the root, or pass a path relative to it."
+            )
+        resolved = model.root_dir / raw_file
+        if not resolved.is_file():
+            raise ConfigurationError(
+                f"raw_cmake_file '{raw_file.as_posix()}' added in {model.source_script} "
+                f"does not exist (looked for {resolved}). Create the file, or fix "
+                f"the path."
+            )
 
 
 def _check_subprojects(model: ProjectModel) -> None:

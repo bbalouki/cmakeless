@@ -29,6 +29,9 @@ def make_model(
     dependencies: tuple[DependencyModel, ...] = (),
     subprojects: tuple[SubprojectModel, ...] = (),
     python_modules: tuple[PythonModuleModel, ...] = (),
+    optimize: str | None = None,
+    lto: bool = False,
+    raw_cmake_files: tuple[Path, ...] = (),
 ) -> ProjectModel:
     """Build a frozen project rooted at the given directory."""
     return ProjectModel(
@@ -42,6 +45,9 @@ def make_model(
         dependencies=dependencies,
         subprojects=subprojects,
         python_modules=python_modules,
+        optimize=optimize,
+        lto=lto,
+        raw_cmake_files=raw_cmake_files,
     )
 
 
@@ -210,3 +216,46 @@ def test_python_module_missing_source_rejected(project_dir: Path) -> None:
     module = PythonModuleModel(name="core", sources=(Path("src/nope.cpp"),))
     with pytest.raises(ConfigurationError, match=r"src/nope\.cpp"):
         validate_project(make_model(project_dir, python_modules=(module,)))
+
+
+@pytest.mark.parametrize("level", ["release", "none", "debug", "minsize", "relwithdebinfo"])
+def test_valid_project_optimize_passes(project_dir: Path, level: str) -> None:
+    """Every known optimize level is accepted at project scope."""
+    validate_project(make_model(project_dir, optimize=level, lto=True))
+
+
+def test_unknown_project_optimize_rejected(project_dir: Path) -> None:
+    """An unknown project optimize level is rejected before CMake runs."""
+    model = make_model(project_dir, optimize="fast")
+    with pytest.raises(ConfigurationError, match="Unknown optimize level 'fast'"):
+        validate_project(model)
+
+
+def test_none_optimize_is_allowed(project_dir: Path) -> None:
+    """Leaving optimize unset (None) is valid and checks nothing."""
+    validate_project(make_model(project_dir, optimize=None))
+
+
+def test_existing_raw_cmake_file_passes(project_dir: Path) -> None:
+    """A raw_cmake_file that exists under the root validates."""
+    (project_dir / "cmake").mkdir()
+    (project_dir / "cmake" / "extra.cmake").write_text("# noop\n", encoding="utf-8")
+    validate_project(make_model(project_dir, raw_cmake_files=(Path("cmake/extra.cmake"),)))
+
+
+def test_missing_raw_cmake_file_rejected(project_dir: Path) -> None:
+    """A raw_cmake_file that does not exist is rejected with a clear message."""
+    model = make_model(project_dir, raw_cmake_files=(Path("cmake/missing.cmake"),))
+    with pytest.raises(ConfigurationError) as excinfo:
+        validate_project(model)
+    message = str(excinfo.value)
+    assert "cmake/missing.cmake" in message
+    assert "does not exist" in message
+
+
+@pytest.mark.parametrize("bad", [Path("/etc/evil.cmake"), Path("../escape.cmake")])
+def test_raw_cmake_file_escaping_the_root_rejected(project_dir: Path, bad: Path) -> None:
+    """An absolute or parent-escaping raw_cmake_file is rejected."""
+    model = make_model(project_dir, raw_cmake_files=(bad,))
+    with pytest.raises(ConfigurationError, match="inside the project root"):
+        validate_project(model)

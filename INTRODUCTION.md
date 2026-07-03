@@ -83,7 +83,7 @@ That is the whole thing. No `PARENT_SCOPE`. No semicolons pretending to be lists
 Because C++ and Python are already best friends, and have been for years.
 
 - **Your team already knows it.** Python is the second language of nearly every C++ developer: it runs your test scripts, your code generators, your CI glue. There is nothing new to learn.
-- **The interop story is already written.** pybind11 and nanobind have made Python bindings a standard part of serious C++ projects. A Python-native build frontend makes `add_python_module("core", binding="nanobind")` a one-liner instead of a page of ritual.
+- **The interop story is already written.** pybind11 and nanobind have made Python bindings a standard part of serious C++ projects. A Python-native build frontend makes `add_python_module("core")` a one-liner (pybind11 by default, nanobind on request) instead of a page of ritual.
 - **Real tooling, for free.** Autocomplete on every function. Type checking on every argument. `breakpoint()` inside your build script. Unit tests for your build logic. Things the CMake language will never have, Python gives you on day one.
 - **It is built for the free-threaded future.** Python's free-threaded interpreter ([PEP 703](https://docs.python.org/3/howto/free-threading-python.html)) is no longer experimental as of Python 3.14. CMakeless is designed for it from the start: dependency resolution, multi-configuration generation, and build orchestration all run in parallel threads, with no GIL in the way, and degrade gracefully on standard builds.
 

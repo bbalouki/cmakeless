@@ -5,6 +5,50 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1]
+
+Sensible defaults, the escape hatch, and a release pipeline: the polish that
+makes the interop and quality-of-life work land in a real project.
+
+### Changed
+
+- **Default binding backend is now pybind11** (was nanobind):
+  `add_python_module(name, sources)` builds a pybind11 extension unless you pass
+  `binding="nanobind"`. This is a behavior change for callers that relied on the
+  implicit default.
+- **Default test framework is now GoogleTest** (was Catch2):
+  `add_test(name, sources)` fetches and links GoogleTest unless you pass
+  `framework="catch2"` (or `"doctest"`/`"none"`). Also a behavior change for the
+  implicit default.
+
+### Added
+
+- **The escape hatch (FEATURES section 9), now implemented**:
+  `target.raw_cmake("...")` emits a verbatim CMake snippet after the target is
+  defined, and `project.raw_cmake_file("cmake/extra.cmake")` includes an existing
+  CMake file near the top of the generated `CMakeLists.txt`. Both are fenced with
+  a comment naming their `build.py` origin; `raw_cmake_file` paths are validated
+  to exist inside the project root at freeze time.
+- **Project-level `optimize` and `lto`** (FEATURES section 3): `project.optimize =
+  "release"` and `project.lto = True` set the default (no-preset) build type and
+  interprocedural optimization. Both are emitted behind CMake guards, so an active
+  preset always wins.
+- **A tag-driven release workflow** (`.github/workflows/release.yml`): pushing a
+  `v*` tag builds the sdist and wheel, publishes to PyPI via Trusted Publishing
+  (OIDC, no stored token), and cuts a GitHub Release from the matching changelog
+  section. The pushed tag is checked against `_version.py`.
+
+### Docs and examples
+
+- Rewrote `README.md` into a fuller, discoverable front door: the philosophy,
+  a concrete end-to-end workflow, a feature tour, and an ecosystem comparison.
+- Reworked `examples/07_python_module` into a real pybind11 module (a `Vec2`
+  type with operators, properties, and C++-to-Python exception translation),
+  and added `examples/08_capstone`: one `build.py` shipping a library as a CLI,
+  a GoogleTest suite, and a pybind11 module, with presets, install/export, CPack,
+  and a live Observer.
+- Corrected the project URLs to `github.com/bbalouki/cmakeless`.
+
 ## [0.4.0]
 
 Interop and parallelism: the differentiators. A pybind11 project migrates its

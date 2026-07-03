@@ -23,6 +23,7 @@ from cmakeless.emitter.sanitizers import (
 )
 from cmakeless.emitter.toolchain_emitter import emit_toolchain
 from cmakeless.model.nodes import (
+    BUILD_TYPE_BY_OPTIMIZE,
     CPACK_GENERATOR_BY_FORMAT,
     CompiledModel,
     CompileOptionsModel,
@@ -175,7 +176,13 @@ class _CMakeListsVisitor:
         Returns:
             The complete CMakeLists.txt text, newline-terminated.
         """
-        sections = [self._header(), self._preamble(), *self._module_includes()]
+        sections = [
+            self._header(),
+            self._preamble(),
+            *self._default_build_config(),
+            *self._raw_cmake_file_includes(),
+            *self._module_includes(),
+        ]
         if _tree_has_tests(self._model):
             sections.append("enable_testing()")
         sections.extend(self._python_preamble())
@@ -263,6 +270,54 @@ class _CMakeListsVisitor:
             f"    LANGUAGES CXX\n"
             f")"
         )
+
+    def _default_build_config(self) -> list[str]:
+        """Set the default build type and LTO for the plain (no-preset) build.
+
+        Both are guarded so an active preset, which delivers them as cache
+        variables, always wins: the guards are false under a preset and true
+        on a plain build. The CMAKE_CONFIGURATION_TYPES clause leaves
+        multi-config generators (Visual Studio, Xcode) to their own defaults.
+
+        Returns:
+            Zero, one, or two sections; empty when neither optimize nor lto
+            was set, so a plain project's output is unchanged.
+        """
+        sections: list[str] = []
+        if self._model.optimize is not None:
+            build_type = BUILD_TYPE_BY_OPTIMIZE[self._model.optimize]
+            sections.append(
+                f"# Default build type; an active preset overrides it.\n"
+                f"if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)\n"
+                f'    set(CMAKE_BUILD_TYPE "{build_type}" CACHE STRING\n'
+                f'        "Build type for the default configuration" FORCE)\n'
+                f"endif()"
+            )
+        if self._model.lto:
+            sections.append(
+                "# Project-level LTO default; a preset's own setting wins.\n"
+                "if(NOT DEFINED CMAKE_INTERPROCEDURAL_OPTIMIZATION)\n"
+                "    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)\n"
+                "endif()"
+            )
+        return sections
+
+    def _raw_cmake_file_includes(self) -> list[str]:
+        """Include the project's raw_cmake_file escape-hatch files near the top.
+
+        Emitted in the order they were added, each fenced with a comment
+        naming the build.py origin; the CMAKE_CURRENT_SOURCE_DIR prefix keeps
+        the generated file standalone and relocatable.
+
+        Returns:
+            One section per file; empty when none were added.
+        """
+        script = self._model.source_script
+        return [
+            f"# raw_cmake_file from {script}: {raw_file.as_posix()}\n"
+            f"include(${{CMAKE_CURRENT_SOURCE_DIR}}/{raw_file.as_posix()})"
+            for raw_file in self._model.raw_cmake_files
+        ]
 
     def _visit_dependency(self, dependency: DependencyModel) -> str:
         """Emit one external dependency, dispatching on the package manager.
@@ -643,7 +698,25 @@ class _CMakeListsVisitor:
             blocks.extend(self._sanitize_blocks(target, visibility))
         if target.links:
             blocks.append(self._links_block(target))
+        if target.raw_cmake:
+            blocks.append(self._raw_cmake_block(target))
         return blocks
+
+    def _raw_cmake_block(self, target: CompiledModel) -> str:
+        """Emit a target's raw_cmake snippets verbatim, fenced by their origin.
+
+        The escape hatch: snippets are written exactly as given, in the order
+        added, after everything CMakeless generates for the target, so they
+        can override any property set above.
+
+        Args:
+            target: The compiled target whose raw snippets to emit.
+
+        Returns:
+            The fenced block of verbatim snippets.
+        """
+        fence = f"# raw_cmake from {self._model.source_script} for target '{target.name}':"
+        return "\n".join((fence, *target.raw_cmake))
 
     def _sanitize_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
         """Emit a target's sanitizer flags, compile and link always paired.

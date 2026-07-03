@@ -153,6 +153,8 @@ class ExecutableModel:
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this executable links against.
         sanitize: Sanitizer names applied to compile and link steps.
+        raw_cmake: Verbatim CMake snippets emitted after the target is
+            defined, in the order they were added (the escape hatch).
     """
 
     name: str
@@ -161,6 +163,7 @@ class ExecutableModel:
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
+    raw_cmake: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +179,8 @@ class LibraryModel:
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this library links against.
         sanitize: Sanitizer names applied to compile and link steps.
+        raw_cmake: Verbatim CMake snippets emitted after the target is
+            defined, in the order they were added (the escape hatch).
     """
 
     name: str
@@ -186,6 +191,7 @@ class LibraryModel:
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
+    raw_cmake: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +207,8 @@ class TestModel:
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this test links against, framework included.
         sanitize: Sanitizer names applied to compile and link steps.
+        raw_cmake: Verbatim CMake snippets emitted after the target is
+            defined, in the order they were added (the escape hatch).
     """
 
     # Tell pytest this model is not a test case, despite the Test* name.
@@ -213,6 +221,7 @@ class TestModel:
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
+    raw_cmake: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,7 +235,7 @@ class PythonModuleModel:
     Attributes:
         name: The importable module name and CMake target name.
         sources: Project-root-relative source files, globs already expanded.
-        binding: The binding backend ("nanobind" or "pybind11").
+        binding: The binding backend ("pybind11" or "nanobind").
         stubs: True to generate a .pyi stub next to the module (nanobind
             only; pybind11 ships no CMake stub command).
         install_to_environment: True to copy the built module (and stub)
@@ -235,17 +244,20 @@ class PythonModuleModel:
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this module links against.
         sanitize: Sanitizer names applied to compile and link steps.
+        raw_cmake: Verbatim CMake snippets emitted after the target is
+            defined, in the order they were added (the escape hatch).
     """
 
     name: str
     sources: tuple[Path, ...]
-    binding: str = "nanobind"
+    binding: str = "pybind11"
     stubs: bool = True
     install_to_environment: bool = True
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
+    raw_cmake: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -356,6 +368,14 @@ class ProjectModel:
         package_formats: CPack formats project.package() requested.
         cache: True to wire ccache/sccache as the compiler launcher when
             one is found on PATH.
+        optimize: Optimization level applied to the default (no-preset)
+            build ("none", "debug", "release", "relwithdebinfo", or
+            "minsize"), or None to leave the build type unset. An active
+            preset always overrides it.
+        lto: True to enable interprocedural optimization on the default
+            build; a preset's own setting wins when one is active.
+        raw_cmake_files: Extra CMake files include()d at the top of the
+            generated CMakeLists.txt, in the order they were added.
     """
 
     name: str
@@ -376,6 +396,9 @@ class ProjectModel:
     installs: tuple[InstallModel, ...] = ()
     package_formats: tuple[str, ...] = ()
     cache: bool = True
+    optimize: str | None = None
+    lto: bool = False
+    raw_cmake_files: tuple[Path, ...] = ()
 
     def targets(self) -> tuple[TargetModel, ...]:
         """Collect this project's own compiled targets (tests excluded).

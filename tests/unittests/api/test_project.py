@@ -72,3 +72,45 @@ def test_generate_writes_cmakelists_without_cmake(project_dir: Path) -> None:
     written = project.generate()
     assert written == [project_dir / "CMakeLists.txt"]
     assert "add_executable(app)" in written[0].read_text(encoding="utf-8")
+
+
+def test_optimize_and_lto_freeze_into_model(project_dir: Path) -> None:
+    """Project optimize and lto attributes round-trip into the model."""
+    project = Project("demo", root=project_dir)
+    project.add_executable("app", sources=["src/main.cpp"])
+    project.optimize = "release"
+    project.lto = True
+    model = project.freeze()
+    assert model.optimize == "release"
+    assert model.lto is True
+
+
+def test_raw_cmake_file_freezes_into_model(project_dir: Path) -> None:
+    """A raw_cmake_file lands in the model when the file exists."""
+    (project_dir / "cmake").mkdir()
+    (project_dir / "cmake" / "extra.cmake").write_text("# noop\n", encoding="utf-8")
+    project = Project("demo", root=project_dir)
+    project.add_executable("app", sources=["src/main.cpp"])
+    project.raw_cmake_file("cmake/extra.cmake")
+    model = project.freeze()
+    assert model.raw_cmake_files == (Path("cmake/extra.cmake"),)
+
+
+def test_missing_raw_cmake_file_fails_at_freeze(project_dir: Path) -> None:
+    """A raw_cmake_file that does not exist fails at freeze, before CMake."""
+    project = Project("demo", root=project_dir)
+    project.add_executable("app", sources=["src/main.cpp"])
+    project.raw_cmake_file("cmake/missing.cmake")
+    with pytest.raises(ConfigurationError, match="does not exist"):
+        project.freeze()
+
+
+def test_target_raw_cmake_freezes_into_model(project_dir: Path) -> None:
+    """A target's raw_cmake snippet round-trips into the target model."""
+    project = Project("demo", root=project_dir)
+    app = project.add_executable("app", sources=["src/main.cpp"])
+    app.raw_cmake("set_target_properties(app PROPERTIES ENABLE_EXPORTS ON)")
+    model = project.freeze()
+    assert model.executables[0].raw_cmake == (
+        "set_target_properties(app PROPERTIES ENABLE_EXPORTS ON)",
+    )

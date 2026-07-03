@@ -102,6 +102,13 @@ class Project:
         cache: True (the default) to wire ccache/sccache as the compiler
             launcher when one is on PATH; plain attribute, assign to
             change it.
+        optimize: Optimization level for the default (no-preset) build
+            ("none", "debug", "release", "relwithdebinfo", or "minsize"),
+            or None (the default) to leave the build type unset; an active
+            preset overrides it. Plain attribute, assign to change it.
+        lto: True to enable interprocedural optimization on the default
+            build; a preset's own setting wins when one is active. Plain
+            attribute, assign to change it.
         name: The project name (read-only property).
         root: Absolute project root directory (read-only property).
         dependencies: The project's dependency collection (read-only
@@ -133,9 +140,20 @@ class Project:
         self.warnings = warnings
         self.package_manager = "auto"
         self.cache = True
+        self.optimize: str | None = None
+        self.lto = False
         script = _calling_script()
         self._root = _resolve_root(root, script)
         self._source_script = script.name if script is not None else "build.py"
+        self._dependencies = Dependencies(self)
+        self._generator: str | None = None
+        # The console display is the default listener; add_observer() adds more.
+        self._observers: list[Observer] = [ConsoleObserver()]
+        self._init_collections()
+        _context.register_project(self)
+
+    def _init_collections(self) -> None:
+        """Initialize the empty target, preset, and rule collections."""
         self._executables: list[Executable] = []
         self._libraries: list[Library] = []
         self._tests: list[Test] = []
@@ -144,12 +162,8 @@ class Project:
         self._toolchains: list[Toolchain] = []
         self._installs: list[tuple[str, bool]] = []
         self._package_formats: tuple[str, ...] = ()
+        self._raw_cmake_files: list[str] = []
         self._subprojects: list[tuple[Path, Project]] = []
-        self._dependencies = Dependencies(self)
-        self._generator: str | None = None
-        # The console display is the default listener; add_observer() adds more.
-        self._observers: list[Observer] = [ConsoleObserver()]
-        _context.register_project(self)
 
     @property
     def name(self) -> str:
@@ -269,7 +283,7 @@ class Project:
         name: str,
         sources: Sequence[str],
         *,
-        framework: TestFrameworkName = "catch2",
+        framework: TestFrameworkName = "gtest",
     ) -> Test:
         """Declare a test executable registered with CTest.
 
@@ -280,8 +294,8 @@ class Project:
         Args:
             name: Unique target name within the project.
             sources: Source files or glob patterns, project-root-relative.
-            framework: "catch2", "gtest", "doctest", or "none" for a plain
-                executable whose exit code is the verdict.
+            framework: "gtest" (the default), "catch2", "doctest", or "none"
+                for a plain executable whose exit code is the verdict.
 
         Returns:
             The mutable Test builder, for further link()/define() calls.
@@ -307,11 +321,11 @@ class Project:
         name: str,
         sources: Sequence[str],
         *,
-        binding: PythonBindingName = "nanobind",
+        binding: PythonBindingName = "pybind11",
         stubs: bool = True,
         install: bool = True,
     ) -> PythonModule:
-        """Declare a Python extension module built with nanobind or pybind11.
+        """Declare a Python extension module built with pybind11 or nanobind.
 
         The binding backend is acquired like any dependency (registry-pinned
         FetchContent fallback) so its <binding>_add_module command is
@@ -321,7 +335,7 @@ class Project:
         Args:
             name: The importable module name and unique target name.
             sources: Source files or glob patterns, project-root-relative.
-            binding: "nanobind" or "pybind11".
+            binding: "pybind11" (the default) or "nanobind".
             stubs: True to generate a .pyi stub (nanobind only).
             install: True to copy the built module into the current
                 environment after build.
@@ -403,6 +417,20 @@ class Project:
                 or "rpm".
         """
         self._package_formats = tuple(formats)
+
+    def raw_cmake_file(self, path: str | Path) -> None:
+        """Include an existing CMake file at the top of the generated build.
+
+        The project-level escape hatch: the file is emitted as an include()
+        near the top of CMakeLists.txt, fenced with a comment naming its
+        build.py origin, in the order added. The path must name a real file
+        inside the project root; existence is checked at freeze time.
+
+        Args:
+            path: The CMake file to include, relative to the project root,
+                for example "cmake/legacy_weirdness.cmake".
+        """
+        self._raw_cmake_files.append(str(path))
 
     def freeze(self) -> ProjectModel:
         """Freeze the mutable description into the validated, immutable model.
@@ -733,6 +761,9 @@ class Project:
             ),
             package_formats=self._package_formats,
             cache=self.cache,
+            optimize=self.optimize,
+            lto=self.lto,
+            raw_cmake_files=tuple(Path(raw_file) for raw_file in self._raw_cmake_files),
         )
 
     def _resolved_model(self) -> ProjectModel:

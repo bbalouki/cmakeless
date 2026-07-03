@@ -45,3 +45,13 @@ def test_models_hold_tuples_not_lists() -> None:
     )
     assert isinstance(model.executables, tuple)
     assert isinstance(model.executables[0].sources, tuple)
+
+
+def test_new_optional_fields_default_to_empty() -> None:
+    """The escape-hatch and build-config fields default to no-op values."""
+    model = make_project_model()
+    assert model.optimize is None
+    assert model.lto is False
+    assert model.raw_cmake_files == ()
+    executable = ExecutableModel(name="app", sources=(Path("main.cpp"),))
+    assert executable.raw_cmake == ()

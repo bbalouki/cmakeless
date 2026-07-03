@@ -1,0 +1,104 @@
+# name: Release
+
+# # Publishing is tag-driven: push an annotated tag like v0.4.1 and this workflow
+# # builds the sdist+wheel, publishes to PyPI via Trusted Publishing (OIDC, no
+# # stored token), and cuts a GitHub Release with the artifacts attached.
+# on:
+#   push:
+#     tags:
+#       - "v*"
+
+# jobs:
+#   build:
+#     name: Build distributions
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - name: Install uv
+#         uses: astral-sh/setup-uv@v5
+#         with:
+#           python-version: "3.13"
+
+#       # The version is hand-maintained in _version.py, so the pushed tag must
+#       # match it; a mismatch means a release was tagged without a version bump.
+#       # Read it with sed so the check needs no environment sync.
+#       - name: Verify tag matches the package version
+#         run: |
+#           tag="${GITHUB_REF_NAME#v}"
+#           version="$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/cmakeless/_version.py)"
+#           if [ "$tag" != "$version" ]; then
+#             echo "::error::tag v$tag does not match cmakeless._version.__version__ ($version)."
+#             echo "Bump src/cmakeless/_version.py to $tag, or retag to v$version."
+#             exit 1
+#           fi
+#           echo "tag v$tag matches the package version."
+
+#       - name: Build sdist and wheel
+#         run: uv build
+
+#       - name: Check the built distributions
+#         run: uvx twine check dist/*
+
+#       - name: Upload distributions
+#         uses: actions/upload-artifact@v4
+#         with:
+#           name: dist
+#           path: dist/
+
+#   pypi-publish:
+#     name: Publish to PyPI
+#     needs: build
+#     runs-on: ubuntu-latest
+#     # The trusted-publisher configuration on PyPI is scoped to this environment.
+#     environment:
+#       name: pypi
+#       url: https://pypi.org/project/cmakeless/
+#     permissions:
+#       # id-token is what lets PyPI verify this workflow via OIDC; no API token.
+#       id-token: write
+#     steps:
+#       - name: Download distributions
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: dist
+#           path: dist/
+
+#       - name: Publish to PyPI
+#         uses: pypa/gh-action-pypi-publish@release/v1
+
+#   github-release:
+#     name: Create the GitHub Release
+#     needs: build
+#     runs-on: ubuntu-latest
+#     permissions:
+#       # contents:write lets the release step create the release and upload files.
+#       contents: write
+#     steps:
+#       - uses: actions/checkout@v4
+
+#       - name: Download distributions
+#         uses: actions/download-artifact@v4
+#         with:
+#           name: dist
+#           path: dist/
+
+#       # Pull the section for this version out of CHANGELOG.md as the release body.
+#       - name: Extract the changelog entry for this tag
+#         run: |
+#           version="${GITHUB_REF_NAME#v}"
+#           awk -v v="$version" '
+#             $0 == "## [" v "]" {capture=1; next}
+#             capture && /^## / {exit}
+#             capture {print}
+#           ' CHANGELOG.md > release-notes.md
+#           if [ ! -s release-notes.md ]; then
+#             echo "No changelog section for $version; using a generic note." > release-notes.md
+#           fi
+
+#       - name: Create the release
+#         uses: softprops/action-gh-release@v2
+#         with:
+#           body_path: release-notes.md
+#           files: dist/*
+#           fail_on_unmatched_files: true
