@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal
 
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
+    PYTHON_BINDING_BACKENDS,
     TEST_FRAMEWORKS,
     CompileOptionsModel,
     DefineModel,
@@ -19,6 +20,7 @@ from cmakeless.model.nodes import (
     LibraryKind,
     LibraryModel,
     LinkModel,
+    PythonModuleModel,
     TestModel,
 )
 
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
 
 type LibraryKindName = Literal["static", "shared", "header_only"]
 type TestFrameworkName = Literal["catch2", "gtest", "doctest", "none"]
+type PythonBindingName = Literal["nanobind", "pybind11"]
 
 _GLOB_CHARACTERS = frozenset("*?[")
 
@@ -385,6 +388,104 @@ class Test(_Target):
             name=self._name,
             sources=self._freeze_sources(root),
             framework=self._framework,
+            defines=tuple(self._defines),
+            compile_options=tuple(self._compile_options),
+            links=self._freeze_links(),
+            sanitize=self._freeze_sanitize(),
+        )
+
+
+class PythonModule(_Target):
+    """A Python extension module being described. Frozen into a PythonModuleModel.
+
+    Created via Project.add_python_module(); the binding backend's package
+    registration is handled there, so a PythonModule builder only adds
+    sources, links, and settings like any other target.
+
+    Attributes:
+        binding: The binding backend ("nanobind" or "pybind11"),
+            read-only property.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        sources: Sequence[str],
+        *,
+        binding: PythonBindingName = "nanobind",
+        stubs: bool = True,
+        install: bool = True,
+        script: str,
+        dependencies: Dependencies,
+    ) -> None:
+        """Start describing a Python extension module.
+
+        Args:
+            name: The importable module name and unique target name.
+            sources: Source files or glob patterns, project-root-relative.
+            binding: "nanobind" or "pybind11".
+            stubs: True to generate a .pyi stub (nanobind only).
+            install: True to copy the built module into the invoking
+                interpreter after build, so it imports immediately.
+            script: Display name of the owning build description, used in
+                error messages.
+            dependencies: The owning project's dependency collection.
+
+        Raises:
+            ConfigurationError: When ``binding`` is not a known backend.
+        """
+        super().__init__(name, sources, script=script, dependencies=dependencies)
+        if binding not in PYTHON_BINDING_BACKENDS:
+            backends = ", ".join(repr(known) for known in sorted(PYTHON_BINDING_BACKENDS))
+            raise ConfigurationError(
+                f"Unknown binding backend {binding!r} for Python module {self._name!r} "
+                f"in {self._script}. Pick one of: {backends}."
+            )
+        self._binding: str = binding
+        self._stubs = stubs
+        self._install = install
+
+    @property
+    def binding(self) -> str:
+        """The binding backend: "nanobind" or "pybind11"."""
+        return self._binding
+
+    def link(self, library: Library) -> None:
+        """Link a library into this module.
+
+        Always private: nothing consumes a module's headers.
+
+        Args:
+            library: A library created by this project's add_library().
+        """
+        self._link(library, public=False)
+
+    def __repr__(self) -> str:
+        """Developer-facing representation.
+
+        Returns:
+            The name, binding, and raw sources of this module.
+        """
+        return (
+            f"PythonModule(name={self._name!r}, binding={self._binding!r}, "
+            f"sources={self._sources!r})"
+        )
+
+    def _freeze(self, root: Path) -> PythonModuleModel:
+        """Freeze this builder into its immutable model node.
+
+        Args:
+            root: Absolute project root used to expand source globs.
+
+        Returns:
+            The fully resolved PythonModuleModel.
+        """
+        return PythonModuleModel(
+            name=self._name,
+            sources=self._freeze_sources(root),
+            binding=self._binding,
+            stubs=self._stubs,
+            install_to_environment=self._install,
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
