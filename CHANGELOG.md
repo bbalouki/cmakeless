@@ -5,6 +5,50 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0]
+
+Quality of life: everything that turns "it builds" into "it ships". A
+library author can build, test (sanitized), install, and package a release
+on CI using only `build.py`.
+
+### Added
+
+- **Testing as a verb**: `project.add_test(name, sources, framework=...)`
+  with Catch2, GoogleTest, and doctest auto-integration (the framework is
+  acquired like any dependency and pinned in `cmakeless.lock`), CTest
+  registration with per-case discovery, and shared-library tests that run
+  on Windows without PATH rituals. `cmakeless test` builds and runs the
+  suite; `framework="none"` registers a plain pass/fail executable.
+- **Sanitizers**: `target.sanitize = ["address", "undefined"]` applied to
+  compile *and* link (the half-applied-sanitizer bug is not reproducible
+  through this API), translated per compiler, and rejected loudly where
+  unsupported. `cmakeless test --sanitize=address` runs the suite under a
+  sanitizer in its own build tree.
+- **`Preset` API**: `project.add_preset(Preset("release",
+  optimize="release", lto=True))` generates `CMakePresets.json` (with
+  build and test presets), so CLion, Visual Studio, and VS Code pick the
+  configurations up natively. Every preset gets its own out-of-source
+  build tree under `build/<name>`; `--preset` works on build, configure,
+  test, install, and package.
+- **`Toolchain` API**: `Toolchain.from_file(...)` wraps existing toolchain
+  files unchanged; `Toolchain(name, compiler=..., system_name=...)`
+  generates simple cross-compilation files under `cmake/toolchains/`.
+  Presets reference toolchains by name.
+- **Install and packaging**: `project.install(target, headers=True)` emits
+  GNUInstallDirs-correct install rules, export sets, and
+  `Config.cmake`/`ConfigVersion.cmake` generation so other CMake users can
+  `find_package()` the result; `project.package(formats=["zip", "deb"])`
+  configures CPack. New `cmakeless install --prefix ...` and `cmakeless
+  package` verbs.
+- **Tooling by default**: `compile_commands.json` is always exported and
+  copied to the project root; ccache/sccache are auto-detected and wired
+  as the compiler launcher on Ninja builds (opt out with `project.cache =
+  False`).
+- `Preset`, `Toolchain`, and `Test` join the public API. Curated registry
+  pins for the default test framework versions (catch2 3.5.4, googletest
+  1.14.0, doctest 2.4.11), so test projects resolve without network.
+- Two new runnable projects: `examples/05_testing` and `examples/06_ship`.
+
 ## [0.2.0]
 
 Dependencies: `app.depends("fmt/10.2.1")` works through four backends, and
