@@ -1,6 +1,6 @@
 # CMakeless Architecture
 
-This document describes how CMakeless is designed, how the codebase is organized, and why each decision was made. If [INTRODUCTION.md](INTRODUCTION.md) is the "why", this is the "how".
+This document describes how CMakeless is designed, how the codebase is organized, and why each decision was made. If [INTRODUCTION](INTRODUCTION.md) is the "why", this is the "how".
 
 ## Design Goals
 
@@ -184,6 +184,6 @@ Because the generated `CMakeLists.txt` is our public face to the rest of the eco
 
 ## Read Next
 
-- [FEATURES.md](FEATURES.md): the complete feature surface built on this architecture.
-- [ROADMAP.md](ROADMAP.md): the order in which these layers get built.
-- [CONTRIBUTING.md](CONTRIBUTING.md): how to help build them.
+- [FEATURES](FEATURES.md): The complete feature surface built on this architecture.
+- [ROADMAP](ROADMAP.md): The order in which these layers get built.
+- [CONTRIBUTING](CONTRIBUTING.md): How to help build them.
