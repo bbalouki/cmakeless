@@ -1,0 +1,39 @@
+{
+  "packages": {
+    "fmt": {
+      "backend": "auto",
+      "cmake_name": "fmt",
+      "sha256": "1250e4cc58bf06ee631567523f48848dc4596133e163f02615c97f78bab6c811",
+      "targets": [
+        "fmt::fmt"
+      ],
+      "url": "https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz",
+      "version": "10.2.1"
+    },
+    "googletest": {
+      "backend": "auto",
+      "cmake_name": "GTest",
+      "sha256": "8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7",
+      "targets": [
+        "GTest::gtest",
+        "GTest::gtest_main"
+      ],
+      "url": "https://github.com/google/googletest/archive/refs/tags/v1.14.0.tar.gz",
+      "version": "1.14.0"
+    },
+    "pybind11": {
+      "backend": "auto",
+      "cmake_name": "pybind11",
+      "sha256": "e08cb87f4773da97fa7b5f035de8763abc656d87d5773e62f6da0587d1f0ec20",
+      "targets": [
+        "pybind11::headers"
+      ],
+      "url": "https://github.com/pybind/pybind11/archive/refs/tags/v2.13.6.tar.gz",
+      "version": "2.13.6"
+    }
+  },
+  "schema": 1,
+  "vcpkg": {
+    "baseline": null
+  }
+}
