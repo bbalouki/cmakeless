@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from cmakeless.api.dependencies import Dependencies, Dependency
 
 type LibraryKindName = Literal["static", "shared", "header_only"]
-type TestFrameworkName = Literal["catch2", "gtest", "doctest", "none"]
-type PythonBindingName = Literal["nanobind", "pybind11"]
+type TestFrameworkName = Literal["gtest", "catch2", "doctest", "none"]
+type PythonBindingName = Literal["pybind11", "nanobind"]
 
 _GLOB_CHARACTERS = frozenset("*?[")
 
@@ -50,6 +50,9 @@ class _Target:
         sanitize: Sanitizer names ("address", "undefined", "thread",
             "leak") applied to this target's compile and link steps; plain
             attribute, assign a list to change it.
+
+    Use raw_cmake() to emit CMake this API does not model, verbatim, after
+    the target is defined.
     """
 
     def __init__(
@@ -79,6 +82,7 @@ class _Target:
         self._links: list[tuple[Library, bool]] = []
         self._dependencies = dependencies
         self._dependency_links: list[tuple[Dependency, bool]] = []
+        self._raw_cmake: list[str] = []
 
     @property
     def name(self) -> str:
@@ -117,6 +121,28 @@ class _Target:
         self._compile_options.append(
             CompileOptionsModel(flags=tuple(flags), compilers=self._resolve_when(when))
         )
+
+    def raw_cmake(self, snippet: str) -> None:
+        """Emit a raw CMake snippet verbatim after this target is defined.
+
+        The escape hatch for the 1% CMakeless does not model: the text is
+        written into the generated CMakeLists.txt exactly as given, fenced
+        with a comment naming its build.py origin. Snippets are emitted in
+        the order added; nothing about them is validated.
+
+        Args:
+            snippet: The CMake to emit, for example
+                ``set_target_properties(engine PROPERTIES UNITY_BUILD ON)``.
+
+        Raises:
+            ConfigurationError: When the snippet is empty or only whitespace.
+        """
+        if not snippet.strip():
+            raise ConfigurationError(
+                f"Empty raw_cmake() snippet on target {self._name!r} in "
+                f"{self._script}. Pass the CMake to emit, or remove the call."
+            )
+        self._raw_cmake.append(snippet)
 
     def depends(
         self,
@@ -304,6 +330,7 @@ class Executable(_Target):
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
+            raw_cmake=tuple(self._raw_cmake),
         )
 
 
@@ -323,7 +350,7 @@ class Test(_Target):
         name: str,
         sources: Sequence[str],
         *,
-        framework: TestFrameworkName = "catch2",
+        framework: TestFrameworkName = "gtest",
         script: str,
         dependencies: Dependencies,
     ) -> None:
@@ -332,8 +359,8 @@ class Test(_Target):
         Args:
             name: Unique target name within the project.
             sources: Source files or glob patterns, project-root-relative.
-            framework: "catch2", "gtest", "doctest", or "none" for a plain
-                executable whose exit code is the verdict.
+            framework: "gtest" (the default), "catch2", "doctest", or "none"
+                for a plain executable whose exit code is the verdict.
             script: Display name of the owning build description, used in
                 error messages.
             dependencies: The owning project's dependency collection.
@@ -352,7 +379,7 @@ class Test(_Target):
 
     @property
     def framework(self) -> str:
-        """The test framework: "catch2", "gtest", "doctest", or "none"."""
+        """The test framework: "gtest", "catch2", "doctest", or "none"."""
         return self._framework
 
     def link(self, library: Library) -> None:
@@ -392,6 +419,7 @@ class Test(_Target):
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
+            raw_cmake=tuple(self._raw_cmake),
         )
 
 
@@ -403,7 +431,7 @@ class PythonModule(_Target):
     sources, links, and settings like any other target.
 
     Attributes:
-        binding: The binding backend ("nanobind" or "pybind11"),
+        binding: The binding backend ("pybind11" or "nanobind"),
             read-only property.
     """
 
@@ -412,7 +440,7 @@ class PythonModule(_Target):
         name: str,
         sources: Sequence[str],
         *,
-        binding: PythonBindingName = "nanobind",
+        binding: PythonBindingName = "pybind11",
         stubs: bool = True,
         install: bool = True,
         script: str,
@@ -423,7 +451,7 @@ class PythonModule(_Target):
         Args:
             name: The importable module name and unique target name.
             sources: Source files or glob patterns, project-root-relative.
-            binding: "nanobind" or "pybind11".
+            binding: "pybind11" (the default) or "nanobind".
             stubs: True to generate a .pyi stub (nanobind only).
             install: True to copy the built module into the invoking
                 interpreter after build, so it imports immediately.
@@ -447,7 +475,7 @@ class PythonModule(_Target):
 
     @property
     def binding(self) -> str:
-        """The binding backend: "nanobind" or "pybind11"."""
+        """The binding backend: "pybind11" or "nanobind"."""
         return self._binding
 
     def link(self, library: Library) -> None:
@@ -490,6 +518,7 @@ class PythonModule(_Target):
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
+            raw_cmake=tuple(self._raw_cmake),
         )
 
 
@@ -593,6 +622,7 @@ class Library(_Target):
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
+            raw_cmake=tuple(self._raw_cmake),
         )
 
 
