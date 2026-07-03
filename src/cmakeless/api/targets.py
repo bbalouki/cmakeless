@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
@@ -19,6 +19,9 @@ from cmakeless.model.nodes import (
     LibraryModel,
     LinkModel,
 )
+
+if TYPE_CHECKING:
+    from cmakeless.api.dependencies import Dependencies, Dependency
 
 type LibraryKindName = Literal["static", "shared", "header_only"]
 
@@ -40,7 +43,14 @@ class _Target:
         name: The target's unique name (read-only property).
     """
 
-    def __init__(self, name: str, sources: Sequence[str], *, script: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        sources: Sequence[str],
+        *,
+        script: str,
+        dependencies: Dependencies,
+    ) -> None:
         """Start describing a target.
 
         Args:
@@ -48,6 +58,8 @@ class _Target:
             sources: Source files or glob patterns, project-root-relative.
             script: Display name of the owning build description, used in
                 error messages.
+            dependencies: The owning project's dependency collection, where
+                depends() calls register their packages.
         """
         self._name = name
         self._sources: list[str] = list(sources)
@@ -55,6 +67,8 @@ class _Target:
         self._defines: list[DefineModel] = []
         self._compile_options: list[CompileOptionsModel] = []
         self._links: list[tuple[Library, bool]] = []
+        self._dependencies = dependencies
+        self._dependency_links: list[tuple[Dependency, bool]] = []
 
     @property
     def name(self) -> str:
@@ -94,6 +108,51 @@ class _Target:
             CompileOptionsModel(flags=tuple(flags), compilers=self._resolve_when(when))
         )
 
+    def depends(
+        self,
+        spec: str,
+        *,
+        components: Sequence[str] = (),
+        url: str | None = None,
+        sha256: str | None = None,
+        cmake_name: str | None = None,
+        targets: Sequence[str] = (),
+        public: bool = False,
+    ) -> Dependency:
+        """Require an external package and link its imported targets.
+
+        Args:
+            spec: The package as "name/version", for example "fmt/10.2.1".
+            components: Package components, for example Boost's "asio".
+            url: Source archive URL, overriding the built-in registry.
+            sha256: Archive pin to verify the download against.
+            cmake_name: The find_package() name, overriding the registry.
+            targets: Imported target names consumers link, overriding the
+                registry (for example ["fmt::fmt"]).
+            public: True when this target's own headers expose the package,
+                so consumers inherit it.
+
+        Returns:
+            The registered Dependency, shared across targets that require
+            the same package.
+
+        Raises:
+            ConfigurationError: When the spec is malformed or conflicts
+                with an earlier depends() call for the same package.
+            DependencyError: When neither the registry nor the overrides
+                say what CMake should see for this package.
+        """
+        dependency = self._dependencies.add(
+            spec,
+            components=components,
+            url=url,
+            sha256=sha256,
+            cmake_name=cmake_name,
+            targets=targets,
+        )
+        self._dependency_links.append((dependency, public))
+        return dependency
+
     def _link(self, library: Library, public: bool) -> None:
         """Record a link edge after checking the linked object's type.
 
@@ -108,7 +167,8 @@ class _Target:
             raise ConfigurationError(
                 f"Target {self._name!r} in {self._script} can only link Library "
                 f"objects created by add_library(), got {type(library).__name__}. "
-                f"External packages arrive with depends() in a later release."
+                f"For external packages use depends(), for example "
+                f'target.depends("fmt/10.2.1").'
             )
         self._links.append((library, public))
 
@@ -174,11 +234,18 @@ class _Target:
         """Resolve recorded link edges to model edges naming targets.
 
         Returns:
-            One LinkModel per link() call, in call order.
+            One LinkModel per link() call in call order, then one per
+            imported target of every depends() call.
         """
-        return tuple(
+        internal = [
             LinkModel(target=library.name, public=public) for library, public in self._links
-        )
+        ]
+        external = [
+            LinkModel(target=target, public=public, external=True)
+            for dependency, public in self._dependency_links
+            for target in dependency._link_targets()
+        ]
+        return (*internal, *external)
 
 
 class Executable(_Target):
@@ -235,6 +302,7 @@ class Library(_Target):
         public_headers: str | Sequence[str] = (),
         kind: LibraryKindName = "static",
         script: str,
+        dependencies: Dependencies,
     ) -> None:
         """Start describing a library.
 
@@ -246,11 +314,13 @@ class Library(_Target):
             kind: "static", "shared", or "header_only".
             script: Display name of the owning build description, used in
                 error messages.
+            dependencies: The owning project's dependency collection, where
+                depends() calls register their packages.
 
         Raises:
             ConfigurationError: When ``kind`` is not a known library kind.
         """
-        super().__init__(name, sources, script=script)
+        super().__init__(name, sources, script=script, dependencies=dependencies)
         self._kind = self._resolve_kind(kind)
         headers = [public_headers] if isinstance(public_headers, str) else list(public_headers)
         self._public_headers: list[str] = headers
