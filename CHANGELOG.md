@@ -5,6 +5,41 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0]
+
+Interop and parallelism: the differentiators. A pybind11 project migrates its
+binding build to one `add_python_module` call, and multi-preset configure runs
+concurrently.
+
+### Added
+
+- **Python and C++ interop**: `project.add_python_module(name, sources,
+  binding="nanobind")` builds a C++ extension with nanobind or pybind11. The
+  binding backend is acquired like any dependency (pinned in `cmakeless.lock`),
+  the module is built against the invoking interpreter's development headers,
+  `.pyi` stubs are generated for nanobind, and after `cmakeless build` the
+  module is copied into the current environment, so `import <name>` works
+  immediately.
+- **Observer event API**: `project.add_observer(observer)` registers a
+  consumer that receives a `StepStarted`/`StepFinished`/`StepFailed` event for
+  every configure, build, test, install, and package step, so IDE extensions
+  and CI log formatters are listeners rather than special cases. The console
+  display is now just the default `ConsoleObserver`. `Observer`, `BuildEvent`,
+  and the event classes join the public API.
+- **CMake File API**: `project.targets_info()` configures the build and returns
+  it as `TargetInfo` objects (name, type, artifacts, sources, dependencies),
+  read from CMake's File API rather than scraped from text.
+- **Free-threaded parallelism, measured**: `project.configure_presets()`
+  configures every preset concurrently, each into its own build tree, over one
+  lock-free frozen model. A reproducible `benchmarks/` harness and published
+  numbers for parallel dependency resolution and multi-preset configure live in
+  [docs/benchmarks.md](docs/benchmarks.md).
+- `PythonModule`, `Observer`, `BuildEvent`, `StepStarted`, `StepFinished`,
+  `StepFailed`, `ConsoleObserver`, and `TargetInfo` join the public API;
+  `cmakeless.api` now re-exports the full layer-1 surface. Registry entries for
+  pybind11 and nanobind.
+- A new runnable project, `examples/07_python_module`.
+
 ## [0.3.0]
 
 Quality of life: everything that turns "it builds" into "it ships". A
