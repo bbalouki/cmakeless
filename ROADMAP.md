@@ -1,6 +1,6 @@
 # CMakeless Roadmap
 
-From an empty repository to a v1.0 that a team can bet a product on. The ordering rule is simple: **most basic first, and every phase ends with something a real user can run.** Feature details live in [FEATURES.md](FEATURES.md); the layer vocabulary (API, model, emitter, driver) comes from [ARCHITECTURE.md](ARCHITECTURE.md).
+From an empty repository to a v1.0 that a team can bet a product on. The ordering rule is simple: **most basic first, and every phase ends with something a real user can run.** Feature details live in [FEATURES](FEATURES.md); the layer vocabulary (API, model, emitter, driver) comes from [ARCHITECTURE](ARCHITECTURE.md).
 
 Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bump the minor version pre-1.0 and the major version after, and every release updates `CHANGELOG.md`.
 
@@ -106,4 +106,4 @@ Repeated here because roadmaps grow by accretion and this one must not:
 - **Not a new language.** `build.py` is plain Python. Any proposal that adds CMakeless-only semantics to Python syntax is rejected on arrival.
 - **Not a package repository.** We adapt to vcpkg/Conan/upstream sources; we never host packages.
 
-Want to bend the timeline? The fastest way is to grab a phase item: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Want to bend the timeline? The fastest way is to grab a phase item: see [CONTRIBUTING](CONTRIBUTING.md).
