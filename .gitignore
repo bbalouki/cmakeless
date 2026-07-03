@@ -17,3 +17,6 @@ CMakeUserPresets.json
 
 # Generated output inside example projects; regenerated from build.py.
 examples/**/CMakeLists.txt
+examples/**/CMakePresets.json
+examples/**/cmake/
+examples/**/compile_commands.json
