@@ -23,6 +23,7 @@ class CMakeDriver:
         source_dir: Path,
         build_dir: Path,
         generator: Generator | None = None,
+        extra_configure_args: tuple[str, ...] = (),
     ) -> None:
         """Bind the driver to one source tree and build directory.
 
@@ -31,10 +32,13 @@ class CMakeDriver:
             build_dir: Out-of-source directory to configure and build into.
             generator: The CMake generator strategy; None auto-selects
                 (Ninja when available, otherwise CMake's default).
+            extra_configure_args: Additional configure arguments, for
+                example a dependency backend's -DCMAKE_TOOLCHAIN_FILE.
         """
         self._source_dir = source_dir
         self._build_dir = build_dir
         self._generator = generator if generator is not None else select_generator(None)
+        self._extra_configure_args = extra_configure_args
 
     def configure(self) -> None:
         """Run the CMake configure and generate step into the build directory.
@@ -50,6 +54,7 @@ class CMakeDriver:
             "-B",
             str(self._build_dir),
             *self._generator.cmake_args,
+            *self._extra_configure_args,
         ]
         self._run(command, step="configure")
 
