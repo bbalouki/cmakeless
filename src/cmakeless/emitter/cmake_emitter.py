@@ -24,6 +24,7 @@ from cmakeless.emitter.sanitizers import (
 from cmakeless.emitter.toolchain_emitter import emit_toolchain
 from cmakeless.model.nodes import (
     CPACK_GENERATOR_BY_FORMAT,
+    CompiledModel,
     CompileOptionsModel,
     DependencyModel,
     ExecutableModel,
@@ -31,7 +32,7 @@ from cmakeless.model.nodes import (
     LibraryKind,
     LibraryModel,
     ProjectModel,
-    TargetModel,
+    PythonModuleModel,
     TestModel,
 )
 
@@ -177,6 +178,7 @@ class _CMakeListsVisitor:
         sections = [self._header(), self._preamble(), *self._module_includes()]
         if _tree_has_tests(self._model):
             sections.append("enable_testing()")
+        sections.extend(self._python_preamble())
         sections.extend(self._preset_sanitize_preamble())
         sections.extend(
             self._visit_dependency(dependency)
@@ -184,25 +186,39 @@ class _CMakeListsVisitor:
         )
         subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
         sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
-        # Declaration order in build.py is meaningless to CMake, so targets are
-        # sorted (libraries first, then executables, then tests) to keep the
-        # output deterministic and diffable.
-        sections.extend(
+        sections.extend(self._target_sections())
+        sections.extend(self._install_sections())
+        sections.extend(self._cpack_section())
+        return "\n\n".join(sections) + "\n"
+
+    def _target_sections(self) -> list[str]:
+        """Emit every target, in the deterministic order the contract needs.
+
+        Declaration order in build.py is meaningless to CMake, so targets are
+        sorted within each kind (libraries, executables, Python modules, then
+        tests) to keep the output diffable.
+
+        Returns:
+            One section per target, framework discovery includes included.
+        """
+        sections = [
             self._visit_library(library)
             for library in sorted(self._model.libraries, key=lambda target: target.name)
-        )
+        ]
         sections.extend(
             self._visit_executable(target)
             for target in sorted(self._model.executables, key=lambda target: target.name)
+        )
+        sections.extend(
+            self._visit_python_module(module)
+            for module in sorted(self._model.python_modules, key=lambda target: target.name)
         )
         sections.extend(self._framework_includes())
         sections.extend(
             self._visit_test(test)
             for test in sorted(self._model.tests, key=lambda target: target.name)
         )
-        sections.extend(self._install_sections())
-        sections.extend(self._cpack_section())
-        return "\n\n".join(sections) + "\n"
+        return sections
 
     def _module_includes(self) -> list[str]:
         """Collect the include() lines the emitted commands rely on.
@@ -331,6 +347,63 @@ class _CMakeListsVisitor:
         )
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         return "\n\n".join(blocks)
+
+    def _python_preamble(self) -> list[str]:
+        """Find the Python development headers when modules need them.
+
+        Returns:
+            A find_package(Python ...) section when the project has Python
+            modules, plus the pybind11 hint that makes it use that same
+            interpreter (its legacy default can pick a different one, which
+            produces a module with the wrong ABI tag); empty otherwise.
+        """
+        if not self._model.python_modules:
+            return []
+        lines = (
+            "# The invoking interpreter's development headers build the modules below.\n"
+            "find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)"
+        )
+        if any(module.binding == "pybind11" for module in self._model.python_modules):
+            lines += "\n# Make pybind11 build against the Python found above, not its own guess.\n"
+            lines += "set(PYBIND11_FINDPYTHON ON)"
+        return [lines]
+
+    def _visit_python_module(self, target: PythonModuleModel) -> str:
+        """Emit one Python extension module built with its binding backend.
+
+        Args:
+            target: The Python module to emit.
+
+        Returns:
+            The target's complete section text.
+        """
+        blocks = [f"{target.binding}_add_module({target.name})"]
+        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.append(
+            f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
+        )
+        blocks.extend(self._settings_blocks(target, "PRIVATE"))
+        if target.stubs and target.binding == "nanobind":
+            blocks.append(self._stub_block(target))
+        return "\n\n".join(blocks)
+
+    def _stub_block(self, target: PythonModuleModel) -> str:
+        """Emit a .pyi stub generation rule for a nanobind module.
+
+        Args:
+            target: The nanobind module to generate a stub for.
+
+        Returns:
+            The nanobind_add_stub command text.
+        """
+        return (
+            f"nanobind_add_stub({target.name}_stub\n"
+            f"    MODULE {target.name}\n"
+            f"    OUTPUT {target.name}.pyi\n"
+            f"    PYTHON_PATH $<TARGET_FILE_DIR:{target.name}>\n"
+            f"    DEPENDS {target.name}\n"
+            f")"
+        )
 
     def _visit_library(self, target: LibraryModel) -> str:
         """Emit one library target, dispatching on its kind.
@@ -484,7 +557,7 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
         return "\n\n".join(blocks)
 
-    def _sources_block(self, target: TargetModel | TestModel, visibility: str) -> str:
+    def _sources_block(self, target: CompiledModel, visibility: str) -> str:
         """Write a target_sources command with sorted sources.
 
         Args:
@@ -539,7 +612,7 @@ class _CMakeListsVisitor:
         )
 
     def _settings_blocks(
-        self, target: TargetModel | TestModel, visibility: str, *, warnings: bool = True
+        self, target: CompiledModel, visibility: str, *, warnings: bool = True
     ) -> list[str]:
         """Emit the settings shared by all target kinds.
 
@@ -572,7 +645,7 @@ class _CMakeListsVisitor:
             blocks.append(self._links_block(target))
         return blocks
 
-    def _sanitize_blocks(self, target: TargetModel | TestModel, visibility: str) -> list[str]:
+    def _sanitize_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
         """Emit a target's sanitizer flags, compile and link always paired.
 
         Combines the target's own sanitize list (unconditional) with the
@@ -743,7 +816,7 @@ class _CMakeListsVisitor:
         lines.append(f'set(CPACK_GENERATOR "{generators}")')
         return ["\n".join(lines), "include(CPack)"]
 
-    def _defines_block(self, target: TargetModel | TestModel, visibility: str) -> str:
+    def _defines_block(self, target: CompiledModel, visibility: str) -> str:
         """Write a target_compile_definitions command with sorted defines.
 
         Args:
@@ -793,7 +866,7 @@ class _CMakeListsVisitor:
         compiler_ids = ",".join(_CMAKE_ID_BY_COMPILER[compiler] for compiler in options.compilers)
         return f"$<$<CXX_COMPILER_ID:{compiler_ids}>:{flags}>"
 
-    def _links_block(self, target: TargetModel | TestModel) -> str:
+    def _links_block(self, target: CompiledModel) -> str:
         """Write a target_link_libraries command with explicit visibility.
 
         Args:
