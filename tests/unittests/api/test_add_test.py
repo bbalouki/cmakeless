@@ -46,6 +46,15 @@ def test_gtest_uses_the_googletest_package(test_project: Project) -> None:
     assert any(link.target == "GTest::gtest_main" for link in test.links)
 
 
+def test_default_framework_is_gtest(test_project: Project) -> None:
+    """The default test framework is googletest when none is given."""
+    test = test_project.add_test("engine_tests", sources=["tests/*.cpp"])
+    model = test_project.freeze()
+    assert test.framework == "gtest"
+    assert model.tests[0].framework == "gtest"
+    assert [dep.name for dep in model.dependencies] == ["googletest"]
+
+
 def test_framework_none_adds_no_dependency(test_project: Project) -> None:
     """Framework none adds no dependency."""
     test_project.add_test("smoke", sources=["tests/*.cpp"], framework="none")
