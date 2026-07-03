@@ -7,8 +7,10 @@ private machinery.
 
 from cmakeless._version import __version__
 from cmakeless.api.dependencies import Dependency
+from cmakeless.api.presets import Preset
 from cmakeless.api.project import Project
-from cmakeless.api.targets import Executable, Library
+from cmakeless.api.targets import Executable, Library, Test
+from cmakeless.api.toolchains import Toolchain
 from cmakeless.errors import (
     CMakeError,
     CmakelessError,
@@ -27,7 +29,10 @@ __all__ = [
     "Diagnostic",
     "Executable",
     "Library",
+    "Preset",
     "Project",
+    "Test",
+    "Toolchain",
     "ToolchainError",
     "__version__",
 ]
