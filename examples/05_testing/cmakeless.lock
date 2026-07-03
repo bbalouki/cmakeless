@@ -1,0 +1,18 @@
+{
+  "packages": {
+    "catch2": {
+      "backend": "auto",
+      "cmake_name": "Catch2",
+      "sha256": "b7754b711242c167d8f60b890695347f90a1ebc95949a045385114165d606dbb",
+      "targets": [
+        "Catch2::Catch2WithMain"
+      ],
+      "url": "https://github.com/catchorg/Catch2/archive/refs/tags/v3.5.4.tar.gz",
+      "version": "3.5.4"
+    }
+  },
+  "schema": 1,
+  "vcpkg": {
+    "baseline": null
+  }
+}
