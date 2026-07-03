@@ -1,7 +1,8 @@
-"""The Phase 1 CLI verbs: configure, clean, and init."""
+"""The CLI verbs that execute build.py: configure, clean, lock, and init."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,15 @@ from cmakeless import Project
 
 project = Project("demo", cpp_std=20)
 project.add_executable("demo", sources=["src/main.cpp"])
+project.build()
+"""
+
+DEPENDENT_BUILD_PY = """\
+from cmakeless import Project
+
+project = Project("demo", cpp_std=20)
+app = project.add_executable("demo", sources=["src/main.cpp"])
+app.depends("fmt/10.2.1")
 project.build()
 """
 
@@ -41,6 +51,25 @@ def test_clean_removes_build_directory(demo_project: Path) -> None:
 def test_clean_on_clean_tree_is_fine(demo_project: Path) -> None:
     """Clean on clean tree is fine."""
     assert main(["clean"]) == 0
+
+
+def test_lock_writes_the_lockfile(demo_project: Path) -> None:
+    """Lock writes the lockfile."""
+    # fmt/10.2.1 carries a curated registry pin, so locking needs no network.
+    (demo_project / "build.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
+    assert main(["lock"]) == 0
+    lock = json.loads((demo_project / "cmakeless.lock").read_text(encoding="utf-8"))
+    assert lock["packages"]["fmt"]["version"] == "10.2.1"
+    assert lock["packages"]["fmt"]["sha256"]
+
+
+def test_lock_without_dependencies_writes_nothing(
+    demo_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Lock without dependencies writes nothing."""
+    assert main(["lock"]) == 0
+    assert not (demo_project / "cmakeless.lock").exists()
+    assert "No dependencies" in capsys.readouterr().out
 
 
 def test_init_scaffolds_a_buildable_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
