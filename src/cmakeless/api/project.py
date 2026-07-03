@@ -14,7 +14,16 @@ from pathlib import Path
 
 from cmakeless._version import __version__
 from cmakeless.api import _context
+from cmakeless.api.dependencies import Dependencies
 from cmakeless.api.targets import Executable, Library, LibraryKindName
+from cmakeless.deps import (
+    LOCKFILE_NAME,
+    DependencyProvider,
+    collect_tree_dependencies,
+    provider_for,
+    read_lockfile,
+    resolve_dependencies,
+)
 from cmakeless.driver import CMakeDriver, select_generator
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
@@ -30,8 +39,12 @@ class Project:
     Attributes:
         warnings: Warning preset name ("strict", "default", or "none");
             plain attribute, assign to change it.
+        package_manager: Dependency strategy ("auto", "find_package",
+            "vcpkg", or "conan"); plain attribute, assign to change it.
         name: The project name (read-only property).
         root: Absolute project root directory (read-only property).
+        dependencies: The project's dependency collection (read-only
+            property).
     """
 
     def __init__(
@@ -57,6 +70,7 @@ class Project:
         self._version = version
         self._cpp_std = cpp_std
         self.warnings = warnings
+        self.package_manager = "auto"
         script = _calling_script()
         if root is not None:
             self._root = Path(root).resolve()
@@ -68,6 +82,7 @@ class Project:
         self._executables: list[Executable] = []
         self._libraries: list[Library] = []
         self._subprojects: list[tuple[Path, Project]] = []
+        self._dependencies = Dependencies(self)
         self._generator: str | None = None
         _context.register_project(self)
 
@@ -80,6 +95,11 @@ class Project:
     def root(self) -> Path:
         """Absolute path of the project root directory."""
         return self._root
+
+    @property
+    def dependencies(self) -> Dependencies:
+        """The project's dependency collection; supports .lock()."""
+        return self._dependencies
 
     def __repr__(self) -> str:
         """Developer-facing representation.
@@ -102,7 +122,9 @@ class Project:
         Returns:
             The mutable Executable builder, for further link()/define() calls.
         """
-        executable = Executable(name, sources, script=self._source_script)
+        executable = Executable(
+            name, sources, script=self._source_script, dependencies=self._dependencies
+        )
         self._executables.append(executable)
         return executable
 
@@ -135,6 +157,7 @@ class Project:
             public_headers=public_headers,
             kind=kind,
             script=self._source_script,
+            dependencies=self._dependencies,
         )
         self._libraries.append(library)
         return library
@@ -190,35 +213,38 @@ class Project:
         return model
 
     def generate(self) -> list[Path]:
-        """Emit all CMakeLists.txt files without invoking CMake.
+        """Emit all CMakeLists.txt files (and manifests) without invoking CMake.
 
-        Generation never requires CMake to be installed.
+        Generation never requires CMake to be installed. Dependencies are
+        resolved first, which refreshes cmakeless.lock; with a complete
+        lockfile this needs no network either.
 
         Returns:
             The written file paths, parent project first.
 
         Raises:
             ConfigurationError: When the description is invalid.
+            DependencyError: When a package cannot be resolved.
         """
-        model = self.freeze()
-        written: list[Path] = []
-        for relative_path, text in emit_tree(model, tool_version=__version__).items():
-            output = self._root / relative_path
-            output.parent.mkdir(parents=True, exist_ok=True)
-            output.write_text(text, encoding="utf-8", newline="\n")
-            written.append(output)
-        return written
+        return self._write_outputs(self._resolved_model())
 
     def configure(self) -> None:
         """Generate build files and run the CMake configure step.
 
         Raises:
             ConfigurationError: When the description is invalid.
-            ToolchainError: When cmake is not on PATH.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
             CMakeError: When the configure step fails.
         """
-        self.generate()
-        self._driver().configure()
+        model = self._resolved_model()
+        self._write_outputs(model)
+        provider = self._provider(model)
+        if provider is not None:
+            provider.pre_configure(
+                root_dir=self._root, build_dir=self._root / DEFAULT_BUILD_DIR_NAME
+            )
+        self._driver(provider).configure()
 
     def clean(self) -> None:
         """Delete this project's build directory, if it exists."""
@@ -231,13 +257,14 @@ class Project:
         """Freeze, validate, emit, configure, and compile: the whole pipeline.
 
         Under the cmakeless CLI this dispatches to the verb the user asked
-        for, so one build.py serves 'cmakeless build', 'configure', and
-        'clean'. In description mode (this project is being loaded as a
+        for, so one build.py serves 'cmakeless build', 'configure', 'clean',
+        and 'lock'. In description mode (this project is being loaded as a
         subproject) it does nothing: the parent owns the pipeline.
 
         Raises:
             ConfigurationError: When the description is invalid.
-            ToolchainError: When cmake is not on PATH.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
             CMakeError: When configuring or compiling fails.
         """
         if _context.in_description_mode():
@@ -247,6 +274,8 @@ class Project:
             self.clean()
         elif verb == "configure":
             self.configure()
+        elif verb == "lock":
+            self._refresh_lock()
         else:
             self.configure()
             self._driver().build()
@@ -275,24 +304,84 @@ class Project:
             root_dir=self._root,
             source_script=self._source_script,
             warnings=self.warnings,
+            package_manager=self.package_manager,
             executables=tuple(target._freeze(self._root) for target in self._executables),
             libraries=tuple(target._freeze(self._root) for target in self._libraries),
+            dependencies=self._dependencies._freeze(),
             subprojects=tuple(
                 SubprojectModel(directory=directory, project=child._freeze_without_validation())
                 for directory, child in self._subprojects
             ),
         )
 
-    def _driver(self) -> CMakeDriver:
+    def _resolved_model(self) -> ProjectModel:
+        """Freeze, validate, and resolve dependencies into a complete model.
+
+        Returns:
+            The model with every dependency pin filled; resolution also
+            refreshes cmakeless.lock when the tree has dependencies.
+        """
+        return resolve_dependencies(self.freeze(), lock_path=self._root / LOCKFILE_NAME)
+
+    def _write_outputs(self, model: ProjectModel) -> list[Path]:
+        """Write the emitted CMake tree and any backend manifest files.
+
+        Args:
+            model: The resolved project model.
+
+        Returns:
+            The written file paths, parent project first.
+        """
+        files = emit_tree(model, tool_version=__version__)
+        provider = self._provider(model)
+        if provider is not None:
+            files.update(provider.manifest_files(model, read_lockfile(self._root / LOCKFILE_NAME)))
+        written: list[Path] = []
+        for relative_path, text in files.items():
+            output = self._root / relative_path
+            output.parent.mkdir(parents=True, exist_ok=True)
+            output.write_text(text, encoding="utf-8", newline="\n")
+            written.append(output)
+        return written
+
+    def _provider(self, model: ProjectModel) -> DependencyProvider | None:
+        """Select the dependency provider, when the tree has dependencies.
+
+        Args:
+            model: The frozen project model.
+
+        Returns:
+            The backend adapter, or None for a dependency-free tree.
+        """
+        if not collect_tree_dependencies(model):
+            return None
+        return provider_for(model.package_manager)
+
+    def _refresh_lock(self) -> None:
+        """Perform the 'lock' verb: refresh every pin in cmakeless.lock."""
+        lock_path = self._dependencies.lock()
+        if lock_path.is_file():
+            print(f"[cmakeless] Dependency pins refreshed in {lock_path}")
+        else:
+            print("[cmakeless] No dependencies to lock; nothing written.")
+
+    def _driver(self, provider: DependencyProvider | None = None) -> CMakeDriver:
         """Build the driver for this project's source and build directories.
+
+        Args:
+            provider: The dependency backend whose toolchain arguments the
+                configure step needs, or None for a dependency-free tree.
 
         Returns:
             A CMakeDriver honoring the project's or CLI's generator choice.
         """
+        build_dir = self._root / DEFAULT_BUILD_DIR_NAME
+        extra = provider.toolchain_args(build_dir) if provider is not None else ()
         return CMakeDriver(
             source_dir=self._root,
-            build_dir=self._root / DEFAULT_BUILD_DIR_NAME,
+            build_dir=build_dir,
             generator=select_generator(self._generator or _context.active_generator()),
+            extra_configure_args=extra,
         )
 
 
