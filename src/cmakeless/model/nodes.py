@@ -22,6 +22,31 @@ WARNING_PRESETS: frozenset[str] = frozenset({"strict", "default", "none"})
 # find_package-then-FetchContent fallback; the others delegate to one backend.
 PACKAGE_MANAGERS: frozenset[str] = frozenset({"auto", "find_package", "vcpkg", "conan"})
 
+# The test frameworks add_test() integrates automatically; "none" registers
+# the test executable with CTest without any framework.
+TEST_FRAMEWORKS: frozenset[str] = frozenset({"catch2", "gtest", "doctest", "none"})
+
+# The sanitizers the emitter can translate into compile and link flags.
+SANITIZERS: frozenset[str] = frozenset({"address", "undefined", "thread", "leak"})
+
+# CMake build types by user-facing optimize level. "none" and "debug" are
+# synonyms because both mean "no optimization, full debug information".
+BUILD_TYPE_BY_OPTIMIZE: dict[str, str] = {
+    "none": "Debug",
+    "debug": "Debug",
+    "release": "Release",
+    "relwithdebinfo": "RelWithDebInfo",
+    "minsize": "MinSizeRel",
+}
+
+# CPack generators by user-facing package format name.
+CPACK_GENERATOR_BY_FORMAT: dict[str, str] = {
+    "zip": "ZIP",
+    "tgz": "TGZ",
+    "deb": "DEB",
+    "rpm": "RPM",
+}
+
 
 class LibraryKind(enum.Enum):
     """How a library target is built and consumed.
@@ -123,6 +148,7 @@ class ExecutableModel:
         defines: Preprocessor definitions for this target.
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this executable links against.
+        sanitize: Sanitizer names applied to compile and link steps.
     """
 
     name: str
@@ -130,6 +156,7 @@ class ExecutableModel:
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
+    sanitize: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +171,7 @@ class LibraryModel:
         defines: Preprocessor definitions for this target.
         compile_options: Extra compiler flags, possibly compiler-guarded.
         links: Libraries this library links against.
+        sanitize: Sanitizer names applied to compile and link steps.
     """
 
     name: str
@@ -153,6 +181,95 @@ class LibraryModel:
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
+    sanitize: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class TestModel:
+    """A test executable registered with CTest, fully resolved.
+
+    Attributes:
+        name: Unique target name within the project.
+        sources: Project-root-relative source files, globs already expanded.
+        framework: The test framework ("catch2", "gtest", "doctest", or
+            "none" for a plain executable whose exit code is the verdict).
+        defines: Preprocessor definitions for this target.
+        compile_options: Extra compiler flags, possibly compiler-guarded.
+        links: Libraries this test links against, framework included.
+        sanitize: Sanitizer names applied to compile and link steps.
+    """
+
+    # Tell pytest this model is not a test case, despite the Test* name.
+    __test__ = False
+
+    name: str
+    sources: tuple[Path, ...]
+    framework: str = "none"
+    defines: tuple[DefineModel, ...] = ()
+    compile_options: tuple[CompileOptionsModel, ...] = ()
+    links: tuple[LinkModel, ...] = ()
+    sanitize: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PresetModel:
+    """One named configuration bundle mapped onto CMake presets.
+
+    Attributes:
+        name: The preset name shown by IDEs and passed to --preset.
+        optimize: Optimization level ("none", "debug", "release",
+            "relwithdebinfo", or "minsize").
+        sanitize: Sanitizer names this preset applies to every target.
+        lto: True to enable interprocedural optimization.
+        toolchain: Name of a registered toolchain to configure with, or
+            None for the host toolchain.
+    """
+
+    name: str
+    optimize: str = "debug"
+    sanitize: tuple[str, ...] = ()
+    lto: bool = False
+    toolchain: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolchainModel:
+    """A compiler/platform description for cross or pinned builds.
+
+    Either ``file`` points at an existing toolchain file (wrapped, never
+    rewritten) or the generated fields describe a simple one CMakeless
+    writes itself.
+
+    Attributes:
+        name: The toolchain name presets reference.
+        file: Project-root-relative path of an existing toolchain file, or
+            None when the toolchain is generated.
+        compiler: The C++ compiler for a generated toolchain, or None.
+        system_name: CMAKE_SYSTEM_NAME for a generated cross toolchain
+            (for example "Linux"), or None for a host build.
+        system_processor: CMAKE_SYSTEM_PROCESSOR for a generated cross
+            toolchain (for example "aarch64"), or None.
+    """
+
+    name: str
+    file: Path | None = None
+    compiler: str | None = None
+    system_name: str | None = None
+    system_processor: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class InstallModel:
+    """One install rule: ship a target (and optionally its headers).
+
+    Attributes:
+        target: Name of the executable or library target to install.
+        headers: True to also install the target's public header
+            directories.
+    """
+
+    target: str
+    headers: bool = False
 
 
 type TargetModel = ExecutableModel | LibraryModel
@@ -188,8 +305,15 @@ class ProjectModel:
             "vcpkg", or "conan").
         executables: All executable targets of this project.
         libraries: All library targets of this project.
+        tests: All test targets of this project.
         dependencies: External packages this project's targets depend on.
         subprojects: Child projects composed into this one.
+        presets: Named configurations emitted into CMakePresets.json.
+        toolchains: Registered toolchains presets may reference.
+        installs: Install rules for this project's targets.
+        package_formats: CPack formats project.package() requested.
+        cache: True to wire ccache/sccache as the compiler launcher when
+            one is found on PATH.
     """
 
     name: str
@@ -201,13 +325,27 @@ class ProjectModel:
     package_manager: str = "auto"
     executables: tuple[ExecutableModel, ...] = ()
     libraries: tuple[LibraryModel, ...] = ()
+    tests: tuple[TestModel, ...] = ()
     dependencies: tuple[DependencyModel, ...] = ()
     subprojects: tuple[SubprojectModel, ...] = ()
+    presets: tuple[PresetModel, ...] = ()
+    toolchains: tuple[ToolchainModel, ...] = ()
+    installs: tuple[InstallModel, ...] = ()
+    package_formats: tuple[str, ...] = ()
+    cache: bool = True
 
     def targets(self) -> tuple[TargetModel, ...]:
-        """Collect this project's own targets (not those of subprojects).
+        """Collect this project's own compiled targets (tests excluded).
 
         Returns:
             Libraries first, then executables; otherwise unordered.
         """
         return (*self.libraries, *self.executables)
+
+    def all_targets(self) -> tuple[TargetModel | TestModel, ...]:
+        """Collect every target of this project, tests included.
+
+        Returns:
+            Libraries, then executables, then tests; otherwise unordered.
+        """
+        return (*self.libraries, *self.executables, *self.tests)

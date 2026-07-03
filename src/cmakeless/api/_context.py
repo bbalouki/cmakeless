@@ -26,6 +26,9 @@ _capture_stack: list[list[Project]] = []
 _loading_scripts: list[Path] = []
 _verb_override: list[str] = []
 _generator_override: list[str] = []
+_preset_override: list[str] = []
+_sanitize_override: list[tuple[str, ...]] = []
+_prefix_override: list[str] = []
 
 
 @contextmanager
@@ -146,3 +149,93 @@ def active_generator() -> str | None:
         The innermost overridden generator name, or None when unset.
     """
     return _generator_override[-1] if _generator_override else None
+
+
+@contextmanager
+def preset_override(preset: str | None) -> Generator[None]:
+    """Make projects configure and build with the preset the CLI asked for.
+
+    Args:
+        preset: The preset name from --preset, or None for no preference
+            (the context is then a no-op).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    if preset is None:
+        yield
+        return
+    _preset_override.append(preset)
+    try:
+        yield
+    finally:
+        _preset_override.pop()
+
+
+def active_preset() -> str | None:
+    """Look up the preset preference set by the CLI.
+
+    Returns:
+        The innermost overridden preset name, or None when unset.
+    """
+    return _preset_override[-1] if _preset_override else None
+
+
+@contextmanager
+def sanitize_override(sanitizers: tuple[str, ...]) -> Generator[None]:
+    """Make 'cmakeless test' run under the given sanitizers.
+
+    Args:
+        sanitizers: Sanitizer names from --sanitize; empty makes the
+            context a no-op.
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    if not sanitizers:
+        yield
+        return
+    _sanitize_override.append(sanitizers)
+    try:
+        yield
+    finally:
+        _sanitize_override.pop()
+
+
+def active_sanitize() -> tuple[str, ...]:
+    """Look up the sanitizer selection set by the CLI.
+
+    Returns:
+        The innermost overridden sanitizer names, or an empty tuple.
+    """
+    return _sanitize_override[-1] if _sanitize_override else ()
+
+
+@contextmanager
+def prefix_override(prefix: str | None) -> Generator[None]:
+    """Make 'cmakeless install' install into the given prefix.
+
+    Args:
+        prefix: The installation prefix from --prefix, or None for
+            CMake's default (the context is then a no-op).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    if prefix is None:
+        yield
+        return
+    _prefix_override.append(prefix)
+    try:
+        yield
+    finally:
+        _prefix_override.pop()
+
+
+def active_prefix() -> str | None:
+    """Look up the installation prefix set by the CLI.
+
+    Returns:
+        The innermost overridden prefix, or None when unset.
+    """
+    return _prefix_override[-1] if _prefix_override else None

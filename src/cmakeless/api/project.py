@@ -6,6 +6,7 @@ one verb.
 
 from __future__ import annotations
 
+import dataclasses
 import inspect
 import runpy
 import shutil
@@ -15,7 +16,9 @@ from pathlib import Path
 from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.api.dependencies import Dependencies
-from cmakeless.api.targets import Executable, Library, LibraryKindName
+from cmakeless.api.presets import Preset
+from cmakeless.api.targets import Executable, Library, LibraryKindName, Test, TestFrameworkName
+from cmakeless.api.toolchains import Toolchain
 from cmakeless.deps import (
     LOCKFILE_NAME,
     DependencyProvider,
@@ -27,10 +30,19 @@ from cmakeless.deps import (
 from cmakeless.driver import CMakeDriver, select_generator
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
-from cmakeless.model.nodes import ProjectModel, SubprojectModel
+from cmakeless.model.nodes import InstallModel, PresetModel, ProjectModel, SubprojectModel
 from cmakeless.model.validate import validate_project
 
 DEFAULT_BUILD_DIR_NAME = "build"
+
+# The framework versions add_test() requires when the user does not; every
+# version here carries a curated SHA256 pin in the registry, so test projects
+# resolve without any network.
+_FRAMEWORK_SPECS: dict[str, str] = {
+    "catch2": "catch2/3.5.4",
+    "gtest": "googletest/1.14.0",
+    "doctest": "doctest/2.4.11",
+}
 
 
 class Project:
@@ -41,6 +53,9 @@ class Project:
             plain attribute, assign to change it.
         package_manager: Dependency strategy ("auto", "find_package",
             "vcpkg", or "conan"); plain attribute, assign to change it.
+        cache: True (the default) to wire ccache/sccache as the compiler
+            launcher when one is on PATH; plain attribute, assign to
+            change it.
         name: The project name (read-only property).
         root: Absolute project root directory (read-only property).
         dependencies: The project's dependency collection (read-only
@@ -79,8 +94,14 @@ class Project:
         else:
             self._root = Path.cwd()
         self._source_script = script.name if script is not None else "build.py"
+        self.cache = True
         self._executables: list[Executable] = []
         self._libraries: list[Library] = []
+        self._tests: list[Test] = []
+        self._presets: list[Preset] = []
+        self._toolchains: list[Toolchain] = []
+        self._installs: list[tuple[str, bool]] = []
+        self._package_formats: tuple[str, ...] = ()
         self._subprojects: list[tuple[Path, Project]] = []
         self._dependencies = Dependencies(self)
         self._generator: str | None = None
@@ -199,6 +220,99 @@ class Project:
         self._subprojects.append((directory, child))
         return child
 
+    def add_test(
+        self,
+        name: str,
+        sources: Sequence[str],
+        *,
+        framework: TestFrameworkName = "catch2",
+    ) -> Test:
+        """Declare a test executable registered with CTest.
+
+        The framework is acquired like any dependency (registry-pinned
+        FetchContent fallback, or the project's package manager) and linked
+        automatically; 'cmakeless test' builds and runs everything.
+
+        Args:
+            name: Unique target name within the project.
+            sources: Source files or glob patterns, project-root-relative.
+            framework: "catch2", "gtest", "doctest", or "none" for a plain
+                executable whose exit code is the verdict.
+
+        Returns:
+            The mutable Test builder, for further link()/define() calls.
+
+        Raises:
+            ConfigurationError: When ``framework`` is not a known one.
+        """
+        test = Test(
+            name,
+            sources,
+            framework=framework,
+            script=self._source_script,
+            dependencies=self._dependencies,
+        )
+        if framework in _FRAMEWORK_SPECS:
+            dependency = self._dependencies.add(_FRAMEWORK_SPECS[framework])
+            test._dependency_links.append((dependency, False))
+        self._tests.append(test)
+        return test
+
+    def add_preset(self, preset: Preset) -> Preset:
+        """Register a named configuration, emitted into CMakePresets.json.
+
+        Args:
+            preset: The preset to register.
+
+        Returns:
+            The registered preset, unchanged.
+        """
+        self._presets.append(preset)
+        return preset
+
+    def add_toolchain(self, toolchain: Toolchain) -> Toolchain:
+        """Register a toolchain that presets can reference by name.
+
+        Args:
+            toolchain: The toolchain to register.
+
+        Returns:
+            The registered toolchain, unchanged.
+        """
+        self._toolchains.append(toolchain)
+        return toolchain
+
+    def install(self, target: Executable | Library, *, headers: bool = False) -> None:
+        """Declare that a target ships: emitted as install and export rules.
+
+        Installed libraries come with an export set and Config.cmake files,
+        so other CMake users can find_package() this project.
+
+        Args:
+            target: An executable or library created by this project.
+            headers: True to also install the target's public header
+                directories.
+
+        Raises:
+            ConfigurationError: When ``target`` is not a target object.
+        """
+        if not isinstance(target, Executable | Library):
+            raise ConfigurationError(
+                f"project.install() in {self._source_script} needs a target "
+                f"created by add_executable() or add_library(), got "
+                f"{type(target).__name__}."
+            )
+        self._installs.append((target.name, headers))
+
+    def package(self, *, formats: Sequence[str] = ("zip",)) -> None:
+        """Request CPack packaging of everything install() declared.
+
+        Args:
+            formats: Package formats to produce: "zip", "tgz", "deb",
+                or "rpm".
+        """
+        self._package_formats = tuple(formats)
+
     def freeze(self) -> ProjectModel:
         """Freeze the mutable description into the validated, immutable model.
 
@@ -208,7 +322,7 @@ class Project:
         Raises:
             ConfigurationError: When the description is invalid.
         """
-        model = self._freeze_without_validation()
+        model = _with_implicit_sanitize_preset(self._freeze_without_validation())
         validate_project(model)
         return model
 
@@ -237,14 +351,25 @@ class Project:
             ToolchainError: When cmake or the package manager is missing.
             CMakeError: When the configure step fails.
         """
-        model = self._resolved_model()
-        self._write_outputs(model)
-        provider = self._provider(model)
-        if provider is not None:
-            provider.pre_configure(
-                root_dir=self._root, build_dir=self._root / DEFAULT_BUILD_DIR_NAME
-            )
-        self._driver(provider).configure()
+        self._prepare().configure()
+
+    def test(self) -> None:
+        """Build everything, then run the test suite through CTest.
+
+        Honors the active preset ('cmakeless test --preset debug') and the
+        sanitizer override ('cmakeless test --sanitize=address'), which
+        runs in its own build tree under build/.
+
+        Raises:
+            ConfigurationError: When the description is invalid.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
+            CMakeError: When configuring, compiling, or a test fails.
+        """
+        driver = self._prepare()
+        driver.configure()
+        driver.build()
+        driver.test()
 
     def clean(self) -> None:
         """Delete this project's build directory, if it exists."""
@@ -257,15 +382,17 @@ class Project:
         """Freeze, validate, emit, configure, and compile: the whole pipeline.
 
         Under the cmakeless CLI this dispatches to the verb the user asked
-        for, so one build.py serves 'cmakeless build', 'configure', 'clean',
-        and 'lock'. In description mode (this project is being loaded as a
-        subproject) it does nothing: the parent owns the pipeline.
+        for, so one build.py serves 'cmakeless build', 'configure', 'test',
+        'install', 'package', 'clean', and 'lock'. In description mode (this
+        project is being loaded as a subproject) it does nothing: the parent
+        owns the pipeline.
 
         Raises:
             ConfigurationError: When the description is invalid.
             DependencyError: When a package cannot be resolved.
             ToolchainError: When cmake or the package manager is missing.
-            CMakeError: When configuring or compiling fails.
+            CMakeError: When configuring, compiling, testing, installing,
+                or packaging fails.
         """
         if _context.in_description_mode():
             return
@@ -276,9 +403,14 @@ class Project:
             self.configure()
         elif verb == "lock":
             self._refresh_lock()
+        elif verb == "test":
+            self.test()
+        elif verb in ("install", "package"):
+            self._run_post_build_verb(verb)
         else:
-            self.configure()
-            self._driver().build()
+            driver = self._prepare()
+            driver.configure()
+            driver.build()
 
     def set_generator(self, generator: str | None) -> None:
         """Choose the CMake generator for this project's builds.
@@ -288,6 +420,84 @@ class Project:
                 auto-select (Ninja when available).
         """
         self._generator = generator
+
+    def _run_post_build_verb(self, verb: str) -> None:
+        """Perform the 'install' or 'package' verb: build first, then ship.
+
+        Args:
+            verb: "install" or "package".
+        """
+        driver = self._prepare()
+        driver.configure()
+        driver.build()
+        if verb == "install":
+            driver.install(prefix=_context.active_prefix())
+        else:
+            driver.package()
+
+    def _prepare(self) -> CMakeDriver:
+        """Freeze, resolve, write outputs, and bind a driver to the result.
+
+        Returns:
+            The driver for the selected preset's build directory, backend
+            pre-configure hooks already run.
+
+        Raises:
+            ConfigurationError: When the description is invalid or the
+                selected preset does not exist.
+            DependencyError: When a package cannot be resolved.
+        """
+        model = self._resolved_model()
+        self._write_outputs(model)
+        preset = self._selected_preset(model)
+        provider = self._provider(model)
+        if provider is not None:
+            provider.pre_configure(root_dir=self._root, build_dir=self._build_dir(preset))
+        return self._driver(provider, preset=preset)
+
+    def _selected_preset(self, model: ProjectModel) -> str | None:
+        """Resolve the preset this run should use, if any.
+
+        The CLI --preset override wins; --sanitize selects the implicit
+        sanitize preset freeze() added to the model.
+
+        Args:
+            model: The frozen project, presets included.
+
+        Returns:
+            The preset name, or None for the default configuration.
+
+        Raises:
+            ConfigurationError: When the selected preset is not defined.
+        """
+        name = _context.active_preset()
+        if name is None and _context.active_sanitize():
+            name = _implicit_sanitize_preset_name(_context.active_sanitize())
+        if name is None:
+            return None
+        known = sorted(preset.name for preset in model.presets)
+        if name not in known:
+            listing = ", ".join(repr(preset) for preset in known) if known else "none are defined"
+            raise ConfigurationError(
+                f"Unknown preset {name!r} for project {self._name!r}: known presets "
+                f"are {listing}. Add project.add_preset(Preset({name!r}, ...)) in "
+                f"{self._source_script}, or pick an existing one."
+            )
+        return name
+
+    def _build_dir(self, preset: str | None = None) -> Path:
+        """The out-of-source build directory for the given preset.
+
+        Args:
+            preset: The active preset name, or None for the default.
+
+        Returns:
+            build/ for the default configuration, build/<preset> otherwise
+            (matching the binaryDir emitted into CMakePresets.json).
+        """
+        if preset is None:
+            return self._root / DEFAULT_BUILD_DIR_NAME
+        return self._root / DEFAULT_BUILD_DIR_NAME / preset
 
     def _freeze_without_validation(self) -> ProjectModel:
         """Freeze this project and its subprojects without validating.
@@ -307,11 +517,19 @@ class Project:
             package_manager=self.package_manager,
             executables=tuple(target._freeze(self._root) for target in self._executables),
             libraries=tuple(target._freeze(self._root) for target in self._libraries),
+            tests=tuple(target._freeze(self._root) for target in self._tests),
             dependencies=self._dependencies._freeze(),
             subprojects=tuple(
                 SubprojectModel(directory=directory, project=child._freeze_without_validation())
                 for directory, child in self._subprojects
             ),
+            presets=tuple(preset._freeze() for preset in self._presets),
+            toolchains=tuple(toolchain._freeze() for toolchain in self._toolchains),
+            installs=tuple(
+                InstallModel(target=name, headers=headers) for name, headers in self._installs
+            ),
+            package_formats=self._package_formats,
+            cache=self.cache,
         )
 
     def _resolved_model(self) -> ProjectModel:
@@ -365,24 +583,67 @@ class Project:
         else:
             print("[cmakeless] No dependencies to lock; nothing written.")
 
-    def _driver(self, provider: DependencyProvider | None = None) -> CMakeDriver:
+    def _driver(
+        self, provider: DependencyProvider | None = None, *, preset: str | None = None
+    ) -> CMakeDriver:
         """Build the driver for this project's source and build directories.
 
         Args:
             provider: The dependency backend whose toolchain arguments the
                 configure step needs, or None for a dependency-free tree.
+            preset: The active preset name, or None for the default
+                configuration.
 
         Returns:
-            A CMakeDriver honoring the project's or CLI's generator choice.
+            A CMakeDriver honoring the project's or CLI's generator choice,
+            the preset's build directory, and the cache setting.
         """
-        build_dir = self._root / DEFAULT_BUILD_DIR_NAME
+        build_dir = self._build_dir(preset)
         extra = provider.toolchain_args(build_dir) if provider is not None else ()
         return CMakeDriver(
             source_dir=self._root,
             build_dir=build_dir,
             generator=select_generator(self._generator or _context.active_generator()),
             extra_configure_args=extra,
+            preset=preset,
+            use_cache=self.cache,
         )
+
+
+def _implicit_sanitize_preset_name(sanitizers: tuple[str, ...]) -> str:
+    """Derive the implicit preset name for a --sanitize selection.
+
+    Args:
+        sanitizers: The sanitizer names from the CLI.
+
+    Returns:
+        A deterministic name like "sanitize-address-undefined".
+    """
+    return "sanitize-" + "-".join(sorted(set(sanitizers)))
+
+
+def _with_implicit_sanitize_preset(model: ProjectModel) -> ProjectModel:
+    """Add the preset 'cmakeless test --sanitize=...' asks for, if any.
+
+    The override rides through the same preset machinery as user-defined
+    presets, so the sanitized run gets its own build tree and the emitted
+    files stay standalone.
+
+    Args:
+        model: The frozen but not yet validated project.
+
+    Returns:
+        The model, with the implicit preset appended when the sanitize
+        override is active and no preset already has its name.
+    """
+    sanitizers = _context.active_sanitize()
+    if not sanitizers:
+        return model
+    name = _implicit_sanitize_preset_name(sanitizers)
+    if any(preset.name == name for preset in model.presets):
+        return model
+    implicit = PresetModel(name=name, optimize="none", sanitize=tuple(sorted(set(sanitizers))))
+    return dataclasses.replace(model, presets=(*model.presets, implicit))
 
 
 def _calling_script() -> Path | None:

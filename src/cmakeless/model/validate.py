@@ -7,17 +7,23 @@ try next.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
+    BUILD_TYPE_BY_OPTIMIZE,
+    CPACK_GENERATOR_BY_FORMAT,
     PACKAGE_MANAGERS,
+    SANITIZERS,
     SUPPORTED_CPP_STANDARDS,
+    TEST_FRAMEWORKS,
     WARNING_PRESETS,
     DependencyModel,
     LibraryKind,
     LibraryModel,
     ProjectModel,
     TargetModel,
+    TestModel,
 )
 
 # CMake target and project names: conservative subset that never needs quoting.
@@ -41,9 +47,15 @@ def validate_project(model: ProjectModel) -> None:
     _check_target_names(model)
     _check_sources(model)
     _check_libraries(model)
+    _check_tests(model)
+    _check_sanitizers(model)
     _check_dependencies(model)
     _check_links(model)
     _check_link_cycles(model)
+    _check_toolchains(model)
+    _check_presets(model)
+    _check_installs(model)
+    _check_package_formats(model)
     _check_subprojects(model)
     _check_dependency_versions(model)
 
@@ -201,7 +213,7 @@ def _check_target_names(model: ProjectModel) -> None:
         ConfigurationError: On an invalid or duplicated target name.
     """
     seen: set[str] = set()
-    for target in model.targets():
+    for target in model.all_targets():
         _check_name(target.name, kind="target", script=model.source_script)
         if target.name in seen:
             raise ConfigurationError(
@@ -222,7 +234,7 @@ def _check_sources(model: ProjectModel) -> None:
         ConfigurationError: When a target has no sources or names a file
             that does not exist under the project root.
     """
-    for target in model.targets():
+    for target in model.all_targets():
         if _is_header_only(target):
             continue
         if not target.sources:
@@ -305,7 +317,7 @@ def _check_links(model: ProjectModel) -> None:
     imported_names = {
         target for dependency in model.dependencies for target in dependency.link_targets
     }
-    for target in model.targets():
+    for target in model.all_targets():
         for link in target.links:
             if link.external and link.target not in imported_names:
                 raise ConfigurationError(
@@ -374,6 +386,223 @@ def _find_cycle(
     return None
 
 
+def _check_tests(model: ProjectModel) -> None:
+    """Check test-specific rules: the framework must be a known one.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a test names an unknown framework.
+    """
+    for test in model.tests:
+        if test.framework not in TEST_FRAMEWORKS:
+            frameworks = ", ".join(repr(name) for name in sorted(TEST_FRAMEWORKS))
+            raise ConfigurationError(
+                f"Unknown test framework {test.framework!r} for test {test.name!r} "
+                f"in {model.source_script}. Pick one of: {frameworks}."
+            )
+
+
+def _check_sanitizers(model: ProjectModel) -> None:
+    """Check every target's sanitizer list: known names, sane combinations.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a sanitizer is unknown, requested on a
+            header-only library, or combined with an incompatible one.
+    """
+    for target in model.all_targets():
+        if not target.sanitize:
+            continue
+        if _is_header_only(target):
+            raise ConfigurationError(
+                f"Header-only library {target.name!r} in {model.source_script} "
+                f"cannot be sanitized: it compiles nothing. Set sanitize on the "
+                f"targets that consume it instead."
+            )
+        _check_sanitizer_names(target.sanitize, where=f"target {target.name!r}", model=model)
+
+
+def _check_sanitizer_names(sanitize: tuple[str, ...], *, where: str, model: ProjectModel) -> None:
+    """Reject unknown sanitizer names and impossible combinations.
+
+    Args:
+        sanitize: The sanitizer names to check.
+        where: Location phrase for the message ("target 'app'", "preset
+            'debug'").
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: When a name is unknown or 'address' and
+            'thread' are combined (the runtimes exclude each other).
+    """
+    for name in sanitize:
+        if name not in SANITIZERS:
+            known = ", ".join(repr(sanitizer) for sanitizer in sorted(SANITIZERS))
+            raise ConfigurationError(
+                f"Unknown sanitizer {name!r} on {where} in {model.source_script}. "
+                f"Pick from: {known}."
+            )
+    if "address" in sanitize and "thread" in sanitize:
+        raise ConfigurationError(
+            f"Sanitizers 'address' and 'thread' on {where} in "
+            f"{model.source_script} cannot be combined: their runtimes are "
+            f"mutually exclusive. Keep one and run the other in a separate "
+            f"preset."
+        )
+
+
+def _check_toolchains(model: ProjectModel) -> None:
+    """Check toolchain rules: valid unique names, existing files, a compiler.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: On a duplicate name, a missing toolchain file,
+            or a generated toolchain without a compiler.
+    """
+    seen: set[str] = set()
+    for toolchain in model.toolchains:
+        _check_name(toolchain.name, kind="toolchain", script=model.source_script)
+        if toolchain.name in seen:
+            raise ConfigurationError(
+                f"Duplicate toolchain name {toolchain.name!r} in "
+                f"{model.source_script}: every toolchain needs a unique name. "
+                f"Rename or remove one of them."
+            )
+        seen.add(toolchain.name)
+        _check_toolchain_shape(toolchain.name, toolchain.file, toolchain.compiler, model)
+
+
+def _check_toolchain_shape(
+    name: str, file: Path | None, compiler: str | None, model: ProjectModel
+) -> None:
+    """Check one toolchain's shape: a real file, or enough to generate one.
+
+    Args:
+        name: The toolchain's name, for messages.
+        file: The wrapped toolchain file path, or None when generated.
+        compiler: The generated toolchain's compiler, or None.
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: When the wrapped file is missing or a
+            generated toolchain names no compiler.
+    """
+    if file is not None:
+        resolved = file if file.is_absolute() else model.root_dir / file
+        if not resolved.is_file():
+            raise ConfigurationError(
+                f"Toolchain {name!r} in {model.source_script} wraps "
+                f"'{file.as_posix()}', which does not exist (looked for "
+                f"{resolved}). Fix the path passed to Toolchain.from_file()."
+            )
+    elif not compiler:
+        raise ConfigurationError(
+            f"Toolchain {name!r} in {model.source_script} has neither a file "
+            f"nor a compiler. Pass compiler=... to Toolchain(), or wrap an "
+            f"existing file with Toolchain.from_file()."
+        )
+
+
+def _check_presets(model: ProjectModel) -> None:
+    """Check preset rules: unique names, known levels, resolvable toolchains.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: On a duplicate preset name, an unknown optimize
+            level, a bad sanitizer list, or a dangling toolchain reference.
+    """
+    toolchain_names = {toolchain.name for toolchain in model.toolchains}
+    seen: set[str] = set()
+    for preset in model.presets:
+        _check_name(preset.name, kind="preset", script=model.source_script)
+        if preset.name in seen:
+            raise ConfigurationError(
+                f"Duplicate preset name {preset.name!r} in {model.source_script}: "
+                f"every preset needs a unique name. Rename or remove one of them."
+            )
+        seen.add(preset.name)
+        if preset.optimize not in BUILD_TYPE_BY_OPTIMIZE:
+            levels = ", ".join(repr(level) for level in sorted(BUILD_TYPE_BY_OPTIMIZE))
+            raise ConfigurationError(
+                f"Unknown optimize level {preset.optimize!r} on preset "
+                f"{preset.name!r} in {model.source_script}. Pick one of: {levels}."
+            )
+        _check_sanitizer_names(preset.sanitize, where=f"preset {preset.name!r}", model=model)
+        if preset.toolchain is not None and preset.toolchain not in toolchain_names:
+            raise ConfigurationError(
+                f"Preset {preset.name!r} in {model.source_script} references "
+                f"toolchain {preset.toolchain!r}, which is not registered. Add "
+                f"the matching project.add_toolchain(...) call, or fix the name."
+            )
+
+
+def _check_installs(model: ProjectModel) -> None:
+    """Check install rules: each names one of this project's targets, once.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When an install rule names an unknown target,
+            a test target, or repeats a target.
+    """
+    installable = {target.name for target in model.targets()}
+    test_names = {test.name for test in model.tests}
+    seen: set[str] = set()
+    for install in model.installs:
+        if install.target in test_names:
+            raise ConfigurationError(
+                f"Cannot install test target {install.target!r} in "
+                f"{model.source_script}: tests are development tools, not "
+                f"shipped artifacts. Remove the install() call."
+            )
+        if install.target not in installable:
+            raise ConfigurationError(
+                f"Cannot install {install.target!r} in {model.source_script}: it "
+                f"is not a target of this project. Install only targets created "
+                f"by this project's add_executable() or add_library()."
+            )
+        if install.target in seen:
+            raise ConfigurationError(
+                f"Target {install.target!r} is installed twice in "
+                f"{model.source_script}. Remove the duplicate install() call."
+            )
+        seen.add(install.target)
+
+
+def _check_package_formats(model: ProjectModel) -> None:
+    """Check packaging rules: known formats, and something to package.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: On an unknown format, or when package() was
+            called without any install() rules to fill the package.
+    """
+    for format_name in model.package_formats:
+        if format_name not in CPACK_GENERATOR_BY_FORMAT:
+            formats = ", ".join(repr(name) for name in sorted(CPACK_GENERATOR_BY_FORMAT))
+            raise ConfigurationError(
+                f"Unknown package format {format_name!r} in {model.source_script}. "
+                f"Pick from: {formats}."
+            )
+    if model.package_formats and not model.installs:
+        raise ConfigurationError(
+            f"project.package() in {model.source_script} has nothing to package: "
+            f"no install() rules exist, so the archive would be empty. Add "
+            f"project.install(...) calls for the targets you want to ship."
+        )
+
+
 def _check_subprojects(model: ProjectModel) -> None:
     """Check subproject mounting rules, then validate each child recursively.
 
@@ -414,7 +643,7 @@ def _check_subprojects(model: ProjectModel) -> None:
         validate_project(subproject.project)
 
 
-def _is_header_only(target: TargetModel) -> bool:
+def _is_header_only(target: TargetModel | TestModel) -> bool:
     """Tell whether a target is a header-only library.
 
     Args:

@@ -13,14 +13,26 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from cmakeless.emitter.presets_emitter import emit_presets
+from cmakeless.emitter.sanitizers import (
+    MSVC_SUPPORTED_SANITIZERS,
+    SANITIZE_CACHE_VARIABLE,
+    preset_sanitize_lines,
+    preset_sanitizer_union,
+    static_sanitize_lines,
+)
+from cmakeless.emitter.toolchain_emitter import emit_toolchain
 from cmakeless.model.nodes import (
+    CPACK_GENERATOR_BY_FORMAT,
     CompileOptionsModel,
     DependencyModel,
     ExecutableModel,
+    InstallModel,
     LibraryKind,
     LibraryModel,
     ProjectModel,
     TargetModel,
+    TestModel,
 )
 
 CMAKE_MINIMUM_VERSION = "3.25"
@@ -46,6 +58,36 @@ _CMAKE_ID_BY_COMPILER = {
     "msvc": "MSVC",
 }
 
+# Per-framework discovery-module setup, emitted once per framework in use.
+# The guards make one file serve both worlds: an installed package provides
+# the module on the module path, a source fetch keeps it in its own tree.
+_INTEGRATION_BY_FRAMEWORK = {
+    "catch2": (
+        "# Catch2's per-case discovery module (extras/ when fetched from source).\n"
+        "if(catch2_SOURCE_DIR)\n"
+        "    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)\n"
+        "endif()\n"
+        "include(Catch)"
+    ),
+    "gtest": "include(GoogleTest)",
+    "doctest": (
+        "# doctest's per-case discovery module (scripts/cmake when fetched from source).\n"
+        "if(doctest_SOURCE_DIR)\n"
+        "    include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)\n"
+        "else()\n"
+        "    include(doctest)\n"
+        "endif()"
+    ),
+}
+
+# The CTest registration command per framework; {name} is the test target.
+_DISCOVERY_BY_FRAMEWORK = {
+    "catch2": "catch_discover_tests({name})",
+    "gtest": "gtest_discover_tests({name})",
+    "doctest": "doctest_discover_tests({name})",
+    "none": "add_test(NAME {name} COMMAND {name})",
+}
+
 
 def emit_cmakelists(model: ProjectModel, *, tool_version: str) -> str:
     """Generate the complete, standalone CMakeLists.txt for one project node.
@@ -62,7 +104,11 @@ def emit_cmakelists(model: ProjectModel, *, tool_version: str) -> str:
 
 
 def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
-    """Generate every CMakeLists.txt in the project tree.
+    """Generate every build file in the project tree.
+
+    Besides one CMakeLists.txt per project node, this includes each node's
+    CMakePresets.json (when it defines presets), generated toolchain files,
+    and the Config.cmake.in template consumed by its install rules.
 
     Args:
         model: The frozen root project.
@@ -70,16 +116,43 @@ def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
 
     Returns:
         File contents keyed by path relative to the root project's
-        directory; the root file first, subprojects following in path order.
+        directory; the root files first, subprojects following in path order.
     """
     files: dict[Path, str] = {
         Path("CMakeLists.txt"): emit_cmakelists(model, tool_version=tool_version)
     }
+    if model.presets:
+        files[Path("CMakePresets.json")] = emit_presets(model)
+    for toolchain in sorted(model.toolchains, key=lambda node: node.name):
+        if toolchain.file is None:
+            files[Path("cmake") / "toolchains" / f"{toolchain.name}.cmake"] = emit_toolchain(
+                toolchain, tool_version=tool_version, source_script=model.source_script
+            )
+    if model.installs:
+        files[Path("cmake") / f"{model.name}Config.cmake.in"] = _config_template(model.name)
     for subproject in sorted(model.subprojects, key=lambda node: node.directory.as_posix()):
         subtree = emit_tree(subproject.project, tool_version=tool_version)
         for relative_path, text in subtree.items():
             files[subproject.directory / relative_path] = text
     return files
+
+
+def _config_template(name: str) -> str:
+    """Write the Config.cmake.in template for a project's export set.
+
+    Args:
+        name: The project name the package is found by.
+
+    Returns:
+        The template text configure_package_config_file() consumes.
+    """
+    return (
+        f"@PACKAGE_INIT@\n"
+        f"\n"
+        f'include("${{CMAKE_CURRENT_LIST_DIR}}/{name}Targets.cmake")\n'
+        f"\n"
+        f"check_required_components({name})\n"
+    )
 
 
 class _CMakeListsVisitor:
@@ -101,11 +174,10 @@ class _CMakeListsVisitor:
         Returns:
             The complete CMakeLists.txt text, newline-terminated.
         """
-        sections = [self._header(), self._preamble()]
-        if any(library.kind is LibraryKind.SHARED for library in self._model.libraries):
-            sections.append("include(GenerateExportHeader)")
-        if self._model.dependencies and self._model.package_manager == "auto":
-            sections.append("include(FetchContent)")
+        sections = [self._header(), self._preamble(), *self._module_includes()]
+        if _tree_has_tests(self._model):
+            sections.append("enable_testing()")
+        sections.extend(self._preset_sanitize_preamble())
         sections.extend(
             self._visit_dependency(dependency)
             for dependency in sorted(self._model.dependencies, key=lambda dep: dep.name)
@@ -113,8 +185,8 @@ class _CMakeListsVisitor:
         subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
         sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
         # Declaration order in build.py is meaningless to CMake, so targets are
-        # sorted (libraries first, then executables) to keep the output
-        # deterministic and diffable.
+        # sorted (libraries first, then executables, then tests) to keep the
+        # output deterministic and diffable.
         sections.extend(
             self._visit_library(library)
             for library in sorted(self._model.libraries, key=lambda target: target.name)
@@ -123,7 +195,29 @@ class _CMakeListsVisitor:
             self._visit_executable(target)
             for target in sorted(self._model.executables, key=lambda target: target.name)
         )
+        sections.extend(self._framework_includes())
+        sections.extend(
+            self._visit_test(test)
+            for test in sorted(self._model.tests, key=lambda target: target.name)
+        )
+        sections.extend(self._install_sections())
+        sections.extend(self._cpack_section())
         return "\n\n".join(sections) + "\n"
+
+    def _module_includes(self) -> list[str]:
+        """Collect the include() lines the emitted commands rely on.
+
+        Returns:
+            Zero or more include commands, in a fixed order.
+        """
+        includes: list[str] = []
+        if any(library.kind is LibraryKind.SHARED for library in self._model.libraries):
+            includes.append("include(GenerateExportHeader)")
+        if self._model.dependencies and self._model.package_manager == "auto":
+            includes.append("include(FetchContent)")
+        if self._model.installs:
+            includes.append("include(GNUInstallDirs)")
+        return includes
 
     def _header(self) -> str:
         """Write the self-describing header comment.
@@ -266,6 +360,113 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         return "\n\n".join(blocks)
 
+    def _visit_test(self, target: TestModel) -> str:
+        """Emit one test target: an executable plus its CTest registration.
+
+        Args:
+            target: The test to emit.
+
+        Returns:
+            The target's complete section text.
+        """
+        blocks = [f"add_executable({target.name})"]
+        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.append(
+            f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
+        )
+        blocks.extend(self._settings_blocks(target, "PRIVATE"))
+        if self._links_shared_library(target):
+            blocks.append(self._runtime_dll_copy_block(target))
+        blocks.append(_DISCOVERY_BY_FRAMEWORK[target.framework].format(name=target.name))
+        return "\n\n".join(blocks)
+
+    def _framework_includes(self) -> list[str]:
+        """Emit the discovery-module includes for every framework in use.
+
+        A source fetch keeps each framework's CMake module inside its own
+        source tree, so the include is guarded to work both with installed
+        packages and with the FetchContent fallback.
+
+        Returns:
+            One include block per framework, sorted by framework name.
+        """
+        frameworks = sorted({test.framework for test in self._model.tests} - {"none"})
+        return [_INTEGRATION_BY_FRAMEWORK[framework] for framework in frameworks]
+
+    def _links_shared_library(self, target: TestModel) -> bool:
+        """Tell whether a test transitively links a shared library of this project.
+
+        Args:
+            target: The test to inspect.
+
+        Returns:
+            True when a project shared library is reachable through the
+            link graph, so the test needs its DLLs next to it on Windows.
+        """
+        libraries_by_name = {library.name: library for library in self._model.libraries}
+        stack = [link.target for link in target.links if not link.external]
+        seen: set[str] = set()
+        while stack:
+            name = stack.pop()
+            if name in seen or name not in libraries_by_name:
+                continue
+            seen.add(name)
+            library = libraries_by_name[name]
+            if library.kind is LibraryKind.SHARED:
+                return True
+            stack.extend(link.target for link in library.links if not link.external)
+        return False
+
+    def _runtime_dll_copy_block(self, target: TestModel) -> str:
+        """Copy linked DLLs next to a test binary so it runs on Windows.
+
+        Args:
+            target: The test that links shared libraries.
+
+        Returns:
+            The guarded post-build copy command.
+        """
+        return (
+            f"if(WIN32)\n"
+            f"    add_custom_command(TARGET {target.name} POST_BUILD\n"
+            f"        COMMAND ${{CMAKE_COMMAND}} -E copy_if_different\n"
+            f"            $<TARGET_RUNTIME_DLLS:{target.name}> "
+            f"$<TARGET_FILE_DIR:{target.name}>\n"
+            f"        COMMAND_EXPAND_LISTS\n"
+            f"    )\n"
+            f"endif()"
+        )
+
+    def _preset_sanitize_preamble(self) -> list[str]:
+        """Declare the cache variable presets use to switch sanitizers on.
+
+        Returns:
+            The declaration (and, when a requested sanitizer has no MSVC
+            support, a loud configure-time rejection); empty when no preset
+            requests sanitizers.
+        """
+        union = preset_sanitizer_union(self._model)
+        if not union:
+            return []
+        sections = [
+            f"# Sanitizers are switched on per preset; see CMakePresets.json.\n"
+            f'set({SANITIZE_CACHE_VARIABLE} "" CACHE STRING\n'
+            f'    "Sanitizers applied to every target (semicolon-separated)"\n'
+            f")"
+        ]
+        if set(union) - MSVC_SUPPORTED_SANITIZERS:
+            sections.append(
+                f"if(MSVC)\n"
+                f"    foreach(sanitizer IN LISTS {SANITIZE_CACHE_VARIABLE})\n"
+                f'        if(NOT sanitizer STREQUAL "address")\n'
+                f"            message(FATAL_ERROR \"Sanitizer '${{sanitizer}}' is not "
+                f'supported by MSVC. Build with Clang or GCC, or pick a preset without it.")\n'
+                f"        endif()\n"
+                f"    endforeach()\n"
+                f"endif()"
+            )
+        return sections
+
     def _visit_header_only_library(self, target: LibraryModel) -> str:
         """Emit a header-only library as an INTERFACE target.
 
@@ -283,7 +484,7 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
         return "\n\n".join(blocks)
 
-    def _sources_block(self, target: TargetModel, visibility: str) -> str:
+    def _sources_block(self, target: TargetModel | TestModel, visibility: str) -> str:
         """Write a target_sources command with sorted sources.
 
         Args:
@@ -338,7 +539,7 @@ class _CMakeListsVisitor:
         )
 
     def _settings_blocks(
-        self, target: TargetModel, visibility: str, *, warnings: bool = True
+        self, target: TargetModel | TestModel, visibility: str, *, warnings: bool = True
     ) -> list[str]:
         """Emit the settings shared by all target kinds.
 
@@ -365,11 +566,184 @@ class _CMakeListsVisitor:
             lines.extend(f"    {line}" for line in option_lines)
             lines.append(")")
             blocks.append("\n".join(lines))
+        if warnings:
+            blocks.extend(self._sanitize_blocks(target, visibility))
         if target.links:
             blocks.append(self._links_block(target))
         return blocks
 
-    def _defines_block(self, target: TargetModel, visibility: str) -> str:
+    def _sanitize_blocks(self, target: TargetModel | TestModel, visibility: str) -> list[str]:
+        """Emit a target's sanitizer flags, compile and link always paired.
+
+        Combines the target's own sanitize list (unconditional) with the
+        preset-selectable sanitizers (guarded by the cache variable), so
+        every compiled target honors both.
+
+        Args:
+            target: The compiled target to sanitize.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            Zero to three command blocks: an MSVC rejection for unsupported
+            requests, then the compile options, then the link options.
+        """
+        static_compile, static_link = static_sanitize_lines(target.sanitize)
+        preset_compile, preset_link = preset_sanitize_lines(preset_sanitizer_union(self._model))
+        compile_lines = [*static_compile, *preset_compile]
+        link_lines = [*static_link, *preset_link]
+        blocks: list[str] = []
+        unsupported = sorted(set(target.sanitize) - MSVC_SUPPORTED_SANITIZERS)
+        if unsupported:
+            listing = ", ".join(unsupported)
+            blocks.append(
+                f"if(MSVC)\n"
+                f"    message(FATAL_ERROR \"Target '{target.name}' requests sanitizers "
+                f"MSVC does not support: {listing}. Build with Clang or GCC, or drop "
+                f'them from sanitize in {self._model.source_script}.")\n'
+                f"endif()"
+            )
+        for command, lines in (
+            ("target_compile_options", compile_lines),
+            ("target_link_options", link_lines),
+        ):
+            if lines:
+                rendered = [f"{command}({target.name} {visibility}"]
+                rendered.extend(f"    {line}" for line in lines)
+                rendered.append(")")
+                blocks.append("\n".join(rendered))
+        return blocks
+
+    def _install_sections(self) -> list[str]:
+        """Emit every install rule plus the export set that ships them.
+
+        Returns:
+            One section per installed target (sorted by name), then the
+            export/Config.cmake section; empty without install rules.
+        """
+        if not self._model.installs:
+            return []
+        sections = [
+            self._visit_install(install)
+            for install in sorted(self._model.installs, key=lambda rule: rule.target)
+        ]
+        sections.append(self._export_section())
+        return sections
+
+    def _visit_install(self, install: InstallModel) -> str:
+        """Emit one install rule: the target, and its headers when asked.
+
+        Args:
+            install: The install rule to emit.
+
+        Returns:
+            The rule's complete section text.
+        """
+        lines = [
+            f"install(TARGETS {install.target}",
+            f"    EXPORT {self._model.name}Targets",
+            "    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}",
+            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}",
+            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}",
+        ]
+        if install.headers:
+            # INCLUDES DESTINATION teaches the exported target where its
+            # headers land, replacing the BUILD_INTERFACE-only build path.
+            lines.append("    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}")
+        lines.append(")")
+        blocks = ["\n".join(lines)]
+        if install.headers:
+            blocks.extend(self._header_install_blocks(install.target))
+        return "\n\n".join(blocks)
+
+    def _header_install_blocks(self, target_name: str) -> list[str]:
+        """Emit the header installs for one installed library.
+
+        Args:
+            target_name: The installed target's name.
+
+        Returns:
+            One install command per public header directory, plus the
+            generated export header for shared libraries; empty when the
+            target is not a library of this project.
+        """
+        library = next(
+            (candidate for candidate in self._model.libraries if candidate.name == target_name),
+            None,
+        )
+        if library is None:
+            return []
+        blocks = [
+            f"install(DIRECTORY {directory.as_posix()}/ DESTINATION ${{CMAKE_INSTALL_INCLUDEDIR}})"
+            for directory in sorted(library.public_include_dirs)
+        ]
+        if library.kind is LibraryKind.SHARED:
+            blocks.append(
+                f"install(FILES ${{CMAKE_CURRENT_BINARY_DIR}}/{library.name}_export.h "
+                f"DESTINATION ${{CMAKE_INSTALL_INCLUDEDIR}})"
+            )
+        return blocks
+
+    def _export_section(self) -> str:
+        """Emit the export set and Config.cmake generation for find_package.
+
+        Returns:
+            The complete export section: install(EXPORT), the version and
+            config files, and their installation.
+        """
+        name = self._model.name
+        destination = f"${{CMAKE_INSTALL_LIBDIR}}/cmake/{name}"
+        return (
+            f"install(EXPORT {name}Targets\n"
+            f"    FILE {name}Targets.cmake\n"
+            f"    NAMESPACE {name}::\n"
+            f"    DESTINATION {destination}\n"
+            f")\n"
+            f"\n"
+            f"include(CMakePackageConfigHelpers)\n"
+            f"\n"
+            f"configure_package_config_file(\n"
+            f"    ${{CMAKE_CURRENT_SOURCE_DIR}}/cmake/{name}Config.cmake.in\n"
+            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}Config.cmake\n"
+            f"    INSTALL_DESTINATION {destination}\n"
+            f")\n"
+            f"\n"
+            f"write_basic_package_version_file(\n"
+            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}ConfigVersion.cmake\n"
+            f"    VERSION ${{PROJECT_VERSION}}\n"
+            f"    COMPATIBILITY SameMajorVersion\n"
+            f")\n"
+            f"\n"
+            f"install(FILES\n"
+            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}Config.cmake\n"
+            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}ConfigVersion.cmake\n"
+            f"    DESTINATION {destination}\n"
+            f")"
+        )
+
+    def _cpack_section(self) -> list[str]:
+        """Emit the CPack configuration for the requested package formats.
+
+        Returns:
+            The settings block and the include(CPack) that must come last;
+            empty when packaging was not requested.
+        """
+        if not self._model.package_formats:
+            return []
+        generators = ";".join(
+            CPACK_GENERATOR_BY_FORMAT[format_name]
+            for format_name in sorted(self._model.package_formats)
+        )
+        lines = [
+            f"set(CPACK_PACKAGE_NAME {self._model.name})",
+            f"set(CPACK_PACKAGE_VERSION {self._model.version})",
+        ]
+        if "deb" in self._model.package_formats:
+            # Debian packages refuse to build without a maintainer contact.
+            lines.append(f'set(CPACK_PACKAGE_CONTACT "{self._model.name} maintainers")')
+        lines.append(f'set(CPACK_GENERATOR "{generators}")')
+        return ["\n".join(lines), "include(CPack)"]
+
+    def _defines_block(self, target: TargetModel | TestModel, visibility: str) -> str:
         """Write a target_compile_definitions command with sorted defines.
 
         Args:
@@ -419,7 +793,7 @@ class _CMakeListsVisitor:
         compiler_ids = ",".join(_CMAKE_ID_BY_COMPILER[compiler] for compiler in options.compilers)
         return f"$<$<CXX_COMPILER_ID:{compiler_ids}>:{flags}>"
 
-    def _links_block(self, target: TargetModel) -> str:
+    def _links_block(self, target: TargetModel | TestModel) -> str:
         """Write a target_link_libraries command with explicit visibility.
 
         Args:
@@ -440,6 +814,23 @@ class _CMakeListsVisitor:
             lines.extend(f"    PRIVATE {name}" for name in private)
         lines.append(")")
         return "\n".join(lines)
+
+
+def _tree_has_tests(model: ProjectModel) -> bool:
+    """Tell whether a project or any of its subprojects defines tests.
+
+    enable_testing() must appear in every directory on the path from the
+    top-level CMakeLists down to the tests for ctest to find them.
+
+    Args:
+        model: The project node to inspect.
+
+    Returns:
+        True when tests exist anywhere in the subtree.
+    """
+    if model.tests:
+        return True
+    return any(_tree_has_tests(subproject.project) for subproject in model.subprojects)
 
 
 def _resolved_cmake_name(dependency: DependencyModel) -> str:

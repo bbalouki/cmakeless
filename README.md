@@ -17,6 +17,37 @@ project.build()
 $ python build.py     # or: cmakeless build
 ```
 
+It does not stop at building. Tests, sanitizers, presets, install rules,
+and packaging are one call each:
+
+```python
+from cmakeless import Preset, Project
+
+project = Project("mygame", version="1.0.0", cpp_std=23)
+engine = project.add_library("engine", sources=["src/engine/*.cpp"], public_headers="include/")
+
+tests = project.add_test("engine_tests", sources=["tests/*.cpp"], framework="catch2")
+tests.link(engine)
+
+project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
+project.add_preset(Preset("release", optimize="release", lto=True))
+
+project.install(engine, headers=True)   # export set + Config.cmake included
+project.package(formats=["zip"])
+project.build()
+```
+
+```console
+$ cmakeless test                        # CTest, per-case discovery
+$ cmakeless test --sanitize=address     # same suite, sanitized build tree
+$ cmakeless build --preset release      # CMakePresets.json, own build tree
+$ cmakeless install --prefix dist       # GNUInstallDirs-correct layout
+$ cmakeless package                     # CPack archives
+```
+
+`compile_commands.json` always lands at the project root, and ccache or
+sccache is wired in automatically when found.
+
 ## Requirements
 
 - Python 3.13+
