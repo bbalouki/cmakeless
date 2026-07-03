@@ -63,6 +63,9 @@ _REGISTRY: dict[str, RegistryEntry] = {
         cmake_name="Catch2",
         targets=("Catch2::Catch2WithMain",),
         url_template="https://github.com/catchorg/Catch2/archive/refs/tags/v{version}.tar.gz",
+        sha256_by_version={
+            "3.5.4": "b7754b711242c167d8f60b890695347f90a1ebc95949a045385114165d606dbb",
+        },
         vcpkg_name="catch2",
         conan_name="catch2",
     ),
@@ -70,6 +73,9 @@ _REGISTRY: dict[str, RegistryEntry] = {
         cmake_name="doctest",
         targets=("doctest::doctest",),
         url_template="https://github.com/doctest/doctest/archive/refs/tags/v{version}.tar.gz",
+        sha256_by_version={
+            "2.4.11": "632ed2c05a7f53fa961381497bf8069093f0d6628c5f26286161fbd32a560186",
+        },
         vcpkg_name="doctest",
         conan_name="doctest",
     ),
@@ -77,6 +83,9 @@ _REGISTRY: dict[str, RegistryEntry] = {
         cmake_name="GTest",
         targets=("GTest::gtest", "GTest::gtest_main"),
         url_template="https://github.com/google/googletest/archive/refs/tags/v{version}.tar.gz",
+        sha256_by_version={
+            "1.14.0": "8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7",
+        },
         vcpkg_name="gtest",
         conan_name="gtest",
     ),
