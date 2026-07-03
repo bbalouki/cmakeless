@@ -12,18 +12,21 @@ from typing import TYPE_CHECKING, Literal
 
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
+    TEST_FRAMEWORKS,
     CompileOptionsModel,
     DefineModel,
     ExecutableModel,
     LibraryKind,
     LibraryModel,
     LinkModel,
+    TestModel,
 )
 
 if TYPE_CHECKING:
     from cmakeless.api.dependencies import Dependencies, Dependency
 
 type LibraryKindName = Literal["static", "shared", "header_only"]
+type TestFrameworkName = Literal["catch2", "gtest", "doctest", "none"]
 
 _GLOB_CHARACTERS = frozenset("*?[")
 
@@ -41,6 +44,9 @@ class _Target:
 
     Attributes:
         name: The target's unique name (read-only property).
+        sanitize: Sanitizer names ("address", "undefined", "thread",
+            "leak") applied to this target's compile and link steps; plain
+            attribute, assign a list to change it.
     """
 
     def __init__(
@@ -64,6 +70,7 @@ class _Target:
         self._name = name
         self._sources: list[str] = list(sources)
         self._script = script
+        self.sanitize: Sequence[str] = []
         self._defines: list[DefineModel] = []
         self._compile_options: list[CompileOptionsModel] = []
         self._links: list[tuple[Library, bool]] = []
@@ -230,6 +237,15 @@ class _Target:
             resolved.extend(matches)
         return tuple(resolved)
 
+    def _freeze_sanitize(self) -> tuple[str, ...]:
+        """Normalize the sanitize attribute into the model's sorted tuple.
+
+        Returns:
+            The requested sanitizer names, deduplicated and sorted; name
+            validation happens on the frozen model.
+        """
+        return tuple(sorted(set(self.sanitize)))
+
     def _freeze_links(self) -> tuple[LinkModel, ...]:
         """Resolve recorded link edges to model edges naming targets.
 
@@ -284,6 +300,95 @@ class Executable(_Target):
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
+            sanitize=self._freeze_sanitize(),
+        )
+
+
+class Test(_Target):
+    """A test executable being described. Frozen into a TestModel.
+
+    Created via Project.add_test(); the framework's package registration
+    and link edge are handled there, so a Test builder only adds sources,
+    links, and settings like any other target.
+    """
+
+    # Tell pytest this builder is not a test case, despite the name.
+    __test__ = False
+
+    def __init__(
+        self,
+        name: str,
+        sources: Sequence[str],
+        *,
+        framework: TestFrameworkName = "catch2",
+        script: str,
+        dependencies: Dependencies,
+    ) -> None:
+        """Start describing a test.
+
+        Args:
+            name: Unique target name within the project.
+            sources: Source files or glob patterns, project-root-relative.
+            framework: "catch2", "gtest", "doctest", or "none" for a plain
+                executable whose exit code is the verdict.
+            script: Display name of the owning build description, used in
+                error messages.
+            dependencies: The owning project's dependency collection.
+
+        Raises:
+            ConfigurationError: When ``framework`` is not a known one.
+        """
+        super().__init__(name, sources, script=script, dependencies=dependencies)
+        if framework not in TEST_FRAMEWORKS:
+            frameworks = ", ".join(repr(known) for known in sorted(TEST_FRAMEWORKS))
+            raise ConfigurationError(
+                f"Unknown test framework {framework!r} for test {self._name!r} in "
+                f"{self._script}. Pick one of: {frameworks}."
+            )
+        self._framework: str = framework
+
+    @property
+    def framework(self) -> str:
+        """The test framework: "catch2", "gtest", "doctest", or "none"."""
+        return self._framework
+
+    def link(self, library: Library) -> None:
+        """Link a library into this test.
+
+        Always private: nothing consumes a test's headers.
+
+        Args:
+            library: A library created by this project's add_library().
+        """
+        self._link(library, public=False)
+
+    def __repr__(self) -> str:
+        """Developer-facing representation.
+
+        Returns:
+            The name, framework, and raw sources of this test.
+        """
+        return (
+            f"Test(name={self._name!r}, framework={self._framework!r}, sources={self._sources!r})"
+        )
+
+    def _freeze(self, root: Path) -> TestModel:
+        """Freeze this builder into its immutable model node.
+
+        Args:
+            root: Absolute project root used to expand source globs.
+
+        Returns:
+            The fully resolved TestModel.
+        """
+        return TestModel(
+            name=self._name,
+            sources=self._freeze_sources(root),
+            framework=self._framework,
+            defines=tuple(self._defines),
+            compile_options=tuple(self._compile_options),
+            links=self._freeze_links(),
+            sanitize=self._freeze_sanitize(),
         )
 
 
@@ -386,6 +491,7 @@ class Library(_Target):
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
             links=self._freeze_links(),
+            sanitize=self._freeze_sanitize(),
         )
 
 
