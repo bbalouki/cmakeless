@@ -111,7 +111,7 @@ app.define("GAME_MAX_PLAYERS", 8)
 tests = project.add_test(
     "engine_tests",
     sources=["tests/*.cpp"],
-    framework="catch2",          # or "gtest", "doctest", "none"
+    framework="gtest",           # the default; or "catch2", "doctest", "none"
 )
 tests.link(engine)
 ```
@@ -120,7 +120,7 @@ tests.link(engine)
 $ cmakeless test
 ```
 
-**We handle:** fetching the framework (via section 2), `enable_testing()`, CTest registration with per-test-case discovery (`catch_discover_tests`/`gtest_discover_tests`), correct runtime path setup so shared-library tests run on Windows without PATH rituals, and result reporting back into Python via the driver.
+**We handle:** fetching the framework (via section 2), `enable_testing()`, CTest registration with per-test-case discovery (`gtest_discover_tests`/`catch_discover_tests`), correct runtime path setup so shared-library tests run on Windows without PATH rituals, and result reporting back into Python via the driver.
 
 Sanitized test runs are one argument: `cmakeless test --sanitize=address`.
 
@@ -132,12 +132,12 @@ Sanitized test runs are one argument: `cmakeless test --sanitize=address`.
 
 ```python
 bindings = project.add_python_module(
-    "mygame_core", sources=["src/bindings.cpp"], binding="nanobind"
+    "mygame_core", sources=["src/bindings.cpp"], binding="pybind11"  # the default
 )
 bindings.link(engine)
 ```
 
-**We handle:** locating the Python development headers of the *invoking* interpreter, fetching nanobind or pybind11 (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `nanobind_add_module`/`pybind11_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
+**We handle:** locating the Python development headers of the *invoking* interpreter, fetching pybind11 or nanobind (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `pybind11_add_module`/`nanobind_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
 
 This is the flagship of the whole idea: the tool that builds your C++ is already inside the interpreter that will import it.
 
