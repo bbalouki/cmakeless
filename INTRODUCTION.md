@@ -110,7 +110,7 @@ Your build script should be the most boring file in your repository. Let us make
 
 ## Read Next
 
-- [ARCHITECTURE.md](ARCHITECTURE.md): how CMakeless is designed, layer by layer.
-- [FEATURES.md](FEATURES.md): everything the library does for you, with before/after comparisons.
-- [ROADMAP.md](ROADMAP.md): where we are going and when.
-- [CONTRIBUTING.md](CONTRIBUTING.md): why your scars from CMake make you exactly the contributor we need.
+- [ARCHITECTURE](ARCHITECTURE.md): how CMakeless is designed, layer by layer.
+- [FEATURES](FEATURES.md): everything the library does for you, with before/after comparisons.
+- [ROADMAP](ROADMAP.md): where we are going and when.
+- [CONTRIBUTING](CONTRIBUTING.md): why your scars from CMake make you exactly the contributor we need.
