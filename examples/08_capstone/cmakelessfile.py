@@ -1,4 +1,4 @@
-"""The capstone: one build.py that exercises the whole surface at once.
+"""The capstone: one cmakelessfile.py that exercises the whole surface at once.
 
 A single library, built once, is shipped four ways from the same description:
 

@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import NamedTuple
 
+from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._parallel import parallel_map
 from cmakeless._version import __version__
 from cmakeless.api import _context
@@ -132,7 +133,7 @@ class Project:
             cpp_std: The C++ standard every target compiles with.
             warnings: Warning preset ("strict", "default", or "none").
             root: Project root directory; defaults to the directory of the
-                script that constructed the Project (usually build.py).
+                script that constructed the Project (usually cmakelessfile.py).
         """
         self._name = name
         self._version = version
@@ -144,7 +145,7 @@ class Project:
         self.lto = False
         script = _calling_script()
         self._root = _resolve_root(root, script)
-        self._source_script = script.name if script is not None else "build.py"
+        self._source_script = script.name if script is not None else BUILD_SCRIPT_NAME
         self._dependencies = Dependencies(self)
         self._generator: str | None = None
         # The console display is the default listener; add_observer() adds more.
@@ -244,8 +245,8 @@ class Project:
     def add_subproject(self, path: str | Path) -> Project:
         """Mount a self-contained child project at a directory under the root.
 
-        The child directory must contain its own build.py describing exactly
-        one Project; it is executed in description mode, so its own
+        The child directory must contain its own cmakelessfile.py describing
+        exactly one Project; it is executed in description mode, so its own
         project.build() call registers the project instead of building.
 
         Args:
@@ -255,24 +256,26 @@ class Project:
             The captured child Project.
 
         Raises:
-            ConfigurationError: When the child has no build.py, describes a
-                number of projects other than one, or closes a mount cycle.
+            ConfigurationError: When the child has no cmakelessfile.py,
+                describes a number of projects other than one, or closes a
+                mount cycle.
         """
         directory = Path(path)
-        script = self._root / directory / "build.py"
+        script = self._root / directory / BUILD_SCRIPT_NAME
         if not script.is_file():
             raise ConfigurationError(
                 f"Subproject '{directory.as_posix()}' added in {self._source_script} "
-                f"has no build description (looked for {script}). Create a build.py "
-                f"there, or fix the path."
+                f"has no build description (looked for {script}). Create a "
+                f"{BUILD_SCRIPT_NAME} there, or fix the path."
             )
         with _context.loading_script(script), _context.capturing_projects() as captured:
             runpy.run_path(str(script))
         if len(captured) != 1:
             raise ConfigurationError(
                 f"Subproject '{directory.as_posix()}' must describe exactly one "
-                f"Project in its build.py, found {len(captured)}. Keep one Project "
-                f"per build.py; split anything else into further subprojects."
+                f"Project in its {BUILD_SCRIPT_NAME}, found {len(captured)}. Keep one "
+                f"Project per {BUILD_SCRIPT_NAME}; split anything else into further "
+                f"subprojects."
             )
         child = captured[0]
         self._subprojects.append((directory, child))
@@ -423,7 +426,7 @@ class Project:
 
         The project-level escape hatch: the file is emitted as an include()
         near the top of CMakeLists.txt, fenced with a comment naming its
-        build.py origin, in the order added. The path must name a real file
+        cmakelessfile.py origin, in the order added. The path must name a real file
         inside the project root; existence is checked at freeze time.
 
         Args:
@@ -555,7 +558,7 @@ class Project:
         """Freeze, validate, emit, configure, and compile: the whole pipeline.
 
         Under the cmakeless CLI this dispatches to the verb the user asked
-        for, so one build.py serves 'cmakeless build', 'configure', 'test',
+        for, so one cmakelessfile.py serves 'cmakeless build', 'configure', 'test',
         'install', 'package', 'clean', and 'lock'. In description mode (this
         project is being loaded as a subproject) it does nothing: the parent
         owns the pipeline.
@@ -917,11 +920,11 @@ def _with_implicit_sanitize_preset(model: ProjectModel) -> ProjectModel:
 
 
 def _calling_script() -> Path | None:
-    """Find the user's script (usually build.py) that invoked the cmakeless API.
+    """Find the user's script (usually cmakelessfile.py) that invoked the cmakeless API.
 
     Walking the stack keeps Project's root defaulting to the directory of the
     build description, not the process working directory, so 'python
-    somewhere/build.py' behaves identically to 'cmakeless build' run inside it.
+    somewhere/cmakelessfile.py' behaves identically to 'cmakeless build' run inside it.
 
     Returns:
         Absolute path of the first stack frame outside the cmakeless

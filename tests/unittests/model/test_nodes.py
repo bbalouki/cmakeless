@@ -17,7 +17,7 @@ def make_project_model(**overrides: object) -> ProjectModel:
         "version": "1.0.0",
         "cpp_std": 20,
         "root_dir": Path("/tmp/demo"),
-        "source_script": "build.py",
+        "source_script": "cmakelessfile.py",
         "executables": (),
     }
     defaults.update(overrides)

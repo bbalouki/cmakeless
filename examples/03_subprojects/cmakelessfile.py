@@ -1,4 +1,4 @@
-"""A parent project composing a self-contained subproject (its own build.py)."""
+"""A parent project composing a self-contained subproject (its own cmakelessfile.py)."""
 
 from cmakeless import Project
 

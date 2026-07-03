@@ -2,12 +2,13 @@
 
 Two pieces of state live here:
 
-- Description mode: while a parent project loads a subproject's build.py, the
-  child's Project must register itself instead of building. A capture stack
-  makes the child's project.build() call a harmless no-op.
-- Verb override: 'cmakeless configure' runs the same build.py as 'cmakeless
-  build'; the override tells the project.build() facade which verb the user
-  actually asked for.
+- Description mode: while a parent project loads a subproject's
+  cmakelessfile.py, the child's Project must register itself instead of
+  building. A capture stack makes the child's project.build() call a
+  harmless no-op.
+- Verb override: 'cmakeless configure' runs the same cmakelessfile.py as
+  'cmakeless build'; the override tells the project.build() facade which
+  verb the user actually asked for.
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ def register_project(project: Project) -> None:
 
 
 def in_description_mode() -> bool:
-    """Tell whether a subproject's build.py is currently being loaded.
+    """Tell whether a subproject's cmakelessfile.py is currently being loaded.
 
     Returns:
         True while at least one capturing_projects() context is active.
@@ -71,7 +72,7 @@ def loading_script(script: Path) -> Generator[None]:
     """Guard against subproject recursion (a child adding its own ancestor).
 
     Args:
-        script: The build.py about to be executed.
+        script: The cmakelessfile.py about to be executed.
 
     Yields:
         Nothing; the guard is active for the duration of the context.

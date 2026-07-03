@@ -24,7 +24,7 @@ def make_model(
     name: str = "demo",
     cpp_std: int = 20,
     package_manager: str = "auto",
-    source_script: str = "build.py",
+    source_script: str = "cmakelessfile.py",
     executables: tuple[ExecutableModel, ...] = (),
     dependencies: tuple[DependencyModel, ...] = (),
     subprojects: tuple[SubprojectModel, ...] = (),
@@ -78,7 +78,7 @@ def test_missing_source_reports_what_where_and_what_next(project_dir: Path) -> N
     message = str(excinfo.value)
     assert "src/nope.cpp" in message
     assert "app" in message
-    assert "build.py" in message
+    assert "cmakelessfile.py" in message
     assert "typo" in message
 
 
@@ -178,7 +178,7 @@ def test_conflicting_versions_across_the_tree_rejected(project_dir: Path) -> Non
     child = make_model(
         project_dir,
         name="child",
-        source_script="tools/child/build.py",
+        source_script="tools/child/cmakelessfile.py",
         dependencies=(fmt_dependency(version="11.0.0"),),
     )
     parent = make_model(
@@ -208,7 +208,7 @@ def test_unknown_binding_backend_rejected(project_dir: Path) -> None:
     message = str(excinfo.value)
     assert "cython" in message
     assert "core" in message
-    assert "build.py" in message
+    assert "cmakelessfile.py" in message
 
 
 def test_python_module_missing_source_rejected(project_dir: Path) -> None:

@@ -27,9 +27,9 @@ The thinnest possible slice through all four layers, proving the architecture be
 - Model: `ProjectModel` and `ExecutableModel` frozen dataclasses, freeze-time validation of source existence.
 - Emitter: generate a correct, modern `CMakeLists.txt` for a single executable.
 - Driver: run `cmake` configure + build, surface exit codes as `CMakeError`.
-- CLI: `cmakeless build` and `python build.py` both compile a hello-world.
+- CLI: `cmakeless build` and `python cmakelessfile.py` both compile a hello-world.
 
-**Exit criterion:** a newcomer clones the repo, writes a 5-line `build.py`, and gets a running binary on all three OSes.
+**Exit criterion:** a newcomer clones the repo, writes a 5-line `cmakelessfile.py`, and gets a running binary on all three OSes.
 
 ## Phase 1: MVP, v0.1 
 
@@ -70,7 +70,7 @@ Everything that turns "it builds" into "it ships":
 - Install and packaging: `project.install(...)`, export sets, `Config.cmake` generation, CPack formats.
 - `compile_commands.json` always-on plumbing; ccache/sccache auto-detection.
 
-**Exit criterion:** a library author can build, test (sanitized), install, and package a release on CI using only `build.py`.
+**Exit criterion:** a library author can build, test (sanitized), install, and package a release on CI using only `cmakelessfile.py`.
 
 ## Phase 4: Interop and Parallelism, v0.4 
 
@@ -103,7 +103,7 @@ Repeated here because roadmaps grow by accretion and this one must not:
 
 - **Not a build system.** No compilation scheduling, no dependency scanning of source files. CMake + Ninja own that.
 - **Not a CMake replacement.** If CMake ships a feature, our job is to expose it elegantly, not to reimplement it.
-- **Not a new language.** `build.py` is plain Python. Any proposal that adds CMakeless-only semantics to Python syntax is rejected on arrival.
+- **Not a new language.** `cmakelessfile.py` is plain Python. Any proposal that adds CMakeless-only semantics to Python syntax is rejected on arrival.
 - **Not a package repository.** We adapt to vcpkg/Conan/upstream sources; we never host packages.
 
 Want to bend the timeline? The fastest way is to grab a phase item: see [CONTRIBUTING](CONTRIBUTING.md).

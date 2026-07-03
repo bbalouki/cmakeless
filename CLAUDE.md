@@ -1,3 +1,45 @@
+# CMakeless — Project Context
+
+## Overview
+
+CMakeless is a pure-Python frontend for CMake: users write a `cmakelessfile.py` describing a C++ project through a small, typed `Project` API (`add_executable`, `add_library`, `add_test`, `add_python_module`, `depends`, presets, install/package), and CMakeless generates a clean, standalone `CMakeLists.txt` and drives real CMake to configure and build it. It is pre-1.0 (alpha), not yet published to PyPI, so breaking changes are acceptable without a deprecation cycle.
+
+## Repository Layout
+
+- `src/cmakeless/`
+  - `api/` — the public builder classes (`Project`, `Executable`, `Library`, `Test`, `PythonModule`, `Preset`, `Toolchain`, `Dependency`) that users call from `cmakelessfile.py`.
+  - `model/` — the frozen, validated intermediate representation the API builds and the emitter reads.
+  - `emitter/` — turns the model into `CMakeLists.txt` text; output is deterministic and byte-identical for the same model.
+  - `driver/` — invokes the real `cmake`/`ctest`/`cpack` binaries and translates their failures into structured exceptions.
+  - `deps/` — dependency resolution: `find_package`-then-`FetchContent` fallback, vcpkg, Conan, and the `cmakeless.lock` lockfile.
+  - `cli.py` — the `cmakeless` console script and its verbs (build/configure/test/install/package/clean/lock/init).
+  - `_constants.py` — shared literals (e.g. the default build-description filename) with no internal dependencies, safe for any module to import.
+- `tests/unittests/` mirrors `src/cmakeless/` package-for-package; golden `.cmake` fixtures live under `tests/unittests/emitter/golden/`.
+- `examples/` is a numbered, escalating series (`01_hello` through `08_capstone`), each a real `cmakelessfile.py` that regenerates its own gitignored `CMakeLists.txt`/`build/`.
+
+## Entry-Point Convention
+
+- `cmakelessfile.py` is the default build-description filename (the `Dockerfile`/`Jenkinsfile`-style convention: it names the tool, not the library, so it can't shadow the installed `cmakeless` package on `sys.path`). `cmakeless.py` was deliberately rejected for exactly that collision risk — see `ARCHITECTURE.md`.
+- Two equivalent ways to run it: `cmakeless build` (or `configure`/`test`/`install`/`package`/`clean`/`lock`) via the CLI, or `python cmakelessfile.py` directly — both execute the same script under `__main__`.
+- `cmakeless init` scaffolds a new `cmakelessfile.py` + `src/main.cpp` + `.gitignore`.
+
+## Dev Commands
+
+From `.github/workflows/ci.yml`:
+
+- `uv run pytest` — full test suite (set `CMAKELESS_NETWORK_TESTS=1` to unskip tests that fetch and compile a real dependency).
+- `uv run ruff check .` / `uv run ruff format --check .` — lint and format check.
+- `uv run mypy src` — strict type check.
+
+## Further Reading
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — layered design, entry points, error-handling philosophy.
+- [FEATURES.md](FEATURES.md) — full before/after comparison against raw CMake.
+- [ROADMAP.md](ROADMAP.md) — where the project is going.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution philosophy and review priorities.
+
+---
+
 # General Best Practices
 
 ## Testing Philosophy
@@ -6,6 +48,7 @@
 - Test public interface behavior, not implementation details — keeps tests resilient to refactoring.
 - Tests must be fast, isolated, and have descriptive names; cover edge cases and error conditions.
 - Location: `tests/unittests/` following source structure.
+- Add integration `tests/integration/`  tests to ensure that the library works as expected when integrated into larger projects with thousands of components.
 
 ## Comments
 

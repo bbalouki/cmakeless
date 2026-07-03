@@ -1,9 +1,9 @@
-"""The cmakeless command line: finds build.py and runs it.
+"""The cmakeless command line: finds cmakelessfile.py and runs it.
 
 The console script and 'python -m cmakeless' share this one implementation.
-The build/configure/clean/lock verbs all execute the same build.py; a verb
-override in the runtime context tells project.build() which step the user
-asked for.
+The build/configure/clean/lock verbs all execute the same cmakelessfile.py;
+a verb override in the runtime context tells project.build() which step the
+user asked for.
 """
 
 from __future__ import annotations
@@ -14,11 +14,10 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.errors import CmakelessError, ConfigurationError
-
-BUILD_SCRIPT_NAME = "build.py"
 
 _INIT_BUILD_PY = """\
 from cmakeless import Project
@@ -71,7 +70,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
 
 def _run_verb(args: argparse.Namespace) -> None:
-    """Execute a build.py verb with the CLI's overrides active.
+    """Execute a cmakelessfile.py verb with the CLI's overrides active.
 
     Args:
         args: The parsed arguments of one script verb.
@@ -122,7 +121,7 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _add_script_verbs(subparsers)
     init_parser = subparsers.add_parser(
-        "init", help="scaffold a new project (build.py, src/main.cpp, .gitignore)"
+        "init", help="scaffold a new project (cmakelessfile.py, src/main.cpp, .gitignore)"
     )
     init_parser.add_argument(
         "--name",
@@ -133,13 +132,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
-    """Register the verbs that execute the project's build.py.
+    """Register the verbs that execute the project's cmakelessfile.py.
 
     Args:
         subparsers: The subcommand registry of the top-level parser.
     """
     help_by_verb = {
-        "build": "run the project's build.py (freeze, emit, configure, compile)",
+        "build": "run the project's cmakelessfile.py (freeze, emit, configure, compile)",
         "configure": "generate build files and run the CMake configure step only",
         "test": "build everything, then run the test suite through CTest",
         "install": "build everything, then install it through cmake --install",
@@ -194,7 +193,7 @@ def _run_build_script(script: Path) -> None:
     """Execute the user's build description as if run directly.
 
     The script is the tool: running it under __main__ makes 'cmakeless
-    build' behave exactly like 'python build.py'.
+    build' behave exactly like 'python cmakelessfile.py'.
 
     Args:
         script: Path of the build description to execute.
@@ -214,15 +213,16 @@ def _run_build_script(script: Path) -> None:
 def _init_project(directory: Path, *, name: str | None) -> None:
     """Scaffold a new project in the given directory.
 
-    Writes build.py, src/main.cpp, and .gitignore, refusing to overwrite an
-    existing build.py and leaving other existing files untouched.
+    Writes cmakelessfile.py, src/main.cpp, and .gitignore, refusing to
+    overwrite an existing cmakelessfile.py and leaving other existing files
+    untouched.
 
     Args:
         directory: Where to scaffold (the CLI passes the working directory).
         name: The project name; None derives it from the directory name.
 
     Raises:
-        ConfigurationError: When a build.py already exists there.
+        ConfigurationError: When a cmakelessfile.py already exists there.
     """
     project_name = name if name is not None else _sanitize_name(directory.name)
     script = directory / BUILD_SCRIPT_NAME
@@ -241,7 +241,7 @@ def _init_project(directory: Path, *, name: str | None) -> None:
         gitignore.write_text(_INIT_GITIGNORE, encoding="utf-8", newline="\n")
     print(f"[cmakeless] Scaffolded project {project_name!r} in {directory}")
     print(
-        "[cmakeless] Next: run 'cmakeless build' (or 'python build.py'), then "
+        "[cmakeless] Next: run 'cmakeless build' (or 'python cmakelessfile.py'), then "
         "./build/" + project_name
     )
 

@@ -28,7 +28,7 @@ def make_model(**overrides: object) -> ProjectModel:
         "version": "1.0.0",
         "cpp_std": 17,
         "root_dir": Path("/does/not/matter"),
-        "source_script": "build.py",
+        "source_script": "cmakelessfile.py",
     }
     fields.update(overrides)
     return ProjectModel(**fields)  # type: ignore[arg-type]
@@ -64,9 +64,9 @@ def test_target_raw_cmake_is_emitted_verbatim_and_fenced() -> None:
         raw_cmake=("set_target_properties(engine PROPERTIES UNITY_BUILD ON)",),
     )
     text = emit_cmakelists(make_model(libraries=(engine,)), tool_version=FIXED_VERSION)
-    assert "# raw_cmake from build.py for target 'engine':" in text
+    assert "# raw_cmake from cmakelessfile.py for target 'engine':" in text
     assert "set_target_properties(engine PROPERTIES UNITY_BUILD ON)" in text
-    fence = text.index("# raw_cmake from build.py for target 'engine':")
+    fence = text.index("# raw_cmake from cmakelessfile.py for target 'engine':")
     add_library = text.index("add_library(engine")
     assert fence > add_library
 
@@ -76,7 +76,7 @@ def test_raw_cmake_file_is_included_near_the_top() -> None:
     app = ExecutableModel(name="app", sources=(Path("src/main.cpp"),))
     model = make_model(executables=(app,), raw_cmake_files=(Path("cmake/extra.cmake"),))
     text = emit_cmakelists(model, tool_version=FIXED_VERSION)
-    assert "# raw_cmake_file from build.py: cmake/extra.cmake" in text
+    assert "# raw_cmake_file from cmakelessfile.py: cmake/extra.cmake" in text
     assert "include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/extra.cmake)" in text
     assert text.index("cmake/extra.cmake") < text.index("add_executable(app")
 

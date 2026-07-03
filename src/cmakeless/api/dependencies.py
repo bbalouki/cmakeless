@@ -11,6 +11,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless.deps.find_package import fill_metadata
 from cmakeless.deps.lockfile import LOCKFILE_NAME
 from cmakeless.deps.resolver import resolve_dependencies
@@ -38,7 +39,7 @@ class Dependency:
         sha256: str | None = None,
         cmake_name: str | None = None,
         targets: Sequence[str] = (),
-        script: str = "build.py",
+        script: str = BUILD_SCRIPT_NAME,
     ) -> None:
         """Describe an external package requirement.
 

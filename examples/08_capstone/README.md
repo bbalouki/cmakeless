@@ -1,13 +1,13 @@
 # 08 - Capstone: the whole surface in one project
 
 This is not a toy. It is a small but complete C++ project, a summary-statistics
-library, described entirely in one [build.py](build.py) and shipped four ways
+library, described entirely in one [cmakelessfile.py](cmakelessfile.py) and shipped four ways
 from a single definition. It is the example to read once you have skimmed the
 smaller ones, because it shows how the pieces compose.
 
 ## What it demonstrates
 
-| Call in `build.py` | What you get |
+| Call in `cmakelessfile.py` | What you get |
 |---|---|
 | `add_library("stats", ..., public_headers="include/")` | a static C++ library with a public header set |
 | `stats.depends("fmt/10.2.1")` | a **private** dependency: `fmt` is used inside `series.cpp` only, never leaked to consumers |
@@ -43,7 +43,7 @@ $ cmakeless package                   # a stats-1.0.0-*.zip archive via CPack
 
 Because the driver consumes CMake's File API, the configured build is available
 as plain Python objects, no log scraping. Anywhere you hold the `Project` (for
-example in `build.py`, in place of `project.build()`):
+example in `cmakelessfile.py`, in place of `project.build()`):
 
 ```python
 for target in project.targets_info():

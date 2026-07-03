@@ -52,7 +52,7 @@ The name is the promise. Like serverless, where the servers never went away, CMa
 Here is what that feels like:
 
 ```python
-# build.py
+# cmakelessfile.py
 from cmakeless import Project
 
 project = Project("mygame", version="1.0.0", cpp_std=23)
@@ -73,7 +73,7 @@ project.build()
 Then:
 
 ```console
-$ python build.py
+$ python cmakelessfile.py
 ```
 
 That is the whole thing. No `PARENT_SCOPE`. No semicolons pretending to be lists. No guessing whether a variable needs quotes. If you make a mistake, you get a Python exception with a real message and a real stack trace, at the moment you make it, not a cryptic configure-time failure three layers deep in someone else's module.

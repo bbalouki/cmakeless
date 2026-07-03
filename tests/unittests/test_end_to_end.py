@@ -153,7 +153,7 @@ def test_install_ships_headers_and_config_files(
         "project.install(engine, headers=True)\n"
         "project.build()\n"
     )
-    (project_dir / "build.py").write_text(build_py, encoding="utf-8")
+    (project_dir / "cmakelessfile.py").write_text(build_py, encoding="utf-8")
     prefix = tmp_path / "prefix"
     monkeypatch.chdir(project_dir)
     assert main(["install", "--prefix", str(prefix)]) == 0
@@ -176,7 +176,7 @@ def test_preset_build_uses_its_own_tree(tmp_path: Path, monkeypatch: pytest.Monk
         'project.add_preset(Preset("release", optimize="release"))\n'
         "project.build()\n"
     )
-    (tmp_path / "build.py").write_text(build_py, encoding="utf-8")
+    (tmp_path / "cmakelessfile.py").write_text(build_py, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert main(["build", "--preset", "release"]) == 0
     cache = (tmp_path / "build" / "release" / "CMakeCache.txt").read_text(encoding="utf-8")
@@ -201,7 +201,7 @@ def test_package_produces_a_zip_archive(tmp_path: Path, monkeypatch: pytest.Monk
         'project.package(formats=["zip"])\n'
         "project.build()\n"
     )
-    (tmp_path / "build.py").write_text(build_py, encoding="utf-8")
+    (tmp_path / "cmakelessfile.py").write_text(build_py, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert main(["package"]) == 0
     archives = list((tmp_path / "build").glob("hello-1.0.0-*.zip"))

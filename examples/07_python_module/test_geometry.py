@@ -1,6 +1,6 @@
 """Import the freshly built extension and exercise the C++ Vec2 type.
 
-Run 'python build.py' (or 'cmakeless build') first; the module lands in the
+Run 'python cmakelessfile.py' (or 'cmakeless build') first; the module lands in the
 current environment, so this plain import just works.
 """
 

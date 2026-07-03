@@ -6,7 +6,7 @@ the extension against the invoking interpreter's development headers, and after
 immediately. The C++ here is a small 2D geometry type, Vec2, exposed with
 operators, properties, docstrings, and C++ to Python exception translation.
 
-    $ cmakeless build            # or: python build.py
+    $ cmakeless build            # or: python cmakelessfile.py
     $ python test_geometry.py    # import geometry; geometry.Vec2(3, 4).length() == 5
 """
 

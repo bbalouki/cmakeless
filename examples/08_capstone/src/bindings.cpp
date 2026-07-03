@@ -1,6 +1,6 @@
 // Expose the stats::Series class to Python with pybind11, so the same C++ that
 // powers the CLI is importable as a native module. Building the extension is a
-// single add_python_module() call in build.py; no separate binding build.
+// single add_python_module() call in cmakelessfile.py; no separate binding build.
 #include <vector>
 
 #include <pybind11/pybind11.h>
