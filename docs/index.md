@@ -25,6 +25,15 @@ $ cmakeless init
 $ cmakeless build
 ```
 
+Once your project grows, the other verbs are already there:
+
+```console
+$ cmakeless test                      # CTest with per-case discovery
+$ cmakeless build --preset release    # from your CMakePresets.json
+$ cmakeless install --prefix dist     # install rules and export sets
+$ cmakeless package                   # CPack archives
+```
+
 Or write the five lines yourself:
 
 ```python
