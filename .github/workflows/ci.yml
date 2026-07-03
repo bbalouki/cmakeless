@@ -43,5 +43,9 @@ jobs:
       - name: Type check
         run: uv run mypy src
 
+      # The network flag unskips the end-to-end dependency tests, which
+      # download and compile a real third-party package (fmt).
       - name: Test
         run: uv run pytest
+        env:
+          CMAKELESS_NETWORK_TESTS: "1"
