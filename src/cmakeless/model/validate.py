@@ -14,16 +14,16 @@ from cmakeless.model.nodes import (
     BUILD_TYPE_BY_OPTIMIZE,
     CPACK_GENERATOR_BY_FORMAT,
     PACKAGE_MANAGERS,
+    PYTHON_BINDING_BACKENDS,
     SANITIZERS,
     SUPPORTED_CPP_STANDARDS,
     TEST_FRAMEWORKS,
     WARNING_PRESETS,
+    CompiledModel,
     DependencyModel,
     LibraryKind,
     LibraryModel,
     ProjectModel,
-    TargetModel,
-    TestModel,
 )
 
 # CMake target and project names: conservative subset that never needs quoting.
@@ -48,6 +48,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_sources(model)
     _check_libraries(model)
     _check_tests(model)
+    _check_python_modules(model)
     _check_sanitizers(model)
     _check_dependencies(model)
     _check_links(model)
@@ -404,6 +405,24 @@ def _check_tests(model: ProjectModel) -> None:
             )
 
 
+def _check_python_modules(model: ProjectModel) -> None:
+    """Check Python-module rules: the binding backend must be a known one.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a module names an unknown binding backend.
+    """
+    for module in model.python_modules:
+        if module.binding not in PYTHON_BINDING_BACKENDS:
+            backends = ", ".join(repr(name) for name in sorted(PYTHON_BINDING_BACKENDS))
+            raise ConfigurationError(
+                f"Unknown binding backend {module.binding!r} for Python module "
+                f"{module.name!r} in {model.source_script}. Pick one of: {backends}."
+            )
+
+
 def _check_sanitizers(model: ProjectModel) -> None:
     """Check every target's sanitizer list: known names, sane combinations.
 
@@ -643,7 +662,7 @@ def _check_subprojects(model: ProjectModel) -> None:
         validate_project(subproject.project)
 
 
-def _is_header_only(target: TargetModel | TestModel) -> bool:
+def _is_header_only(target: CompiledModel) -> bool:
     """Tell whether a target is a header-only library.
 
     Args:

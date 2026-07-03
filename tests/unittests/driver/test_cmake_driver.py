@@ -199,6 +199,17 @@ def test_compile_commands_are_copied_to_the_root(
     assert (tmp_path / "compile_commands.json").read_text(encoding="utf-8") == "[]"
 
 
+def test_configure_writes_the_file_api_query(
+    driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Configure writes the file api query."""
+    patch_tools(monkeypatch)
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", FakeRun())
+    driver.configure()
+    query_dir = tmp_path / "build" / ".cmake" / "api" / "v1" / "query" / "client-cmakeless"
+    assert (query_dir / "query.json").is_file()
+
+
 def test_missing_cmake_raises_toolchain_error(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch
 ) -> None:

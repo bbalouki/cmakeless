@@ -10,14 +10,25 @@ import dataclasses
 import inspect
 import runpy
 import shutil
+import sysconfig
 from collections.abc import Sequence
 from pathlib import Path
+from typing import NamedTuple
 
+from cmakeless._parallel import parallel_map
 from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.api.dependencies import Dependencies
 from cmakeless.api.presets import Preset
-from cmakeless.api.targets import Executable, Library, LibraryKindName, Test, TestFrameworkName
+from cmakeless.api.targets import (
+    Executable,
+    Library,
+    LibraryKindName,
+    PythonBindingName,
+    PythonModule,
+    Test,
+    TestFrameworkName,
+)
 from cmakeless.api.toolchains import Toolchain
 from cmakeless.deps import (
     LOCKFILE_NAME,
@@ -28,12 +39,39 @@ from cmakeless.deps import (
     resolve_dependencies,
 )
 from cmakeless.driver import CMakeDriver, select_generator
+from cmakeless.driver.file_api import TargetInfo
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
-from cmakeless.model.nodes import InstallModel, PresetModel, ProjectModel, SubprojectModel
+from cmakeless.model.nodes import (
+    InstallModel,
+    PresetModel,
+    ProjectModel,
+    PythonModuleModel,
+    SubprojectModel,
+)
 from cmakeless.model.validate import validate_project
+from cmakeless.observer import ConsoleObserver, Observer
 
 DEFAULT_BUILD_DIR_NAME = "build"
+
+# The dynamic-library suffixes a built Python extension can carry, so the
+# current-environment install can find it under the build tree.
+_MODULE_SUFFIXES: tuple[str, ...] = (".pyd", ".so", ".dylib")
+
+
+class _Prepared(NamedTuple):
+    """A configured pipeline run: the driver plus the context it needs.
+
+    Attributes:
+        driver: The CMake driver bound to the selected build directory.
+        model: The resolved project model that produced the outputs.
+        build_dir: The build directory of the selected preset.
+    """
+
+    driver: CMakeDriver
+    model: ProjectModel
+    build_dir: Path
+
 
 # The framework versions add_test() requires when the user does not; every
 # version here carries a curated SHA256 pin in the registry, so test projects
@@ -42,6 +80,14 @@ _FRAMEWORK_SPECS: dict[str, str] = {
     "catch2": "catch2/3.5.4",
     "gtest": "googletest/1.14.0",
     "doctest": "doctest/2.4.11",
+}
+
+# The binding-library package add_python_module() fetches per backend; the
+# registry knows each one's source URL and CMake name, and the pin is hashed
+# and written to cmakeless.lock on first resolution.
+_BINDING_SPECS: dict[str, str] = {
+    "nanobind": "nanobind/2.4.0",
+    "pybind11": "pybind11/2.13.6",
 }
 
 
@@ -86,18 +132,14 @@ class Project:
         self._cpp_std = cpp_std
         self.warnings = warnings
         self.package_manager = "auto"
-        script = _calling_script()
-        if root is not None:
-            self._root = Path(root).resolve()
-        elif script is not None:
-            self._root = script.parent
-        else:
-            self._root = Path.cwd()
-        self._source_script = script.name if script is not None else "build.py"
         self.cache = True
+        script = _calling_script()
+        self._root = _resolve_root(root, script)
+        self._source_script = script.name if script is not None else "build.py"
         self._executables: list[Executable] = []
         self._libraries: list[Library] = []
         self._tests: list[Test] = []
+        self._python_modules: list[PythonModule] = []
         self._presets: list[Preset] = []
         self._toolchains: list[Toolchain] = []
         self._installs: list[tuple[str, bool]] = []
@@ -105,6 +147,8 @@ class Project:
         self._subprojects: list[tuple[Path, Project]] = []
         self._dependencies = Dependencies(self)
         self._generator: str | None = None
+        # The console display is the default listener; add_observer() adds more.
+        self._observers: list[Observer] = [ConsoleObserver()]
         _context.register_project(self)
 
     @property
@@ -258,6 +302,53 @@ class Project:
         self._tests.append(test)
         return test
 
+    def add_python_module(
+        self,
+        name: str,
+        sources: Sequence[str],
+        *,
+        binding: PythonBindingName = "nanobind",
+        stubs: bool = True,
+        install: bool = True,
+    ) -> PythonModule:
+        """Declare a Python extension module built with nanobind or pybind11.
+
+        The binding backend is acquired like any dependency (registry-pinned
+        FetchContent fallback) so its <binding>_add_module command is
+        available. After 'cmakeless build' the module is copied into the
+        invoking interpreter, so 'import <name>' works immediately.
+
+        Args:
+            name: The importable module name and unique target name.
+            sources: Source files or glob patterns, project-root-relative.
+            binding: "nanobind" or "pybind11".
+            stubs: True to generate a .pyi stub (nanobind only).
+            install: True to copy the built module into the current
+                environment after build.
+
+        Returns:
+            The mutable PythonModule builder, for further link()/define()
+            calls.
+
+        Raises:
+            ConfigurationError: When ``binding`` is not a known backend.
+        """
+        module = PythonModule(
+            name,
+            sources,
+            binding=binding,
+            stubs=stubs,
+            install=install,
+            script=self._source_script,
+            dependencies=self._dependencies,
+        )
+        # The <binding>_add_module command links the backend itself, so the
+        # dependency is registered for the fetch and lockfile only, never as
+        # a manual link edge.
+        self._dependencies.add(_BINDING_SPECS[binding])
+        self._python_modules.append(module)
+        return module
+
     def add_preset(self, preset: Preset) -> Preset:
         """Register a named configuration, emitted into CMakePresets.json.
 
@@ -351,7 +442,61 @@ class Project:
             ToolchainError: When cmake or the package manager is missing.
             CMakeError: When the configure step fails.
         """
-        self._prepare().configure()
+        self._prepare().driver.configure()
+
+    def targets_info(self) -> tuple[TargetInfo, ...]:
+        """Configure the build and return its targets as Python objects.
+
+        Reads the CMake File API, so the result reflects the fully
+        configured build (resolved dependencies, generated modules, and
+        install rules included), not just the build description.
+
+        Returns:
+            One TargetInfo per configured target, sorted by name.
+
+        Raises:
+            ConfigurationError: When the description is invalid.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
+            CMakeError: When the configure step fails.
+        """
+        driver = self._prepare().driver
+        driver.configure()
+        return driver.targets_info()
+
+    def configure_presets(self) -> None:
+        """Configure every registered preset, concurrently where it pays.
+
+        Each preset configures into its own out-of-source build tree, and
+        the frozen model is shared across threads without locks, so on a
+        free-threaded interpreter the configures overlap in wall-clock time.
+
+        Raises:
+            ConfigurationError: When the description is invalid.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
+            CMakeError: When any configure step fails.
+        """
+        model = self._resolved_model()
+        self._write_outputs(model)
+        provider = self._provider(model)
+        names = [preset.name for preset in model.presets]
+        if not names:
+            self._configure_one(provider, None)
+            return
+        parallel_map(lambda name: self._configure_one(provider, name), names)
+
+    def _configure_one(self, provider: DependencyProvider | None, preset: str | None) -> None:
+        """Configure a single preset's build tree.
+
+        Args:
+            provider: The dependency backend, or None for a dep-free tree.
+            preset: The preset name, or None for the default configuration.
+        """
+        build_dir = self._build_dir(preset)
+        if provider is not None:
+            provider.pre_configure(root_dir=self._root, build_dir=build_dir)
+        self._driver(provider, preset=preset).configure()
 
     def test(self) -> None:
         """Build everything, then run the test suite through CTest.
@@ -366,7 +511,7 @@ class Project:
             ToolchainError: When cmake or the package manager is missing.
             CMakeError: When configuring, compiling, or a test fails.
         """
-        driver = self._prepare()
+        driver = self._prepare().driver
         driver.configure()
         driver.build()
         driver.test()
@@ -408,9 +553,10 @@ class Project:
         elif verb in ("install", "package"):
             self._run_post_build_verb(verb)
         else:
-            driver = self._prepare()
-            driver.configure()
-            driver.build()
+            prepared = self._prepare()
+            prepared.driver.configure()
+            prepared.driver.build()
+            self._install_python_modules_into_environment(prepared.model, prepared.build_dir)
 
     def set_generator(self, generator: str | None) -> None:
         """Choose the CMake generator for this project's builds.
@@ -421,13 +567,29 @@ class Project:
         """
         self._generator = generator
 
+    def add_observer(self, observer: Observer) -> Observer:
+        """Register a progress-event consumer for this project's builds.
+
+        The driver publishes a StepStarted/StepFinished/StepFailed event for
+        every configure, build, test, install, and package step; observers
+        run alongside the default console display.
+
+        Args:
+            observer: Any object with an on_event(event) method.
+
+        Returns:
+            The registered observer, unchanged.
+        """
+        self._observers.append(observer)
+        return observer
+
     def _run_post_build_verb(self, verb: str) -> None:
         """Perform the 'install' or 'package' verb: build first, then ship.
 
         Args:
             verb: "install" or "package".
         """
-        driver = self._prepare()
+        driver = self._prepare().driver
         driver.configure()
         driver.build()
         if verb == "install":
@@ -435,12 +597,51 @@ class Project:
         else:
             driver.package()
 
-    def _prepare(self) -> CMakeDriver:
+    def _install_python_modules_into_environment(
+        self, model: ProjectModel, build_dir: Path
+    ) -> None:
+        """Copy freshly built Python modules into the invoking interpreter.
+
+        This is what makes 'import <name>' work immediately after a build;
+        the generated CMake stays standalone, so the copy lives in Python.
+
+        Args:
+            model: The resolved model, for the modules and their flags.
+            build_dir: The build directory the artifacts were compiled into.
+        """
+        modules = [module for module in model.python_modules if module.install_to_environment]
+        if not modules:
+            return
+        site_packages = Path(sysconfig.get_path("platlib"))
+        site_packages.mkdir(parents=True, exist_ok=True)
+        for module in modules:
+            self._copy_built_module(module, build_dir, site_packages)
+
+    def _copy_built_module(
+        self, module: PythonModuleModel, build_dir: Path, site_packages: Path
+    ) -> None:
+        """Copy one built extension and its stub into site-packages.
+
+        Args:
+            module: The Python module whose artifact to copy.
+            build_dir: The build directory to search for the artifact.
+            site_packages: The invoking interpreter's platlib directory.
+        """
+        artifact = _find_built_module(build_dir, module.name)
+        if artifact is None:
+            return
+        shutil.copyfile(artifact, site_packages / artifact.name)
+        stub = next(build_dir.rglob(f"{module.name}.pyi"), None)
+        if stub is not None:
+            shutil.copyfile(stub, site_packages / stub.name)
+        print(f"[cmakeless] Installed module {module.name!r} into {site_packages}")
+
+    def _prepare(self) -> _Prepared:
         """Freeze, resolve, write outputs, and bind a driver to the result.
 
         Returns:
-            The driver for the selected preset's build directory, backend
-            pre-configure hooks already run.
+            The driver, the resolved model, and the selected build
+            directory, backend pre-configure hooks already run.
 
         Raises:
             ConfigurationError: When the description is invalid or the
@@ -451,9 +652,10 @@ class Project:
         self._write_outputs(model)
         preset = self._selected_preset(model)
         provider = self._provider(model)
+        build_dir = self._build_dir(preset)
         if provider is not None:
-            provider.pre_configure(root_dir=self._root, build_dir=self._build_dir(preset))
-        return self._driver(provider, preset=preset)
+            provider.pre_configure(root_dir=self._root, build_dir=build_dir)
+        return _Prepared(self._driver(provider, preset=preset), model, build_dir)
 
     def _selected_preset(self, model: ProjectModel) -> str | None:
         """Resolve the preset this run should use, if any.
@@ -518,6 +720,7 @@ class Project:
             executables=tuple(target._freeze(self._root) for target in self._executables),
             libraries=tuple(target._freeze(self._root) for target in self._libraries),
             tests=tuple(target._freeze(self._root) for target in self._tests),
+            python_modules=tuple(module._freeze(self._root) for module in self._python_modules),
             dependencies=self._dependencies._freeze(),
             subprojects=tuple(
                 SubprojectModel(directory=directory, project=child._freeze_without_validation())
@@ -607,7 +810,43 @@ class Project:
             extra_configure_args=extra,
             preset=preset,
             use_cache=self.cache,
+            observers=self._observers,
         )
+
+
+def _resolve_root(root: str | Path | None, script: Path | None) -> Path:
+    """Resolve the project root from the explicit argument or the script.
+
+    Args:
+        root: The root passed to Project(), or None to derive one.
+        script: The build description that constructed the project, or None.
+
+    Returns:
+        The explicit root when given, else the script's directory, else the
+        current working directory.
+    """
+    if root is not None:
+        return Path(root).resolve()
+    if script is not None:
+        return script.parent
+    return Path.cwd()
+
+
+def _find_built_module(build_dir: Path, name: str) -> Path | None:
+    """Locate a compiled extension module under a build tree.
+
+    Args:
+        build_dir: The build directory to search recursively.
+        name: The module name; the file is name.<abi><suffix>.
+
+    Returns:
+        The first matching artifact (any platform suffix), or None when the
+        build produced none (for example a failed or filtered build).
+    """
+    for candidate in sorted(build_dir.rglob(f"{name}.*")):
+        if candidate.is_file() and candidate.suffix in _MODULE_SUFFIXES:
+            return candidate
+    return None
 
 
 def _implicit_sanitize_preset_name(sanitizers: tuple[str, ...]) -> str:

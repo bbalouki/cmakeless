@@ -131,11 +131,13 @@ Sanitized test runs are one argument: `cmakeless test --sanitize=address`.
 **You write:**
 
 ```python
-bindings = project.add_python_module("mygame_core", binding="nanobind")
+bindings = project.add_python_module(
+    "mygame_core", sources=["src/bindings.cpp"], binding="nanobind"
+)
 bindings.link(engine)
 ```
 
-**We handle:** locating the Python development headers of the *invoking* interpreter, fetching nanobind or pybind11, the module target boilerplate, correct extension suffixes per platform, stub-file generation, and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
+**We handle:** locating the Python development headers of the *invoking* interpreter, fetching nanobind or pybind11 (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `nanobind_add_module`/`pybind11_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
 
 This is the flagship of the whole idea: the tool that builds your C++ is already inside the interpreter that will import it.
 

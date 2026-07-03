@@ -26,6 +26,10 @@ PACKAGE_MANAGERS: frozenset[str] = frozenset({"auto", "find_package", "vcpkg", "
 # the test executable with CTest without any framework.
 TEST_FRAMEWORKS: frozenset[str] = frozenset({"catch2", "gtest", "doctest", "none"})
 
+# The Python binding backends add_python_module() can build against. Both
+# provide a CMake <backend>_add_module command once fetched.
+PYTHON_BINDING_BACKENDS: frozenset[str] = frozenset({"nanobind", "pybind11"})
+
 # The sanitizers the emitter can translate into compile and link flags.
 SANITIZERS: frozenset[str] = frozenset({"address", "undefined", "thread", "leak"})
 
@@ -212,6 +216,39 @@ class TestModel:
 
 
 @dataclass(frozen=True, slots=True)
+class PythonModuleModel:
+    """A Python extension module built with nanobind or pybind11.
+
+    The binding library is fetched like any dependency; the emitter drives
+    it through the backend's own <backend>_add_module command rather than a
+    plain add_library, which is why this is its own node kind.
+
+    Attributes:
+        name: The importable module name and CMake target name.
+        sources: Project-root-relative source files, globs already expanded.
+        binding: The binding backend ("nanobind" or "pybind11").
+        stubs: True to generate a .pyi stub next to the module (nanobind
+            only; pybind11 ships no CMake stub command).
+        install_to_environment: True to copy the built module (and stub)
+            into the invoking interpreter after build, so it imports at once.
+        defines: Preprocessor definitions for this target.
+        compile_options: Extra compiler flags, possibly compiler-guarded.
+        links: Libraries this module links against.
+        sanitize: Sanitizer names applied to compile and link steps.
+    """
+
+    name: str
+    sources: tuple[Path, ...]
+    binding: str = "nanobind"
+    stubs: bool = True
+    install_to_environment: bool = True
+    defines: tuple[DefineModel, ...] = ()
+    compile_options: tuple[CompileOptionsModel, ...] = ()
+    links: tuple[LinkModel, ...] = ()
+    sanitize: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class PresetModel:
     """One named configuration bundle mapped onto CMake presets.
 
@@ -274,6 +311,10 @@ class InstallModel:
 
 type TargetModel = ExecutableModel | LibraryModel
 
+# Every node the emitter compiles and settings blocks apply to, sharing the
+# name/sources/defines/compile_options/links/sanitize shape.
+type CompiledModel = ExecutableModel | LibraryModel | TestModel | PythonModuleModel
+
 
 @dataclass(frozen=True, slots=True)
 class SubprojectModel:
@@ -306,6 +347,7 @@ class ProjectModel:
         executables: All executable targets of this project.
         libraries: All library targets of this project.
         tests: All test targets of this project.
+        python_modules: All Python extension modules of this project.
         dependencies: External packages this project's targets depend on.
         subprojects: Child projects composed into this one.
         presets: Named configurations emitted into CMakePresets.json.
@@ -326,6 +368,7 @@ class ProjectModel:
     executables: tuple[ExecutableModel, ...] = ()
     libraries: tuple[LibraryModel, ...] = ()
     tests: tuple[TestModel, ...] = ()
+    python_modules: tuple[PythonModuleModel, ...] = ()
     dependencies: tuple[DependencyModel, ...] = ()
     subprojects: tuple[SubprojectModel, ...] = ()
     presets: tuple[PresetModel, ...] = ()
@@ -342,10 +385,11 @@ class ProjectModel:
         """
         return (*self.libraries, *self.executables)
 
-    def all_targets(self) -> tuple[TargetModel | TestModel, ...]:
-        """Collect every target of this project, tests included.
+    def all_targets(self) -> tuple[CompiledModel, ...]:
+        """Collect every compiled target of this project, tests included.
 
         Returns:
-            Libraries, then executables, then tests; otherwise unordered.
+            Libraries, executables, tests, then Python modules; otherwise
+            unordered.
         """
-        return (*self.libraries, *self.executables, *self.tests)
+        return (*self.libraries, *self.executables, *self.tests, *self.python_modules)

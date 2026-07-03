@@ -12,6 +12,7 @@ from cmakeless.model.nodes import (
     ExecutableModel,
     LinkModel,
     ProjectModel,
+    PythonModuleModel,
     SubprojectModel,
 )
 from cmakeless.model.validate import validate_project
@@ -27,6 +28,7 @@ def make_model(
     executables: tuple[ExecutableModel, ...] = (),
     dependencies: tuple[DependencyModel, ...] = (),
     subprojects: tuple[SubprojectModel, ...] = (),
+    python_modules: tuple[PythonModuleModel, ...] = (),
 ) -> ProjectModel:
     """Build a frozen project rooted at the given directory."""
     return ProjectModel(
@@ -39,6 +41,7 @@ def make_model(
         executables=executables,
         dependencies=dependencies,
         subprojects=subprojects,
+        python_modules=python_modules,
     )
 
 
@@ -183,3 +186,27 @@ def test_conflicting_versions_across_the_tree_rejected(project_dir: Path) -> Non
     assert "Conflicting versions" in message
     assert "10.2.1" in message
     assert "11.0.0" in message
+
+
+def test_valid_python_module_passes(project_dir: Path) -> None:
+    """Valid python module passes."""
+    module = PythonModuleModel(name="core", sources=(Path("src/main.cpp"),), binding="pybind11")
+    validate_project(make_model(project_dir, python_modules=(module,)))
+
+
+def test_unknown_binding_backend_rejected(project_dir: Path) -> None:
+    """Unknown binding backend rejected."""
+    module = PythonModuleModel(name="core", sources=(Path("src/main.cpp"),), binding="cython")
+    with pytest.raises(ConfigurationError) as excinfo:
+        validate_project(make_model(project_dir, python_modules=(module,)))
+    message = str(excinfo.value)
+    assert "cython" in message
+    assert "core" in message
+    assert "build.py" in message
+
+
+def test_python_module_missing_source_rejected(project_dir: Path) -> None:
+    """Python module missing source rejected."""
+    module = PythonModuleModel(name="core", sources=(Path("src/nope.cpp"),))
+    with pytest.raises(ConfigurationError, match=r"src/nope\.cpp"):
+        validate_project(make_model(project_dir, python_modules=(module,)))

@@ -4,6 +4,7 @@ Only this layer needs CMake installed; everything above it is pure Python.
 """
 
 from cmakeless.driver.cmake_driver import CMakeDriver
+from cmakeless.driver.file_api import TargetInfo
 from cmakeless.driver.generators import Generator, select_generator
 
-__all__ = ["CMakeDriver", "Generator", "select_generator"]
+__all__ = ["CMakeDriver", "Generator", "TargetInfo", "select_generator"]

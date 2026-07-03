@@ -5,11 +5,14 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from cmakeless.driver.error_translation import extract_diagnostics
+from cmakeless.driver.file_api import TargetInfo, read_reply, write_query
 from cmakeless.driver.generators import Generator, select_generator
 from cmakeless.errors import CMakeError, ToolchainError
+from cmakeless.observer import Observer, StepFailed, StepFinished, StepStarted, publish
 
 LOG_FILE_NAME = "cmakeless-log.txt"
 COMPILE_COMMANDS_NAME = "compile_commands.json"
@@ -30,6 +33,7 @@ class CMakeDriver:
         extra_configure_args: tuple[str, ...] = (),
         preset: str | None = None,
         use_cache: bool = True,
+        observers: Sequence[Observer] = (),
     ) -> None:
         """Bind the driver to one source tree and build directory.
 
@@ -45,6 +49,7 @@ class CMakeDriver:
                 None for the default configuration.
             use_cache: True to wire ccache/sccache as the compiler
                 launcher when one is on PATH (Ninja builds only).
+            observers: Progress-event consumers notified for every step.
         """
         self._source_dir = source_dir
         self._build_dir = build_dir
@@ -52,6 +57,7 @@ class CMakeDriver:
         self._extra_configure_args = extra_configure_args
         self._preset = preset
         self._use_cache = use_cache
+        self._observers = tuple(observers)
 
     def configure(self) -> None:
         """Run the CMake configure and generate step into the build directory.
@@ -63,8 +69,20 @@ class CMakeDriver:
             ToolchainError: When cmake is not on PATH.
             CMakeError: When the configure step exits non-zero.
         """
+        write_query(self._build_dir)
         self._run(self._configure_command(), step="configure", cwd=self._source_dir)
         self._publish_compile_commands()
+
+    def targets_info(self) -> tuple[TargetInfo, ...]:
+        """Read the configured build from the CMake File API reply.
+
+        Configure must have run first (it writes the query CMake answers).
+
+        Returns:
+            One TargetInfo per target, sorted by name; empty when the build
+            has not been configured.
+        """
+        return read_reply(self._build_dir)
 
     def build(self) -> None:
         """Run the compile step through cmake --build.
@@ -200,7 +218,7 @@ class CMakeDriver:
             CMakeError: When the command exits non-zero, carrying the exact
                 command, exit code, log path, and parsed diagnostics.
         """
-        print(f"[cmakeless] Running {step}: {subprocess.list2cmdline(command)}")
+        publish(self._observers, StepStarted(step=step, command=tuple(command)))
         completed = subprocess.run(
             command,
             capture_output=True,
@@ -215,6 +233,10 @@ class CMakeDriver:
             print(completed.stderr, end="", file=sys.stderr)
         if completed.returncode != 0:
             diagnostics = extract_diagnostics(f"{completed.stdout or ''}\n{completed.stderr or ''}")
+            publish(
+                self._observers,
+                StepFailed(step=step, exit_code=completed.returncode, diagnostics=diagnostics),
+            )
             summary = f" First error: {diagnostics[0]}." if diagnostics else ""
             raise CMakeError(
                 f"CMake {step} failed with exit code {completed.returncode} for "
@@ -226,6 +248,7 @@ class CMakeDriver:
                 log_path=log_path,
                 diagnostics=diagnostics,
             )
+        publish(self._observers, StepFinished(step=step, exit_code=completed.returncode))
 
     def _append_log(
         self,

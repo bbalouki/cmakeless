@@ -15,6 +15,7 @@ $ cmakeless build       # the CLI finds build.py and runs it
 | [04_dependencies](04_dependencies/) | An external package in one line: `app.depends("fmt/10.2.1")`, resolved through the find_package-then-FetchContent fallback and pinned in `cmakeless.lock`. |
 | [05_testing](05_testing/) | Testing as a verb: `add_test(..., framework="catch2")` fetches the framework, registers every case with CTest, and `cmakeless test` runs the suite (add `--sanitize=address` for a sanitized run). |
 | [06_ship](06_ship/) | Everything that ships: sanitized and LTO `Preset`s in `CMakePresets.json`, `install()` with export sets and `Config.cmake`, and `package()` producing archives via CPack. |
+| [07_python_module](07_python_module/) | Python and C++ interop: `add_python_module(..., binding="pybind11")` fetches the binding, builds the extension, and lands it importable in the current environment, so `import mymath` works right after the build. |
 
 The generated `CMakeLists.txt` files are not committed: run any example once
 and read the output. It should look like an expert wrote it by hand; if it
