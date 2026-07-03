@@ -1,8 +1,9 @@
 """The cmakeless command line: finds build.py and runs it.
 
 The console script and 'python -m cmakeless' share this one implementation.
-The build/configure/clean verbs all execute the same build.py; a verb override
-in the runtime context tells project.build() which step the user asked for.
+The build/configure/clean/lock verbs all execute the same build.py; a verb
+override in the runtime context tells project.build() which step the user
+asked for.
 """
 
 from __future__ import annotations
@@ -103,6 +104,7 @@ def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         "build": "run the project's build.py (freeze, emit, configure, compile)",
         "configure": "generate build files and run the CMake configure step only",
         "clean": "delete the project's build directory",
+        "lock": "resolve dependencies and refresh cmakeless.lock",
     }
     for verb, help_text in help_by_verb.items():
         verb_parser = subparsers.add_parser(verb, help=help_text)
@@ -111,7 +113,7 @@ def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
             default=BUILD_SCRIPT_NAME,
             help=f"path to the build description (default: {BUILD_SCRIPT_NAME})",
         )
-        if verb != "clean":
+        if verb not in ("clean", "lock"):
             verb_parser.add_argument(
                 "--generator",
                 default=None,

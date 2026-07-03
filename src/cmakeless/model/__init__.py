@@ -5,6 +5,7 @@ source of truth that the emitter and driver consume.
 """
 
 from cmakeless.model.nodes import (
+    DependencyModel,
     ExecutableModel,
     LibraryKind,
     LibraryModel,
@@ -14,6 +15,7 @@ from cmakeless.model.nodes import (
 from cmakeless.model.validate import validate_project
 
 __all__ = [
+    "DependencyModel",
     "ExecutableModel",
     "LibraryKind",
     "LibraryModel",

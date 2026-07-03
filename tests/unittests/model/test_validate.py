@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from cmakeless.errors import ConfigurationError
-from cmakeless.model.nodes import ExecutableModel, ProjectModel
+from cmakeless.model.nodes import (
+    DependencyModel,
+    ExecutableModel,
+    LinkModel,
+    ProjectModel,
+    SubprojectModel,
+)
 from cmakeless.model.validate import validate_project
 
 
@@ -16,7 +22,11 @@ def make_model(
     *,
     name: str = "demo",
     cpp_std: int = 20,
+    package_manager: str = "auto",
+    source_script: str = "build.py",
     executables: tuple[ExecutableModel, ...] = (),
+    dependencies: tuple[DependencyModel, ...] = (),
+    subprojects: tuple[SubprojectModel, ...] = (),
 ) -> ProjectModel:
     """Build a frozen project rooted at the given directory."""
     return ProjectModel(
@@ -24,8 +34,18 @@ def make_model(
         version="1.0.0",
         cpp_std=cpp_std,
         root_dir=root,
-        source_script="build.py",
+        source_script=source_script,
+        package_manager=package_manager,
         executables=executables,
+        dependencies=dependencies,
+        subprojects=subprojects,
+    )
+
+
+def fmt_dependency(*, version: str = "10.2.1") -> DependencyModel:
+    """A metadata-complete fmt dependency."""
+    return DependencyModel(
+        name="fmt", version=version, cmake_name="fmt", link_targets=("fmt::fmt",)
     )
 
 
@@ -82,3 +102,84 @@ def test_unknown_cpp_std_rejected(project_dir: Path, bad_std: int) -> None:
     model = make_model(project_dir, cpp_std=bad_std)
     with pytest.raises(ConfigurationError, match="Unknown C\\+\\+ standard"):
         validate_project(model)
+
+
+def test_unknown_package_manager_rejected(project_dir: Path) -> None:
+    """Unknown package manager rejected."""
+    model = make_model(project_dir, package_manager="npm")
+    with pytest.raises(ConfigurationError, match="Unknown package manager"):
+        validate_project(model)
+
+
+def test_dependency_without_imported_targets_rejected(project_dir: Path) -> None:
+    """Dependency without imported targets rejected."""
+    incomplete = DependencyModel(name="fmt", version="10.2.1", cmake_name="fmt")
+    model = make_model(project_dir, dependencies=(incomplete,))
+    with pytest.raises(ConfigurationError, match="no imported targets"):
+        validate_project(model)
+
+
+def test_dependency_without_version_rejected(project_dir: Path) -> None:
+    """Dependency without version rejected."""
+    incomplete = DependencyModel(
+        name="fmt", version="", cmake_name="fmt", link_targets=("fmt::fmt",)
+    )
+    model = make_model(project_dir, dependencies=(incomplete,))
+    with pytest.raises(ConfigurationError, match="no version"):
+        validate_project(model)
+
+
+def test_external_link_must_match_a_dependency(project_dir: Path) -> None:
+    """External link must match a dependency."""
+    app = ExecutableModel(
+        name="app",
+        sources=(Path("src/main.cpp"),),
+        links=(LinkModel(target="fmt::fmt", external=True),),
+    )
+    model = make_model(project_dir, executables=(app,))
+    with pytest.raises(ConfigurationError, match="no dependency of this project"):
+        validate_project(model)
+
+
+def test_external_link_backed_by_a_dependency_passes(project_dir: Path) -> None:
+    """External link backed by a dependency passes."""
+    app = ExecutableModel(
+        name="app",
+        sources=(Path("src/main.cpp"),),
+        links=(LinkModel(target="fmt::fmt", external=True),),
+    )
+    model = make_model(project_dir, executables=(app,), dependencies=(fmt_dependency(),))
+    validate_project(model)
+
+
+def test_subproject_package_manager_must_match_the_parent(project_dir: Path) -> None:
+    """Subproject package manager must match the parent."""
+    child = make_model(project_dir, name="child", package_manager="conan")
+    parent = make_model(
+        project_dir,
+        package_manager="vcpkg",
+        subprojects=(SubprojectModel(directory=Path("tools/child"), project=child),),
+    )
+    with pytest.raises(ConfigurationError, match="same package_manager"):
+        validate_project(parent)
+
+
+def test_conflicting_versions_across_the_tree_rejected(project_dir: Path) -> None:
+    """Conflicting versions across the tree rejected."""
+    child = make_model(
+        project_dir,
+        name="child",
+        source_script="tools/child/build.py",
+        dependencies=(fmt_dependency(version="11.0.0"),),
+    )
+    parent = make_model(
+        project_dir,
+        dependencies=(fmt_dependency(),),
+        subprojects=(SubprojectModel(directory=Path("tools/child"), project=child),),
+    )
+    with pytest.raises(ConfigurationError) as excinfo:
+        validate_project(parent)
+    message = str(excinfo.value)
+    assert "Conflicting versions" in message
+    assert "10.2.1" in message
+    assert "11.0.0" in message

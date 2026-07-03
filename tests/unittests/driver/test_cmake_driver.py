@@ -75,6 +75,22 @@ def test_configure_without_ninja_uses_default_generator(
     assert "-G" not in fake_run.commands[0]
 
 
+def test_extra_configure_args_are_appended(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Extra configure args are appended."""
+    patch_tools(monkeypatch)
+    fake_run = FakeRun()
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
+    driver = CMakeDriver(
+        source_dir=tmp_path,
+        build_dir=tmp_path / "build",
+        extra_configure_args=("-DCMAKE_TOOLCHAIN_FILE=/vcpkg/scripts/buildsystems/vcpkg.cmake",),
+    )
+    driver.configure()
+    assert fake_run.commands[0][-1] == (
+        "-DCMAKE_TOOLCHAIN_FILE=/vcpkg/scripts/buildsystems/vcpkg.cmake"
+    )
+
+
 def test_build_invokes_cmake_build(
     driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

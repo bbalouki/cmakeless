@@ -18,6 +18,10 @@ SUPPORTED_CPP_STANDARDS: frozenset[int] = frozenset({11, 14, 17, 20, 23, 26})
 # The warning presets translated per compiler by the emitter.
 WARNING_PRESETS: frozenset[str] = frozenset({"strict", "default", "none"})
 
+# The dependency acquisition strategies a project can opt into. "auto" is the
+# find_package-then-FetchContent fallback; the others delegate to one backend.
+PACKAGE_MANAGERS: frozenset[str] = frozenset({"auto", "find_package", "vcpkg", "conan"})
+
 
 class LibraryKind(enum.Enum):
     """How a library target is built and consumed.
@@ -66,13 +70,47 @@ class LinkModel:
     """An edge in the link graph, pointing at a library target by name.
 
     Attributes:
-        target: Name of the linked library target.
+        target: Name of the linked library target; for external edges this
+            is the imported target name (for example ``fmt::fmt``).
         public: True when consumers of the linking target also need the
             linked library (the linking target's headers expose it).
+        external: True when the target comes from an external dependency
+            rather than this project's own add_library() calls.
     """
 
     target: str
     public: bool = False
+    external: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DependencyModel:
+    """One external package requirement, backend-agnostic.
+
+    The API layer fills the metadata (cmake_name, link_targets) at freeze
+    time; the resolver fills the fetch pin (url, sha256) from the lockfile,
+    user overrides, the registry, or a one-time download-and-hash.
+
+    Attributes:
+        name: The package name, the part left of '/' in "fmt/10.2.1".
+        version: The required version, the part right of '/'.
+        components: Package components, for example Boost's "asio".
+        cmake_name: The name find_package() knows the package by, or None
+            until resolved.
+        link_targets: The imported targets consumers link, for example
+            ("fmt::fmt",); empty until known.
+        url: Source archive URL for FetchContent, or None when the backend
+            does not fetch sources.
+        sha256: SHA256 pin of the source archive, or None when unpinned.
+    """
+
+    name: str
+    version: str
+    components: tuple[str, ...] = ()
+    cmake_name: str | None = None
+    link_targets: tuple[str, ...] = ()
+    url: str | None = None
+    sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,8 +184,11 @@ class ProjectModel:
             this model, for the self-describing header comment in generated
             files.
         warnings: Warning preset name ("strict", "default", or "none").
+        package_manager: Dependency strategy name ("auto", "find_package",
+            "vcpkg", or "conan").
         executables: All executable targets of this project.
         libraries: All library targets of this project.
+        dependencies: External packages this project's targets depend on.
         subprojects: Child projects composed into this one.
     """
 
@@ -157,8 +198,10 @@ class ProjectModel:
     root_dir: Path
     source_script: str
     warnings: str = "default"
+    package_manager: str = "auto"
     executables: tuple[ExecutableModel, ...] = ()
     libraries: tuple[LibraryModel, ...] = ()
+    dependencies: tuple[DependencyModel, ...] = ()
     subprojects: tuple[SubprojectModel, ...] = ()
 
     def targets(self) -> tuple[TargetModel, ...]:

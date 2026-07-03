@@ -15,6 +15,7 @@ from pathlib import Path
 
 from cmakeless.model.nodes import (
     CompileOptionsModel,
+    DependencyModel,
     ExecutableModel,
     LibraryKind,
     LibraryModel,
@@ -103,6 +104,12 @@ class _CMakeListsVisitor:
         sections = [self._header(), self._preamble()]
         if any(library.kind is LibraryKind.SHARED for library in self._model.libraries):
             sections.append("include(GenerateExportHeader)")
+        if self._model.dependencies and self._model.package_manager == "auto":
+            sections.append("include(FetchContent)")
+        sections.extend(
+            self._visit_dependency(dependency)
+            for dependency in sorted(self._model.dependencies, key=lambda dep: dep.name)
+        )
         subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
         sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
         # Declaration order in build.py is meaningless to CMake, so targets are
@@ -145,6 +152,73 @@ class _CMakeListsVisitor:
             f"    VERSION {self._model.version}\n"
             f"    LANGUAGES CXX\n"
             f")"
+        )
+
+    def _visit_dependency(self, dependency: DependencyModel) -> str:
+        """Emit one external dependency, dispatching on the package manager.
+
+        Args:
+            dependency: The resolved dependency to emit.
+
+        Returns:
+            The dependency's complete section text.
+        """
+        if self._model.package_manager == "auto":
+            return self._dependency_fallback_block(dependency)
+        return self._dependency_find_package_block(dependency)
+
+    def _dependency_find_package_block(self, dependency: DependencyModel) -> str:
+        """Emit a plain find_package call for the single-backend modes.
+
+        Args:
+            dependency: The resolved dependency to emit.
+
+        Returns:
+            A commented find_package command.
+        """
+        name = _resolved_cmake_name(dependency)
+        if self._model.package_manager == "vcpkg":
+            comment = "provided by vcpkg (see vcpkg.json)"
+            arguments = f"{name} CONFIG REQUIRED"
+        elif self._model.package_manager == "conan":
+            comment = "provided by Conan (see conanfile.txt)"
+            arguments = f"{name} REQUIRED"
+        else:
+            comment = "system package, version-checked by find_package()"
+            arguments = f"{name} {dependency.version} REQUIRED"
+        return (
+            f"# {dependency.name} {dependency.version}: {comment}.\n"
+            f"find_package({arguments}{_components_suffix(dependency)})"
+        )
+
+    def _dependency_fallback_block(self, dependency: DependencyModel) -> str:
+        """Emit the find_package-then-FetchContent fallback for "auto" mode.
+
+        The TARGET guard keeps the block idempotent when a parent project
+        in the same tree already provided the package.
+
+        Args:
+            dependency: The resolved dependency, fetch pin included.
+
+        Returns:
+            The commented fallback section.
+        """
+        name = _resolved_cmake_name(dependency)
+        assert dependency.url is not None, "the auto strategy must pin a URL"
+        assert dependency.sha256 is not None, "the auto strategy must pin a hash"
+        assert dependency.link_targets, "validation guarantees imported targets"
+        return (
+            f"# {dependency.name} {dependency.version}: system package when "
+            f"available, pinned source fetch otherwise.\n"
+            f"find_package({name} {dependency.version} QUIET"
+            f"{_components_suffix(dependency)})\n"
+            f"if(NOT {name}_FOUND AND NOT TARGET {dependency.link_targets[0]})\n"
+            f"    FetchContent_Declare({dependency.name}\n"
+            f"        URL {dependency.url}\n"
+            f"        URL_HASH SHA256={dependency.sha256}\n"
+            f"    )\n"
+            f"    FetchContent_MakeAvailable({dependency.name})\n"
+            f"endif()"
         )
 
     def _visit_executable(self, target: ExecutableModel) -> str:
@@ -366,3 +440,30 @@ class _CMakeListsVisitor:
             lines.extend(f"    PRIVATE {name}" for name in private)
         lines.append(")")
         return "\n".join(lines)
+
+
+def _resolved_cmake_name(dependency: DependencyModel) -> str:
+    """Read a dependency's find_package name, which resolution guarantees.
+
+    Args:
+        dependency: The dependency being emitted.
+
+    Returns:
+        The find_package name.
+    """
+    assert dependency.cmake_name is not None, "the emitter requires a resolved model"
+    return dependency.cmake_name
+
+
+def _components_suffix(dependency: DependencyModel) -> str:
+    """Render a dependency's components for a find_package call.
+
+    Args:
+        dependency: The dependency being emitted.
+
+    Returns:
+        A " COMPONENTS ..." suffix, or an empty string without components.
+    """
+    if not dependency.components:
+        return ""
+    return " COMPONENTS " + " ".join(sorted(dependency.components))

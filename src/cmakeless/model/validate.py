@@ -10,8 +10,10 @@ import re
 
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
+    PACKAGE_MANAGERS,
     SUPPORTED_CPP_STANDARDS,
     WARNING_PRESETS,
+    DependencyModel,
     LibraryKind,
     LibraryModel,
     ProjectModel,
@@ -35,12 +37,15 @@ def validate_project(model: ProjectModel) -> None:
     _check_name(model.name, kind="project", script=model.source_script)
     _check_cpp_std(model)
     _check_warnings(model)
+    _check_package_manager(model)
     _check_target_names(model)
     _check_sources(model)
     _check_libraries(model)
+    _check_dependencies(model)
     _check_links(model)
     _check_link_cycles(model)
     _check_subprojects(model)
+    _check_dependency_versions(model)
 
 
 def _check_name(name: str, *, kind: str, script: str) -> None:
@@ -95,6 +100,95 @@ def _check_warnings(model: ProjectModel) -> None:
             f"Unknown warnings preset {model.warnings!r} for project {model.name!r} "
             f"in {model.source_script}. Pick one of: {presets}."
         )
+
+
+def _check_package_manager(model: ProjectModel) -> None:
+    """Reject package manager names no dependency provider implements.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: If ``model.package_manager`` is unknown.
+    """
+    if model.package_manager not in PACKAGE_MANAGERS:
+        managers = ", ".join(repr(manager) for manager in sorted(PACKAGE_MANAGERS))
+        raise ConfigurationError(
+            f"Unknown package manager {model.package_manager!r} for project "
+            f"{model.name!r} in {model.source_script}. Pick one of: {managers} "
+            f'(for example project.package_manager = "vcpkg").'
+        )
+
+
+def _check_dependencies(model: ProjectModel) -> None:
+    """Check every dependency's shape: valid name, version, and targets.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a dependency has an unusable name, an
+            empty version, or no imported targets to link.
+    """
+    for dependency in model.dependencies:
+        if not _VALID_NAME.match(dependency.name):
+            raise ConfigurationError(
+                f"Invalid package name {dependency.name!r} in "
+                f'{model.source_script}: specs look like "name/version", for '
+                f'example depends("fmt/10.2.1").'
+            )
+        if not dependency.version:
+            raise ConfigurationError(
+                f"Package {dependency.name!r} in {model.source_script} has no "
+                f'version. Specs look like "name/version", for example '
+                f'depends("{dependency.name}/1.0.0").'
+            )
+        if not dependency.link_targets:
+            raise ConfigurationError(
+                f"Package {dependency.name!r} in {model.source_script} has no "
+                f"imported targets to link. Pass targets=[...] to depends(), for "
+                f'example targets=["{dependency.name}::{dependency.name}"].'
+            )
+
+
+def _check_dependency_versions(model: ProjectModel) -> None:
+    """Require one version per package across the whole project tree.
+
+    One tree resolves into one lockfile, so two projects requiring
+    different versions of the same package can never both be satisfied.
+
+    Args:
+        model: The frozen root project to check.
+
+    Raises:
+        ConfigurationError: When two projects in the tree require different
+            versions of the same package.
+    """
+    seen: dict[str, tuple[str, str]] = {}
+    for script, dependency in _tree_dependencies(model):
+        known = seen.setdefault(dependency.name, (dependency.version, script))
+        if known[0] != dependency.version:
+            raise ConfigurationError(
+                f"Conflicting versions of package {dependency.name!r}: "
+                f"{known[1]} requires {known[0]} but {script} requires "
+                f"{dependency.version}. Align both on one version; the tree "
+                f"shares a single lockfile."
+            )
+
+
+def _tree_dependencies(model: ProjectModel) -> list[tuple[str, DependencyModel]]:
+    """Flatten every dependency in the tree with its declaring script.
+
+    Args:
+        model: The root project.
+
+    Returns:
+        (source_script, dependency) pairs, parents before children.
+    """
+    pairs = [(model.source_script, dependency) for dependency in model.dependencies]
+    for subproject in model.subprojects:
+        pairs.extend(_tree_dependencies(subproject.project))
+    return pairs
 
 
 def _check_target_names(model: ProjectModel) -> None:
@@ -197,19 +291,29 @@ def _check_header_only_shape(library: LibraryModel, model: ProjectModel) -> None
 
 
 def _check_links(model: ProjectModel) -> None:
-    """Require every link edge to point at a library of this project.
+    """Require every link edge to point at a library or a known dependency.
 
     Args:
         model: The frozen project to check.
 
     Raises:
-        ConfigurationError: When a target links something that is not one of
-            the project's own libraries (subprojects are isolated by design).
+        ConfigurationError: When a target links something that is neither
+            one of the project's own libraries (subprojects are isolated by
+            design) nor an imported target of one of its dependencies.
     """
     library_names = {library.name for library in model.libraries}
+    imported_names = {
+        target for dependency in model.dependencies for target in dependency.link_targets
+    }
     for target in model.targets():
         for link in target.links:
-            if link.target not in library_names:
+            if link.external and link.target not in imported_names:
+                raise ConfigurationError(
+                    f"Target {target.name!r} in {model.source_script} links imported "
+                    f"target {link.target!r}, which no dependency of this project "
+                    f"provides. Add the matching depends() call, or fix the name."
+                )
+            if not link.external and link.target not in library_names:
                 raise ConfigurationError(
                     f"Target {target.name!r} in {model.source_script} links against "
                     f"{link.target!r}, which is not a library of this project. "
@@ -297,6 +401,16 @@ def _check_subprojects(model: ProjectModel) -> None:
                 f"{model.source_script}. Remove the duplicate add_subproject() call."
             )
         seen_dirs.add(key)
+        # One tree resolves through one backend; a child on a different
+        # package manager would emit CMake its dependencies were never
+        # resolved for.
+        if subproject.project.package_manager != model.package_manager:
+            raise ConfigurationError(
+                f"Subproject '{key}' uses package_manager "
+                f"{subproject.project.package_manager!r} but its parent in "
+                f"{model.source_script} uses {model.package_manager!r}. Set the "
+                f"same package_manager in both build descriptions."
+            )
         validate_project(subproject.project)
 
 

@@ -36,10 +36,11 @@ $ cmakeless init
 
 ## Learn more
 
-- [INTRODUCTION.md](INTRODUCTION.md): why CMakeless exists.
-- [FEATURES.md](FEATURES.md): everything it does for you, with before/after comparisons.
-- [ARCHITECTURE.md](ARCHITECTURE.md): how it is designed, layer by layer.
-- [ROADMAP.md](ROADMAP.md): where it is going and when.
-- [CONTRIBUTING.md](CONTRIBUTING.md): why your scars from CMake make you exactly the contributor we need.
+- [INTRODUCTION](INTRODUCTION.md): Why CMakeless exists.
+- [FEATURES](FEATURES.md): Everything it does for you, with before/after comparisons.
+- [ARCHITECTURE](ARCHITECTURE.md): How it is designed, layer by layer.
+- [ROADMAP](ROADMAP.md): Where it is going.
+- [CONTRIBUTING](CONTRIBUTING.md): Why your scars from CMake make you exactly the contributor we need.
 
 Runnable examples live in [examples/](examples/), smallest first.
+
