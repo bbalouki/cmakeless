@@ -47,7 +47,7 @@ targets = project.targets_info()      # the configured build as Python objects
 Or write the five lines yourself:
 
 ```python
-# build.py
+# cmakelessfile.py
 from cmakeless import Project
 
 project = Project("hello", version="1.0.0", cpp_std=20)

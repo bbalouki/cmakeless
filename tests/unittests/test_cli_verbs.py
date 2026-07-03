@@ -1,4 +1,4 @@
-"""The CLI verbs that execute build.py: configure, clean, lock, and init."""
+"""The CLI verbs that execute cmakelessfile.py: configure, clean, lock, and init."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def demo_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (tmp_path / "src" / "main.cpp").write_text(
         "auto main() -> int { return 0; }\n", encoding="utf-8"
     )
-    (tmp_path / "build.py").write_text(BUILD_PY, encoding="utf-8")
+    (tmp_path / "cmakelessfile.py").write_text(BUILD_PY, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -56,7 +56,7 @@ def test_clean_on_clean_tree_is_fine(demo_project: Path) -> None:
 def test_lock_writes_the_lockfile(demo_project: Path) -> None:
     """Lock writes the lockfile."""
     # fmt/10.2.1 carries a curated registry pin, so locking needs no network.
-    (demo_project / "build.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
+    (demo_project / "cmakelessfile.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
     assert main(["lock"]) == 0
     lock = json.loads((demo_project / "cmakeless.lock").read_text(encoding="utf-8"))
     assert lock["packages"]["fmt"]["version"] == "10.2.1"
@@ -85,8 +85,8 @@ Path("sanitize.txt").write_text(",".join(_context.active_sanitize()), encoding="
 
 @pytest.fixture
 def probe_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """A build.py that records the overrides the CLI activated."""
-    (tmp_path / "build.py").write_text(PROBE_BUILD_PY, encoding="utf-8")
+    """A cmakelessfile.py that records the overrides the CLI activated."""
+    (tmp_path / "cmakelessfile.py").write_text(PROBE_BUILD_PY, encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
@@ -130,7 +130,7 @@ def test_init_scaffolds_a_buildable_layout(tmp_path: Path, monkeypatch: pytest.M
     """Init scaffolds a buildable layout."""
     monkeypatch.chdir(tmp_path)
     assert main(["init", "--name", "shiny"]) == 0
-    build_py = (tmp_path / "build.py").read_text(encoding="utf-8")
+    build_py = (tmp_path / "cmakelessfile.py").read_text(encoding="utf-8")
     assert 'Project("shiny"' in build_py
     assert (tmp_path / "src" / "main.cpp").is_file()
     assert "build/" in (tmp_path / ".gitignore").read_text(encoding="utf-8")
@@ -150,4 +150,4 @@ def test_init_default_name_comes_from_directory(
     project_dir.mkdir()
     monkeypatch.chdir(project_dir)
     assert main(["init"]) == 0
-    assert 'Project("my-tool"' in (project_dir / "build.py").read_text(encoding="utf-8")
+    assert 'Project("my-tool"' in (project_dir / "cmakelessfile.py").read_text(encoding="utf-8")

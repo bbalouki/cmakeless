@@ -5,6 +5,19 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking: the default build description filename is now `cmakelessfile.py`**
+  (was `build.py`). `cmakeless.py` was considered and rejected: on a
+  case-insensitive filesystem (Windows, macOS) it would collide with the
+  installed `cmakeless` package, making `from cmakeless import Project`
+  inside the script resolve to itself. `cmakelessfile.py` names the tool the
+  way `Dockerfile`/`Jenkinsfile` do, with no such collision. Since the
+  project has not published a stable release yet, there is no migration
+  path: rename `build.py` to `cmakelessfile.py` in existing projects.
+
 ## [0.4.1]
 
 Sensible defaults, the escape hatch, and a release pipeline: the polish that

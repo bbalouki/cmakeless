@@ -25,7 +25,7 @@ def make_model(**overrides: object) -> ProjectModel:
         "version": "1.0.0",
         "cpp_std": 17,
         "root_dir": Path("/does/not/matter"),
-        "source_script": "build.py",
+        "source_script": "cmakelessfile.py",
     }
     fields.update(overrides)
     return ProjectModel(**fields)  # type: ignore[arg-type]

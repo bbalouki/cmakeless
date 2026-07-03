@@ -127,7 +127,7 @@ class _Target:
 
         The escape hatch for the 1% CMakeless does not model: the text is
         written into the generated CMakeLists.txt exactly as given, fenced
-        with a comment naming its build.py origin. Snippets are emitted in
+        with a comment naming its cmakelessfile.py origin. Snippets are emitted in
         the order added; nothing about them is validated.
 
         Args:

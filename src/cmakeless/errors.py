@@ -41,7 +41,7 @@ class CmakelessError(Exception):
 
 
 class ConfigurationError(CmakelessError):
-    """The build description in build.py is invalid; caught at freeze time."""
+    """The build description in cmakelessfile.py is invalid; caught at freeze time."""
 
 
 class DependencyError(CmakelessError):

@@ -46,7 +46,7 @@ No more guessing among `PUBLIC`, `PRIVATE`, and `INTERFACE`: `public=True` when 
 ### Subprojects (Composite)
 
 ```python
-project.add_subproject("tools/asset_packer")   # its own build.py
+project.add_subproject("tools/asset_packer")   # its own cmakelessfile.py
 ```
 
 Replaces `add_subdirectory` plus the folkloric knowledge about variable scoping across directories. Each subproject is a self-contained `Project`; the parent composes them.
@@ -187,7 +187,7 @@ No opt-in required, because there is no reason not to want these:
 
 - **`compile_commands.json`** is always exported and symlinked/copied to the project root: clangd, clang-tidy, and every editor just work.
 - **IDE projects for free.** Since the output is honest CMake, CLion, Visual Studio, Qt Creator, and VS Code's CMake Tools open the project natively. CMakeless does not need IDE plugins to be usable inside every IDE.
-- **`cmakeless init`** scaffolds a new project (directory layout, `build.py`, `.gitignore`, a hello-world target) in one command.
+- **`cmakeless init`** scaffolds a new project (directory layout, `cmakelessfile.py`, `.gitignore`, a hello-world target) in one command.
 - **Structured build feedback.** The driver consumes the CMake File API, so `project.targets_info()` returns real Python objects describing the configured build, and progress events stream to the console (or your own Observer) instead of raw log walls.
 
 ---
@@ -201,7 +201,7 @@ engine.raw_cmake('set_target_properties(engine PROPERTIES UNITY_BUILD ON)')
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 
-Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `build.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)).
+Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `cmakelessfile.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)).
 
 ---
 
@@ -210,5 +210,5 @@ Raw snippets are emitted verbatim into the generated file, clearly fenced with c
 Boundaries, stated as promises (see also the non-goals in [ROADMAP](ROADMAP.md)):
 
 - **It will not become a build system.** Compilation, dependency graphs between object files, incremental rebuilds: CMake and Ninja own these, and they are better at it than anything we would write.
-- **It will not invent a DSL.** `build.py` is plain Python forever.
+- **It will not invent a DSL.** `cmakelessfile.py` is plain Python forever.
 - **It will not hold your project hostage.** The generated CMake is readable, committable, and standalone. Deleting CMakeless from your toolchain must always be a boring afternoon, not a migration project.

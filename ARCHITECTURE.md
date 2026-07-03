@@ -71,25 +71,25 @@ The entire user-facing surface is intentionally small. This is the complete clas
 
 Users never import from `cmakeless.model`, `cmakeless.emitter`, or `cmakeless.driver`. Those are implementation details, and the package layout enforces it: only names re-exported in `cmakeless/__init__.py` are public, and the package ships `py.typed` so every signature is checked by the user's IDE and type checker.
 
-A deliberate non-feature: there is no CMakeless DSL, no YAML dialect, no magic globals. A `build.py` is a plain Python script that happens to import `cmakeless`. Anything Python can do (conditionals, loops, functions, reading environment variables, importing your own helper modules), your build description can do, with zero new semantics to learn.
+A deliberate non-feature: there is no CMakeless DSL, no YAML dialect, no magic globals. A `cmakelessfile.py` is a plain Python script that happens to import `cmakeless`. Anything Python can do (conditionals, loops, functions, reading environment variables, importing your own helper modules), your build description can do, with zero new semantics to learn.
 
-## Entry Points: `build.py` and the CLI
+## Entry Points: `cmakelessfile.py` and the CLI
 
-The user's build description lives in **`build.py`** at the project root. This is a convention, not a requirement, chosen deliberately over a single-module design ("just one `cmakeless.py` file") for three reasons:
+The user's build description lives in **`cmakelessfile.py`** at the project root. This is a convention, not a requirement, chosen deliberately over a single-module design ("just one `cmakeless.py` file") for three reasons:
 
-1. `build.py` names the user's *intent* (this file builds the project), the way `conanfile.py` and `noxfile.py` do, while `cmakeless.py` would name our library and shadow the actual `cmakeless` package on the import path, a classic Python footgun.
+1. `cmakelessfile.py` names the user's *intent* (this file builds the project), the way `conanfile.py` and `noxfile.py` do, while `cmakeless.py` would name our library and shadow the actual `cmakeless` package on the import path, a classic Python footgun.
 2. The library itself must be a package, not a module, because the four layers above need separate, privately importable subpackages to grow without breaking users.
 3. A predictable filename lets the CLI find the build description with zero configuration.
 
 Both invocation styles are first-class:
 
 ```console
-$ python build.py            # the script is the tool
-$ cmakeless build             # the CLI finds build.py and runs it
+$ python cmakelessfile.py   # the script is the tool
+$ cmakeless build           # the CLI finds cmakelessfile.py and runs it
 $ cmakeless configure --preset debug
 $ cmakeless test
 $ cmakeless clean
-$ cmakeless init              # scaffold a new project interactively
+$ cmakeless init            # scaffold a new project interactively
 ```
 
 The `cmakeless` console script and `python -m cmakeless` share one implementation in `cmakeless/cli.py`.
@@ -144,7 +144,7 @@ CMakeless uses classic, institutional patterns deliberately, so that any contrib
 
 The single biggest quality-of-life difference over raw CMake is *when* and *how* things fail. The rules:
 
-1. **Validate at freeze time.** Unknown source files, dependency cycles, linking a test-only target into a release binary, a typo in a C++ standard: all reported before CMake is ever invoked, with the offending `build.py` line in the traceback.
+1. **Validate at freeze time.** Unknown source files, dependency cycles, linking a test-only target into a release binary, a typo in a C++ standard: all reported before CMake is ever invoked, with the offending `cmakelessfile.py` line in the traceback.
 2. **Translate at run time.** When CMake or the compiler does fail, the driver parses the output and raises a structured exception instead of dumping a wall of text.
 3. **One hierarchy.** Everything raised on purpose derives from `CmakelessError`:
 
@@ -179,7 +179,7 @@ Because the generated `CMakeLists.txt` is our public face to the rest of the eco
 
 - **Modern, target-centric CMake only.** `target_include_directories`, `target_compile_features`, `target_link_libraries` with explicit visibility. Never directory-level globals, never `include_directories()`, never `file(GLOB)` at configure time (globs are expanded by CMakeless in Python, where they can be validated).
 - **Deterministic.** Same model in, byte-identical output out. Sorted where order is arbitrary. This makes output committable and diffs reviewable.
-- **Self-describing.** A generated header comment states the CMakeless version and the source `build.py`, so a reader landing in the file knows where the truth lives.
+- **Self-describing.** A generated header comment states the CMakeless version and the source `cmakelessfile.py`, so a reader landing in the file knows where the truth lives.
 - **Standalone.** The output must build with plain `cmake` on a machine without Python. This is the no-lock-in promise made mechanical.
 
 ## Read Next

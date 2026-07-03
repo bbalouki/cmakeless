@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cmakeless"
 dynamic = ["version"]
-description = "CMakeless is a pure-Python frontend for CMake: A modern CMake alternative."
+description = "Write C++ builds in Python, get clean CMakeLists.txt: a modern, type-safe alternative to hand-written CMake."
 readme = "README.md"
 authors = [
     { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
@@ -30,6 +30,16 @@ keywords = [
     "python-bindings",
     "buildsystem",
     "cross-platform",
+    "ninja",
+    "ctest",
+    "gtest",
+    "googletest",
+    "catch2",
+    "vcpkg",
+    "conan",
+    "cpp20",
+    "cpp23",
+    "developer-tools",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",

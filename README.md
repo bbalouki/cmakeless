@@ -11,7 +11,7 @@
 You get the entire CMake ecosystem, every generator, toolchain, IDE, and library, without ever writing CMake by hand again.
 
 ```python
-# build.py
+# cmakelessfile.py
 from cmakeless import Project
 
 project = Project("hello", version="1.0.0", cpp_std=20)
@@ -20,7 +20,7 @@ project.build()
 ```
 
 ```console
-$ python build.py        # or: cmakeless build
+$ python cmakelessfile.py   # or: cmakeless build
 ```
 
 That is a complete, cross-platform C++ build. No `cmake_minimum_required`, no `PARENT_SCOPE`, no semicolon-lists, no guessing whether a variable needs quotes. If you make a mistake, you get a Python exception with a real message, at author time, not a cryptic configure-time failure three modules deep.
@@ -39,6 +39,7 @@ That is a complete, cross-platform C++ build. No `cmake_minimum_required`, no `P
 - [Feature tour](#feature-tour)
 - [Where CMakeless fits in the ecosystem](#where-cmakeless-fits-in-the-c-build-ecosystem)
 - [What CMakeless will not do](#what-cmakeless-will-not-do)
+- [FAQ](#faq)
 - [Requirements](#requirements)
 - [Learn more](#learn-more)
 
@@ -108,12 +109,12 @@ $ cmakeless init
 
 ## A concrete, end-to-end workflow
 
-Here is what a real project looks like as it grows, from a single file to a shippable, tested, Python-importable library. Every step is a few lines of `build.py`, and every verb is one command.
+Here is what a real project looks like as it grows, from a single file to a shippable, tested, Python-importable library. Every step is a few lines of `cmakelessfile.py`, and every verb is one command.
 
 ### 1. Start with an executable and a library
 
 ```python
-# build.py
+# cmakelessfile.py
 from cmakeless import Project
 
 project = Project("mygame", version="1.0.0", cpp_std=23, warnings="strict")
@@ -216,7 +217,7 @@ project.lto = True
 | `project.add_python_module(...)` | pybind11/nanobind fetch, `find_package(Python)`, `<backend>_add_module`, stubs, env install |
 | `project.add_preset(Preset(...))` | `CMakePresets.json`, per-preset out-of-source build trees, multi-config support |
 | `project.install(...)` / `project.package(...)` | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack |
-| `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `build.py` origin |
+| `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin |
 
 Watch progress through the Observer API, and read the configured build as Python objects via the CMake File API:
 
@@ -255,8 +256,31 @@ CMakeless is the only one of these that keeps 100% of the CMake ecosystem while 
 Boundaries, stated as promises:
 
 - **It will not become a build system.** Compilation, incremental rebuilds, and object-file graphs belong to CMake and Ninja, which are better at it than anything we would write.
-- **It will not invent a DSL.** `build.py` is plain Python forever.
+- **It will not invent a DSL.** `cmakelessfile.py` is plain Python forever.
 - **It will not hold your project hostage.** The generated CMake is readable, committable, and standalone. Leaving must always be boring.
+
+## FAQ
+
+**Is this production-ready?**
+No. CMakeless is pre-1.0, alpha software. The API can still change without a deprecation cycle. If you need stability today, pin the exact version and read the changelog before upgrading.
+
+**Why not just use Meson, Bazel, or xmake?**
+Because you would be leaving the CMake ecosystem behind: vcpkg, Conan, every IDE, every CI action, every existing library's build. CMakeless keeps all of that and only replaces the part everyone actually hates: writing the CMake language by hand.
+
+**Does this only work with Ninja and Clang, or does it support MSVC/Visual Studio too?**
+CMake's generator selection is untouched. CMakeless drives whichever generator CMake supports on your platform (Ninja, Visual Studio, Makefiles). MSVC works like any other CMake-driven MSVC project.
+
+**Can I still hand-edit the generated `CMakeLists.txt`?**
+You can, but the point is you should not have to. It regenerates from your `cmakelessfile.py` on every build, so hand edits get silently overwritten. Use `target.raw_cmake(...)` or `project.raw_cmake_file(...)` for anything the API does not model yet.
+
+**How is this different from scikit-build-core or meson-python?**
+Those solve the reverse problem: using CMake or Meson to build a *Python package* that happens to contain C++. CMakeless is for C++ projects, full stop; Python is the authoring language, not the packaging target.
+
+**Do I need CMake installed?**
+To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all.
+
+**What happens if I stop using CMakeless later?**
+Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake with no CMakeless runtime dependency. Commit it and walk away.
 
 ## Requirements
 

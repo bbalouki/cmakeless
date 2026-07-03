@@ -38,7 +38,7 @@ def make_model(*dependencies: DependencyModel) -> ProjectModel:
         version="1.0.0",
         cpp_std=20,
         root_dir=Path("/does/not/matter"),
-        source_script="build.py",
+        source_script="cmakelessfile.py",
         package_manager="conan",
         dependencies=dependencies,
     )

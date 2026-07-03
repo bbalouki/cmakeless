@@ -34,7 +34,7 @@ Start wherever your energy is, every rung matters:
 
 When reviews disagree, these principles win, in this order:
 
-1. **The user's `build.py` is sacred ground.** Every public class, method, and argument must justify its existence against the question: *does this make the common case simpler?* We would rather lack a feature than grow a confusing one. Deleting from the public API is the most prestigious kind of contribution.
+1. **The user's `cmakelessfile.py` is sacred ground.** Every public class, method, and argument must justify its existence against the question: *does this make the common case simpler?* We would rather lack a feature than grow a confusing one. Deleting from the public API is the most prestigious kind of contribution.
 2. **Errors are a feature, not an apology.** We compete with CMake primarily on how it feels to fail. Any change that makes failure less clear is a regression, even if it makes success faster.
 3. **Generated CMake is our face.** It must read like an expert wrote it by hand. If you would be embarrassed to commit the output to your own repository, it is not done.
 4. **Delegate, never reimplement.** If CMake can do it, we drive CMake to do it. Cleverness that duplicates the engine is complexity we will pay interest on forever.

@@ -15,7 +15,7 @@ uv.lock
 build/
 CMakeUserPresets.json
 
-# Generated output inside example projects; regenerated from build.py.
+# Generated output inside example projects; regenerated from cmakelessfile.py.
 examples/**/CMakeLists.txt
 examples/**/CMakePresets.json
 examples/**/cmake/
