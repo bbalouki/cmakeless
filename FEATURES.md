@@ -352,6 +352,71 @@ for compiler in info.compilers:
 
 ---
 
+## 12. Portability: Toolchains, Supply Chain, and Diagnostics
+
+The industries-readiness release: gaming, finance, engineering, and aerospace shops all cross-compile, all care where their dependencies come from, and all lose a morning to "works on my machine."
+
+### A curated toolchain gallery
+
+**You write:**
+
+```python
+from cmakeless import Preset, Toolchain
+
+project.add_toolchain(Toolchain.arm_none_eabi(cpu="cortex-m4"))
+project.add_toolchain(Toolchain.ios(platform="OS64", deployment_target="13.0"))
+project.add_toolchain(Toolchain.android(ndk="/opt/android-ndk", abi="arm64-v8a"))
+project.add_toolchain(Toolchain.emscripten())  # reads the EMSDK environment variable
+
+project.add_preset(Preset("device", toolchain="ios-os64"))
+```
+
+**We handle:** each entry builds on the same two `Toolchain` primitives (a generated compiler/system-name description, or a wrapped SDK toolchain file) that `Toolchain.from_file()`/`Toolchain(...)` already use, seeded with the cache variables the platform actually needs (`ANDROID_ABI`/`ANDROID_PLATFORM`, `CMAKE_OSX_SYSROOT`/`CMAKE_OSX_ARCHITECTURES`, `-mcpu`/`CMAKE_TRY_COMPILE_TARGET_TYPE` for bare metal). `abi`/`platform` typos are rejected immediately, at the call site, the way `When.compiler(...)` already validates its tokens; Android and Emscripten wrap the NDK's/SDK's own toolchain file (existence checked at freeze time, same as `Toolchain.from_file()`), so cross-compiling is never a hand-written toolchain file away.
+
+Registering a toolchain never requires its SDK to be installed; only building with it (an active `--preset` referencing it) does.
+
+### Supply chain: bills of materials, vendoring, and offline builds
+
+**You write:**
+
+```console
+$ cmakeless lock                         # resolve and pin every dependency, as always
+$ cmakeless sbom --format cyclonedx      # or --format spdx
+$ cmakeless vendor                       # download every locked archive
+$ cmakeless build --offline              # resolve from the vendored copies, no network
+```
+
+**We handle:** `cmakeless sbom` reads `cmakeless.lock`'s already-complete inventory and writes a CycloneDX 1.5 or SPDX 2.3 document, no re-resolution or network needed. `cmakeless vendor` downloads and hash-verifies every fetchable locked package, then records the local copy in `cmakeless.mirror.json`. `--offline` refuses to fetch anything not already available: the default backend resolves from the lockfile, the mirror map, or a registry-curated hash (a clear `DependencyError` names `cmakeless vendor` as the fix otherwise); the vcpkg backend checks its `vcpkg_installed` output is already populated before letting configure run; the Conan backend passes `--build=never` so Conan itself refuses anything not already cached. The mirror substitution only ever changes what a *build* fetches from — `cmakeless.lock` keeps recording the canonical upstream URL, so it stays portable and committable.
+
+### Static analysis, wired in
+
+**You write:**
+
+```python
+project.lint(clang_tidy=True, iwyu=False)          # every compiled target
+vendored_core.lint(clang_tidy=False)                # this one library opts out
+strict_lib.lint(clang_tidy=["clang-tidy", "-checks=-*,modernize-*"])
+```
+
+**We handle:** `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE` target properties, set from the project-wide default unless a target calls its own `lint()`, which always wins (including opting out with `False`). Header-only libraries are silently skipped: they compile nothing, so there is nothing to lint.
+
+### `cmakeless doctor`
+
+```console
+$ cmakeless doctor
+[cmakeless] doctor
+  cmake      ok     3.29.2 (>= 3.25 required)
+  generator  ok     ninja
+  ccache     missing not found on PATH (speeds up rebuilds)
+  vcpkg      missing not found on PATH (only needed for project.package_manager = "vcpkg")
+  conan      missing not found on PATH (only needed for project.package_manager = "conan")
+  network    ok     reached https://github.com
+```
+
+**We handle:** one command, no `cmakelessfile.py` required, that checks everything a new machine needs before it can build anything: CMake's presence and version, the generator CMakeless would auto-select, `ccache`/`sccache`/`vcpkg`/`conan` on `PATH`, and network reachability. A missing `cmake` or an unusable generator fails the command; every other check is informational.
+
+---
+
 ## What CMakeless Will Not Do
 
 Boundaries, stated as promises (see also the non-goals in [ROADMAP](ROADMAP.md)):
