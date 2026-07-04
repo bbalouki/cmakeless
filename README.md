@@ -2,8 +2,8 @@
 
 [![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
-<!-- [![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
-[![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/) -->
+[![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
+[![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
 
@@ -172,6 +172,8 @@ $ python -c "import mygame_core; print(mygame_core.__doc__)"
 ```
 
 CMakeless locates the invoking interpreter's development headers, fetches pybind11 (or nanobind, with `binding="nanobind"`, which also gets `.pyi` stubs), builds the extension, and copies it into your current environment, so `import` just works. **This is the flagship of the whole idea.**
+
+The generated `find_package(Python ...)` floor defaults to CMakeless's own supported Python version, not whichever interpreter happens to run `cmakeless` — so the same `cmakelessfile.py` always emits the same `CMakeLists.txt`, on any machine. Pass `python_version="3.13"` to `add_python_module(...)` to raise it.
 
 ### 5. Configurations, install, and package
 
