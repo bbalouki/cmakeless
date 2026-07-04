@@ -122,6 +122,7 @@ from cmakeless.api import _context
 Path("verb.txt").write_text(_context.active_verb(), encoding="utf-8")
 Path("preset.txt").write_text(str(_context.active_preset()), encoding="utf-8")
 Path("sanitize.txt").write_text(",".join(_context.active_sanitize()), encoding="utf-8")
+Path("offline.txt").write_text(str(_context.active_offline()), encoding="utf-8")
 """
 
 
@@ -193,3 +194,94 @@ def test_init_default_name_comes_from_directory(
     monkeypatch.chdir(project_dir)
     assert main(["init"]) == 0
     assert 'Project("my-tool"' in (project_dir / "cmakelessfile.py").read_text(encoding="utf-8")
+
+
+def test_offline_flag_reaches_the_build_script(probe_project: Path) -> None:
+    """Offline flag reaches the build script."""
+    assert main(["build", "--offline"]) == 0
+    assert (probe_project / "offline.txt").read_text(encoding="utf-8") == "True"
+
+
+def test_offline_defaults_to_false(probe_project: Path) -> None:
+    """Offline defaults to false."""
+    assert main(["build"]) == 0
+    assert (probe_project / "offline.txt").read_text(encoding="utf-8") == "False"
+
+
+def test_sbom_without_a_lockfile_fails_with_guidance(
+    demo_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Sbom without a lockfile fails with guidance."""
+    assert main(["sbom"]) == 1
+    assert "cmakeless lock" in capsys.readouterr().err
+
+
+def test_sbom_writes_cyclonedx_by_default(demo_project: Path) -> None:
+    """Sbom writes cyclonedx by default."""
+    (demo_project / "cmakelessfile.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
+    assert main(["lock"]) == 0
+    assert main(["sbom"]) == 0
+    document = json.loads((demo_project / "demo.cdx.json").read_text(encoding="utf-8"))
+    assert document["bomFormat"] == "CycloneDX"
+    assert document["components"][0]["name"] == "fmt"
+
+
+def test_sbom_format_and_output_options(demo_project: Path) -> None:
+    """Sbom format and output options."""
+    (demo_project / "cmakelessfile.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
+    assert main(["lock"]) == 0
+    out_path = demo_project / "custom.spdx.json"
+    assert main(["sbom", "--format", "spdx", "--output", str(out_path)]) == 0
+    document = json.loads(out_path.read_text(encoding="utf-8"))
+    assert document["spdxVersion"] == "SPDX-2.3"
+
+
+def test_vendor_without_a_lockfile_fails_with_guidance(
+    demo_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Vendor without a lockfile fails with guidance."""
+    assert main(["vendor"]) == 1
+    assert "cmakeless lock" in capsys.readouterr().err
+
+
+def test_vendor_downloads_into_the_default_directory(
+    demo_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Vendor downloads into the default directory."""
+    (demo_project / "cmakelessfile.py").write_text(DEPENDENT_BUILD_PY, encoding="utf-8")
+    assert main(["lock"]) == 0
+
+    class _FakeResponse:
+        """A urlopen()-style context manager returning a fixed payload."""
+
+        def __enter__(self) -> _FakeResponse:
+            """Enter the context, returning self."""
+            return self
+
+        def __exit__(self, *exc_info: object) -> None:
+            """Exit the context; nothing to clean up."""
+            return None
+
+        def read(self) -> bytes:
+            """Return the fixed payload."""
+            return b"fake-archive-bytes"
+
+    monkeypatch.setattr(
+        "cmakeless.deps.vendor.urllib.request.urlopen", lambda url, timeout: _FakeResponse()
+    )
+    # The curated pin's sha256 will not match this fake payload, so vendor()
+    # is expected to (correctly) refuse it as a hash mismatch.
+    assert main(["vendor"]) == 1
+
+
+def test_doctor_prints_a_report_without_needing_a_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Doctor prints a report without needing a project (no cmakelessfile.py here)."""
+    monkeypatch.chdir(tmp_path)
+    exit_code = main(["doctor"])
+    assert exit_code in (0, 1)
+    out = capsys.readouterr().out
+    assert "[cmakeless] doctor" in out
+    assert "cmake" in out
+    assert "generator" in out
