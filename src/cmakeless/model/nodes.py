@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Frozen dataclasses that form the build graph.
 
 Immutability is what makes the downstream layers simple: the emitter can rely
@@ -51,6 +55,32 @@ CPACK_GENERATOR_BY_FORMAT: dict[str, str] = {
     "rpm": "RPM",
 }
 
+# Friendly compiler names accepted by When.compiler() (and the legacy
+# when="gcc|clang" string sugar), mapped to canonical compiler identifiers.
+COMPILERS_BY_TOKEN: dict[str, tuple[str, ...]] = {
+    "gcc": ("gnu",),
+    "clang": ("clang", "appleclang"),
+    "appleclang": ("appleclang",),
+    "msvc": ("msvc",),
+}
+
+# Canonical compiler identifiers (model vocabulary) to the CXX_COMPILER_ID
+# values CMake's own generator expressions report.
+CMAKE_COMPILER_ID_BY_CANONICAL: dict[str, str] = {
+    "gnu": "GNU",
+    "clang": "Clang",
+    "appleclang": "AppleClang",
+    "msvc": "MSVC",
+}
+
+# Friendly platform names accepted by When.platform(), mapped to the values
+# CMake's $<PLATFORM_ID:...> generator expression reports.
+CMAKE_PLATFORM_ID_BY_TOKEN: dict[str, str] = {
+    "windows": "Windows",
+    "linux": "Linux",
+    "macos": "Darwin",
+}
+
 
 class LibraryKind(enum.Enum):
     """How a library target is built and consumed.
@@ -67,6 +97,53 @@ class LibraryKind(enum.Enum):
     HEADER_ONLY = "header_only"
 
 
+class WhenKind(enum.Enum):
+    """Which leaf or combinator one WhenModel node is.
+
+    Attributes:
+        PLATFORM: Matches one of a set of target platforms.
+        COMPILER: Matches one of a set of compiler families.
+        CONFIG: Matches one of a set of build configurations.
+        OPTION: Matches a declared project option's value.
+        AND: True only when every operand is true.
+        OR: True when any operand is true.
+        NOT: True when its single operand is false.
+    """
+
+    PLATFORM = "platform"
+    COMPILER = "compiler"
+    CONFIG = "config"
+    OPTION = "option"
+    AND = "and"
+    OR = "or"
+    NOT = "not"
+
+
+@dataclass(frozen=True, slots=True)
+class WhenModel:
+    """A closed boolean-condition tree the emitter renders as CMake syntax.
+
+    Built exclusively through When's factory classmethods and &, |, ~
+    composition; never constructed with an arbitrary shape by user code.
+
+    Attributes:
+        kind: Which leaf or combinator this node is.
+        names: Already-canonical CMake identifiers for PLATFORM/COMPILER
+            (CMAKE_PLATFORM_ID_BY_TOKEN/CMAKE_COMPILER_ID_BY_CANONICAL
+            values) or raw CMake config names for CONFIG; empty for OPTION
+            and the combinators.
+        option_name: The option this OPTION leaf tests; None otherwise.
+        option_equals: The value the option must equal, for OPTION leaves.
+        operands: Child conditions for AND/OR/NOT; empty for leaves.
+    """
+
+    kind: WhenKind
+    names: tuple[str, ...] = ()
+    option_name: str | None = None
+    option_equals: bool | int | str = True
+    operands: tuple[WhenModel, ...] = ()
+
+
 @dataclass(frozen=True, slots=True)
 class DefineModel:
     """A preprocessor definition.
@@ -74,24 +151,41 @@ class DefineModel:
     Attributes:
         name: The macro name, for example ``GAME_MAX_PLAYERS``.
         value: The macro value as a string, or None for a bare define.
+        when: A condition guarding the define, or None to apply it
+            unconditionally.
     """
 
     name: str
     value: str | None = None
+    when: WhenModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class CompileOptionsModel:
-    """Extra compiler flags, optionally guarded to a set of compilers.
+    """Extra compiler flags, optionally guarded by a condition.
 
     Attributes:
         flags: The raw flags, in the order the user wrote them.
-        compilers: Canonical compiler identifiers ("gnu", "clang",
-            "appleclang", "msvc") the flags apply to; empty means all.
+        when: A condition guarding the flags, or None to apply them
+            unconditionally.
     """
 
     flags: tuple[str, ...]
-    compilers: tuple[str, ...] = ()
+    when: WhenModel | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LinkOptionsModel:
+    """Extra linker flags, optionally guarded by a condition.
+
+    Attributes:
+        flags: The raw flags, in the order the user wrote them.
+        when: A condition guarding the flags, or None to apply them
+            unconditionally.
+    """
+
+    flags: tuple[str, ...]
+    when: WhenModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,20 +244,36 @@ class ExecutableModel:
         name: Unique target name within the project.
         sources: Project-root-relative source files, globs already expanded.
         defines: Preprocessor definitions for this target.
-        compile_options: Extra compiler flags, possibly compiler-guarded.
+        compile_options: Extra compiler flags, possibly guarded by a When
+            condition.
+        link_options: Extra linker flags, possibly guarded by a When
+            condition.
         links: Libraries this executable links against.
         sanitize: Sanitizer names applied to compile and link steps.
         raw_cmake: Verbatim CMake snippets emitted after the target is
             defined, in the order they were added (the escape hatch).
+        private_include_dirs: Directories, private to this target, that its
+            own sources may #include.
+        cpp_std: This target's own C++ standard override, or None to use
+            the project's.
+        pch_headers: Headers to precompile, angle-bracket system headers
+            (``<vector>``) verbatim and project-relative paths otherwise.
+        unity: True to build this target as a single unity translation
+            unit (UNITY_BUILD).
     """
 
     name: str
     sources: tuple[Path, ...]
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
+    link_options: tuple[LinkOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
     raw_cmake: tuple[str, ...] = ()
+    private_include_dirs: tuple[Path, ...] = ()
+    cpp_std: int | None = None
+    pch_headers: tuple[str, ...] = ()
+    unity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,11 +286,22 @@ class LibraryModel:
         sources: Project-root-relative source files; empty for header-only.
         public_include_dirs: Directories whose headers consumers may include.
         defines: Preprocessor definitions for this target.
-        compile_options: Extra compiler flags, possibly compiler-guarded.
+        compile_options: Extra compiler flags, possibly guarded by a When
+            condition.
+        link_options: Extra linker flags, possibly guarded by a When
+            condition.
         links: Libraries this library links against.
         sanitize: Sanitizer names applied to compile and link steps.
         raw_cmake: Verbatim CMake snippets emitted after the target is
             defined, in the order they were added (the escape hatch).
+        private_include_dirs: Directories, private to this target, that its
+            own sources may #include.
+        cpp_std: This target's own C++ standard override, or None to use
+            the project's.
+        pch_headers: Headers to precompile, angle-bracket system headers
+            (``<vector>``) verbatim and project-relative paths otherwise.
+        unity: True to build this target as a single unity translation
+            unit (UNITY_BUILD).
     """
 
     name: str
@@ -189,9 +310,14 @@ class LibraryModel:
     public_include_dirs: tuple[Path, ...] = ()
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
+    link_options: tuple[LinkOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
     raw_cmake: tuple[str, ...] = ()
+    private_include_dirs: tuple[Path, ...] = ()
+    cpp_std: int | None = None
+    pch_headers: tuple[str, ...] = ()
+    unity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,11 +330,22 @@ class TestModel:
         framework: The test framework ("catch2", "gtest", "doctest", or
             "none" for a plain executable whose exit code is the verdict).
         defines: Preprocessor definitions for this target.
-        compile_options: Extra compiler flags, possibly compiler-guarded.
+        compile_options: Extra compiler flags, possibly guarded by a When
+            condition.
+        link_options: Extra linker flags, possibly guarded by a When
+            condition.
         links: Libraries this test links against, framework included.
         sanitize: Sanitizer names applied to compile and link steps.
         raw_cmake: Verbatim CMake snippets emitted after the target is
             defined, in the order they were added (the escape hatch).
+        private_include_dirs: Directories, private to this target, that its
+            own sources may #include.
+        cpp_std: This target's own C++ standard override, or None to use
+            the project's.
+        pch_headers: Headers to precompile, angle-bracket system headers
+            (``<vector>``) verbatim and project-relative paths otherwise.
+        unity: True to build this target as a single unity translation
+            unit (UNITY_BUILD).
     """
 
     # Tell pytest this model is not a test case, despite the Test* name.
@@ -219,9 +356,14 @@ class TestModel:
     framework: str = "none"
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
+    link_options: tuple[LinkOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
     raw_cmake: tuple[str, ...] = ()
+    private_include_dirs: tuple[Path, ...] = ()
+    cpp_std: int | None = None
+    pch_headers: tuple[str, ...] = ()
+    unity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,11 +383,22 @@ class PythonModuleModel:
         install_to_environment: True to copy the built module (and stub)
             into the invoking interpreter after build, so it imports at once.
         defines: Preprocessor definitions for this target.
-        compile_options: Extra compiler flags, possibly compiler-guarded.
+        compile_options: Extra compiler flags, possibly guarded by a When
+            condition.
+        link_options: Extra linker flags, possibly guarded by a When
+            condition.
         links: Libraries this module links against.
         sanitize: Sanitizer names applied to compile and link steps.
         raw_cmake: Verbatim CMake snippets emitted after the target is
             defined, in the order they were added (the escape hatch).
+        private_include_dirs: Directories, private to this target, that its
+            own sources may #include.
+        cpp_std: This target's own C++ standard override, or None to use
+            the project's.
+        pch_headers: Headers to precompile, angle-bracket system headers
+            (``<vector>``) verbatim and project-relative paths otherwise.
+        unity: True to build this target as a single unity translation
+            unit (UNITY_BUILD).
     """
 
     name: str
@@ -255,9 +408,14 @@ class PythonModuleModel:
     install_to_environment: bool = True
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
+    link_options: tuple[LinkOptionsModel, ...] = ()
     links: tuple[LinkModel, ...] = ()
     sanitize: tuple[str, ...] = ()
     raw_cmake: tuple[str, ...] = ()
+    private_include_dirs: tuple[Path, ...] = ()
+    cpp_std: int | None = None
+    pch_headers: tuple[str, ...] = ()
+    unity: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,6 +430,12 @@ class PresetModel:
         lto: True to enable interprocedural optimization.
         toolchain: Name of a registered toolchain to configure with, or
             None for the host toolchain.
+        options: Cache-variable overrides for this preset's declared
+            project.option()s, as sorted (name, value) pairs.
+        env: Environment variables for this preset's configure, build, and
+            test steps, as sorted (name, value) pairs.
+        inherits: Name of another preset this preset inherits unset
+            settings from, or None.
     """
 
     name: str
@@ -279,6 +443,9 @@ class PresetModel:
     sanitize: tuple[str, ...] = ()
     lto: bool = False
     toolchain: str | None = None
+    options: tuple[tuple[str, bool | int | str], ...] = ()
+    env: tuple[tuple[str, str], ...] = ()
+    inherits: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,6 +474,39 @@ class ToolchainModel:
     system_processor: str | None = None
 
 
+class OptionType(enum.Enum):
+    """The CMake cache-variable shape a project.option() declares.
+
+    Attributes:
+        BOOL: A plain option(), ON/OFF.
+        INT: A CACHE STRING holding an integer.
+        STRING: A CACHE STRING holding free text.
+    """
+
+    BOOL = "bool"
+    INT = "int"
+    STRING = "string"
+
+
+@dataclass(frozen=True, slots=True)
+class OptionModel:
+    """A typed CMake cache variable declared by project.option().
+
+    Attributes:
+        name: The CMake cache-variable name.
+        default: The default value, matching value_type.
+        value_type: BOOL (emitted as option()), INT, or STRING (both
+            emitted as set(... CACHE ...)).
+        help: The cache-variable help string shown by cmake-gui/ccmake and
+            the 'cmakeless options' verb.
+    """
+
+    name: str
+    default: bool | int | str
+    value_type: OptionType = OptionType.BOOL
+    help: str = ""
+
+
 @dataclass(frozen=True, slots=True)
 class InstallModel:
     """One install rule: ship a target (and optionally its headers).
@@ -319,6 +519,40 @@ class InstallModel:
 
     target: str
     headers: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CommandModel:
+    """A build-time step that produces files other targets/commands consume.
+
+    Attributes:
+        outputs: Project-root-relative paths this command produces.
+        command: The argument vector to run (never a shell string).
+        depends: Project-root-relative paths that trigger a re-run when
+            changed; includes both plain files and other commands' outputs.
+        comment: Shown by the generator while the command runs, or None.
+    """
+
+    outputs: tuple[Path, ...]
+    command: tuple[str, ...]
+    depends: tuple[Path, ...] = ()
+    comment: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CustomTargetModel:
+    """An always-runnable target with no file output.
+
+    Attributes:
+        name: The CMake target name.
+        command: The argument vector to run.
+        depends: Project-root-relative paths (or other commands' outputs)
+            that must be up to date first.
+    """
+
+    name: str
+    command: tuple[str, ...]
+    depends: tuple[Path, ...] = ()
 
 
 type TargetModel = ExecutableModel | LibraryModel
@@ -365,6 +599,10 @@ class ProjectModel:
         presets: Named configurations emitted into CMakePresets.json.
         toolchains: Registered toolchains presets may reference.
         installs: Install rules for this project's targets.
+        options: Typed CMake cache variables declared by project.option().
+        commands: Build-time steps declared by project.add_command().
+        custom_targets: Always-runnable targets declared by
+            project.add_custom_target().
         package_formats: CPack formats project.package() requested.
         cache: True to wire ccache/sccache as the compiler launcher when
             one is found on PATH.
@@ -394,6 +632,9 @@ class ProjectModel:
     presets: tuple[PresetModel, ...] = ()
     toolchains: tuple[ToolchainModel, ...] = ()
     installs: tuple[InstallModel, ...] = ()
+    options: tuple[OptionModel, ...] = ()
+    commands: tuple[CommandModel, ...] = ()
+    custom_targets: tuple[CustomTargetModel, ...] = ()
     package_formats: tuple[str, ...] = ()
     cache: bool = True
     optimize: str | None = None
