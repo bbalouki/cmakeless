@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The Project facade: the root object users interact with.
 
 project.build() hides freeze, validate, emit, configure, and compile behind
@@ -19,7 +23,9 @@ from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._parallel import parallel_map
 from cmakeless._version import __version__
 from cmakeless.api import _context
+from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies
+from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
 from cmakeless.api.targets import (
     Executable,
@@ -44,6 +50,7 @@ from cmakeless.driver.file_api import TargetInfo
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
+    BUILD_TYPE_BY_OPTIMIZE,
     InstallModel,
     PresetModel,
     ProjectModel,
@@ -160,11 +167,14 @@ class Project:
         self._tests: list[Test] = []
         self._python_modules: list[PythonModule] = []
         self._presets: list[Preset] = []
+        self._options: list[Option] = []
         self._toolchains: list[Toolchain] = []
         self._installs: list[tuple[str, bool]] = []
         self._package_formats: tuple[str, ...] = ()
         self._raw_cmake_files: list[str] = []
         self._subprojects: list[tuple[Path, Project]] = []
+        self._commands: list[Command] = []
+        self._custom_targets: list[CustomTarget] = []
 
     @property
     def name(self) -> str:
@@ -378,6 +388,34 @@ class Project:
         self._presets.append(preset)
         return preset
 
+    def option(
+        self,
+        name: str,
+        *,
+        default: bool | int | str,
+        help: str = "",
+        type: type[bool] | type[int] | type[str] | None = None,
+    ) -> Option:
+        """Declare a CMake cache variable this project's users can override.
+
+        Args:
+            name: The cache-variable name, for example "MYLIB_BUILD_GUI".
+            default: The default value.
+            help: Shown by cmake-gui/ccmake and the 'cmakeless options' verb.
+            type: bool, int, or str; inferred from default when omitted.
+
+        Returns:
+            The typed Option handle, usable in When.option(...) and
+            Preset(options={...}).
+
+        Raises:
+            ConfigurationError: When neither ``type`` nor ``default`` names
+                a supported cache-variable type.
+        """
+        option = Option(name, default=default, help=help, type=type, script=self._source_script)
+        self._options.append(option)
+        return option
+
     def add_toolchain(self, toolchain: Toolchain) -> Toolchain:
         """Register a toolchain that presets can reference by name.
 
@@ -435,6 +473,63 @@ class Project:
         """
         self._raw_cmake_files.append(str(path))
 
+    def add_command(
+        self,
+        output: Sequence[str],
+        command: Sequence[str],
+        *,
+        depends: Sequence[str | Command] = (),
+        comment: str | None = None,
+    ) -> Command:
+        """Declare a build-time step that produces files other targets consume.
+
+        Args:
+            output: Files this command produces, project-root-relative.
+            command: The argument vector to run; never a shell string.
+            depends: Files (or other Command handles) that trigger a re-run
+                when changed.
+            comment: Shown while the command runs, or None.
+
+        Returns:
+            The Command handle; pass it to a target's add_sources(), or to
+            another add_command()'s/add_custom_target()'s depends=, to wire
+            the dependency edge.
+
+        Raises:
+            ConfigurationError: When ``output`` or ``command`` is empty.
+        """
+        command_step = Command(
+            output=output,
+            command=command,
+            depends=depends,
+            comment=comment,
+            script=self._source_script,
+        )
+        self._commands.append(command_step)
+        return command_step
+
+    def add_custom_target(
+        self, name: str, *, command: Sequence[str], depends: Sequence[str | Command] = ()
+    ) -> CustomTarget:
+        """Declare an always-run target: docs, lint, asset cooking.
+
+        Args:
+            name: The CMake target name; shares the project's target
+                namespace.
+            command: The argument vector to run.
+            depends: Files (or Command handles) that must be up to date
+                first.
+
+        Returns:
+            The registered CustomTarget.
+
+        Raises:
+            ConfigurationError: When ``command`` is empty.
+        """
+        target = CustomTarget(name, command=command, depends=depends, script=self._source_script)
+        self._custom_targets.append(target)
+        return target
+
     def freeze(self) -> ProjectModel:
         """Freeze the mutable description into the validated, immutable model.
 
@@ -446,6 +541,7 @@ class Project:
         """
         model = _with_implicit_sanitize_preset(self._freeze_without_validation())
         validate_project(model)
+        _warn_unused_command_outputs(model)
         return model
 
     def generate(self) -> list[Path]:
@@ -513,21 +609,25 @@ class Project:
         provider = self._provider(model)
         names = [preset.name for preset in model.presets]
         if not names:
-            self._configure_one(provider, None)
+            self._configure_one(model, provider, None)
             return
-        parallel_map(lambda name: self._configure_one(provider, name), names)
+        parallel_map(lambda name: self._configure_one(model, provider, name), names)
 
-    def _configure_one(self, provider: DependencyProvider | None, preset: str | None) -> None:
+    def _configure_one(
+        self, model: ProjectModel, provider: DependencyProvider | None, preset: str | None
+    ) -> None:
         """Configure a single preset's build tree.
 
         Args:
+            model: The resolved project model, presets included.
             provider: The dependency backend, or None for a dep-free tree.
             preset: The preset name, or None for the default configuration.
         """
         build_dir = self._build_dir(preset)
+        build_type = self._resolve_build_type(model, preset)
         if provider is not None:
-            provider.pre_configure(root_dir=self._root, build_dir=build_dir)
-        self._driver(provider, preset=preset).configure()
+            provider.pre_configure(root_dir=self._root, build_dir=build_dir, build_type=build_type)
+        self._driver(model, provider, preset=preset).configure()
 
     def test(self) -> None:
         """Build everything, then run the test suite through CTest.
@@ -559,9 +659,9 @@ class Project:
 
         Under the cmakeless CLI this dispatches to the verb the user asked
         for, so one cmakelessfile.py serves 'cmakeless build', 'configure', 'test',
-        'install', 'package', 'clean', and 'lock'. In description mode (this
-        project is being loaded as a subproject) it does nothing: the parent
-        owns the pipeline.
+        'install', 'package', 'clean', 'lock', and 'options'. In description
+        mode (this project is being loaded as a subproject) it does nothing:
+        the parent owns the pipeline.
 
         Raises:
             ConfigurationError: When the description is invalid.
@@ -579,6 +679,8 @@ class Project:
             self.configure()
         elif verb == "lock":
             self._refresh_lock()
+        elif verb == "options":
+            self._print_options()
         elif verb == "test":
             self.test()
         elif verb in ("install", "package"):
@@ -685,8 +787,31 @@ class Project:
         provider = self._provider(model)
         build_dir = self._build_dir(preset)
         if provider is not None:
-            provider.pre_configure(root_dir=self._root, build_dir=build_dir)
-        return _Prepared(self._driver(provider, preset=preset), model, build_dir)
+            build_type = self._resolve_build_type(model, preset)
+            provider.pre_configure(root_dir=self._root, build_dir=build_dir, build_type=build_type)
+        return _Prepared(self._driver(model, provider, preset=preset), model, build_dir)
+
+    def _resolve_build_type(self, model: ProjectModel, preset: str | None) -> str:
+        """Resolve the CMake build type a dependency backend should install for.
+
+        Args:
+            model: The resolved project model, presets included.
+            preset: The active preset name, or None for the default
+                configuration.
+
+        Returns:
+            The active preset's optimize level translated to a CMake build
+            type when a preset is selected, else project.optimize when set,
+            else "Release" (the implicit default, kept for zero-config
+            backward compatibility with projects that never touch optimize
+            or presets).
+        """
+        if preset is not None:
+            matching = next(candidate for candidate in model.presets if candidate.name == preset)
+            return BUILD_TYPE_BY_OPTIMIZE[matching.optimize]
+        if self.optimize is not None:
+            return BUILD_TYPE_BY_OPTIMIZE[self.optimize]
+        return "Release"
 
     def _selected_preset(self, model: ProjectModel) -> str | None:
         """Resolve the preset this run should use, if any.
@@ -758,6 +883,9 @@ class Project:
                 for directory, child in self._subprojects
             ),
             presets=tuple(preset._freeze() for preset in self._presets),
+            options=tuple(option._freeze() for option in self._options),
+            commands=tuple(command._freeze() for command in self._commands),
+            custom_targets=tuple(target._freeze() for target in self._custom_targets),
             toolchains=tuple(toolchain._freeze() for toolchain in self._toolchains),
             installs=tuple(
                 InstallModel(target=name, headers=headers) for name, headers in self._installs
@@ -820,12 +948,35 @@ class Project:
         else:
             print("[cmakeless] No dependencies to lock; nothing written.")
 
+    def _print_options(self) -> None:
+        """Perform the 'options' verb: list every declared option, no build.
+
+        Uses freeze() only (validated, offline, no dependency resolution, no
+        file writes, no CMake), so a project's knobs are discoverable
+        without running the pipeline.
+        """
+        model = self.freeze()
+        if not model.options:
+            print("[cmakeless] No options declared.")
+            return
+        for option in sorted(model.options, key=lambda candidate: candidate.name):
+            help_suffix = f": {option.help}" if option.help else ""
+            print(
+                f"[cmakeless] {option.name} ({option.value_type.value}, "
+                f"default={option.default!r}){help_suffix}"
+            )
+
     def _driver(
-        self, provider: DependencyProvider | None = None, *, preset: str | None = None
+        self,
+        model: ProjectModel,
+        provider: DependencyProvider | None = None,
+        *,
+        preset: str | None = None,
     ) -> CMakeDriver:
         """Build the driver for this project's source and build directories.
 
         Args:
+            model: The resolved project model, presets included.
             provider: The dependency backend whose toolchain arguments the
                 configure step needs, or None for a dependency-free tree.
             preset: The active preset name, or None for the default
@@ -836,7 +987,12 @@ class Project:
             the preset's build directory, and the cache setting.
         """
         build_dir = self._build_dir(preset)
-        extra = provider.toolchain_args(build_dir) if provider is not None else ()
+        build_type = self._resolve_build_type(model, preset)
+        extra = (
+            provider.toolchain_args(build_dir, build_type=build_type)
+            if provider is not None
+            else ()
+        )
         return CMakeDriver(
             source_dir=self._root,
             build_dir=build_dir,
@@ -917,6 +1073,52 @@ def _with_implicit_sanitize_preset(model: ProjectModel) -> ProjectModel:
         return model
     implicit = PresetModel(name=name, optimize="none", sanitize=tuple(sorted(set(sanitizers))))
     return dataclasses.replace(model, presets=(*model.presets, implicit))
+
+
+def _warn_unused_command_outputs(model: ProjectModel) -> None:
+    """Print a soft notice for a command output nothing consumes.
+
+    A print(), not a ConfigurationError: an output legitimately consumed
+    only by external tooling (an IDE, a doc generator) outside any target's
+    add_sources()/depends= is not a mistake CMakeless can tell apart from a
+    real one, so this nudges without blocking.
+
+    Args:
+        model: The validated project model, subprojects included.
+    """
+    consumed = _consumed_paths(model)
+    for command in model.commands:
+        for output in command.outputs:
+            if output not in consumed:
+                print(
+                    f"[cmakeless] Warning: add_command() output "
+                    f"'{output.as_posix()}' in {model.source_script} is not "
+                    f"consumed by any target's add_sources() or another "
+                    f"command's/custom target's depends=. Wire it, or remove "
+                    f"it if a tool outside CMakeless reads it."
+                )
+    for subproject in model.subprojects:
+        _warn_unused_command_outputs(subproject.project)
+
+
+def _consumed_paths(model: ProjectModel) -> set[Path]:
+    """Collect every path a target's sources or a step's depends= names.
+
+    Args:
+        model: The project node to inspect (not recursive; subprojects are
+            walked separately by the caller).
+
+    Returns:
+        Every source path and every command's/custom target's depends path.
+    """
+    consumed: set[Path] = set()
+    for target in model.all_targets():
+        consumed.update(target.sources)
+    for command in model.commands:
+        consumed.update(command.depends)
+    for custom_target in model.custom_targets:
+        consumed.update(custom_target.depends)
+    return consumed
 
 
 def _calling_script() -> Path | None:
