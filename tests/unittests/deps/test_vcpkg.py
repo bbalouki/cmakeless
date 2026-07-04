@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The vcpkg adapter: manifest generation, root detection, toolchain wiring."""
 
 from __future__ import annotations
@@ -96,7 +100,7 @@ def test_toolchain_args_point_at_the_vcpkg_toolchain(
 ) -> None:
     """Toolchain args point at the vcpkg toolchain."""
     monkeypatch.setenv("VCPKG_ROOT", str(tmp_path))
-    (argument,) = VcpkgAdapter().toolchain_args(tmp_path / "build")
+    (argument,) = VcpkgAdapter().toolchain_args(tmp_path / "build", build_type="Release")
     assert argument.startswith("-DCMAKE_TOOLCHAIN_FILE=")
     assert argument.endswith(str(Path("scripts") / "buildsystems" / "vcpkg.cmake"))
 

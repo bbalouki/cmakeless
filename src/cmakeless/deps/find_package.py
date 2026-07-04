@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The find_package adapter: system packages, version-checked by CMake.
 
 This adapter fills in metadata only (the find_package name and the imported

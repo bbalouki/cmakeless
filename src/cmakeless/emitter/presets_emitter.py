@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Model to CMakePresets.json: named configurations IDEs pick up natively.
 
 Each PresetModel becomes a configure/build/test preset triple. The configure
@@ -73,6 +77,10 @@ def _configure_preset(
     }
     if preset.toolchain is not None:
         rendered["toolchainFile"] = _toolchain_file(toolchains_by_name[preset.toolchain])
+    if preset.inherits is not None:
+        rendered["inherits"] = preset.inherits
+    if preset.env:
+        rendered["environment"] = dict(preset.env)
     return rendered
 
 
@@ -90,7 +98,23 @@ def _cache_variables(preset: PresetModel) -> dict[str, str]:
         variables["CMAKE_INTERPROCEDURAL_OPTIMIZATION"] = "ON"
     if preset.sanitize:
         variables["CMAKELESS_SANITIZE"] = ";".join(preset.sanitize)
+    for name, value in preset.options:
+        variables[name] = _stringify_option_value(value)
     return variables
+
+
+def _stringify_option_value(value: bool | int | str) -> str:
+    """Render a preset option override as a CMake cache-variable string.
+
+    Args:
+        value: The override value.
+
+    Returns:
+        "ON"/"OFF" for a bool, else the value's plain string form.
+    """
+    if isinstance(value, bool):
+        return "ON" if value else "OFF"
+    return str(value)
 
 
 def _toolchain_file(toolchain: ToolchainModel) -> str:

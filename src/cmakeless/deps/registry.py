@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The built-in package registry: the folklore raw CMake makes you memorize.
 
 For each well-known package the registry records the find_package() name,
@@ -9,8 +13,13 @@ through the explicit overrides on ``target.depends()``.
 
 from __future__ import annotations
 
+import importlib.metadata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+
+# The entry-point group installed plugin distributions publish registry
+# entries under; see register() and _load_plugin_registrations() below.
+PLUGIN_ENTRY_POINT_GROUP = "cmakeless.registry"
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,8 +142,52 @@ _REGISTRY: dict[str, RegistryEntry] = {
 }
 
 
+def register(name: str, entry: RegistryEntry) -> None:
+    """Register or override one package in the process-wide registry.
+
+    Last write wins: calling this again for the same name replaces the
+    previous entry, which is how a cmakelessfile.py repoints a built-in
+    package at an internal mirror or teaches CMakeless about a package the
+    curated list does not carry.
+
+    Args:
+        name: The package name as used in depends() specs.
+        entry: The metadata describing how to acquire and link it.
+    """
+    _REGISTRY[name] = entry
+
+
+_plugins_loaded = False
+
+
+def _load_plugin_registrations() -> None:
+    """Discover and merge registry entries from installed plugin packages.
+
+    Iterates the "cmakeless.registry" entry-point group once per process;
+    each entry point must load to a zero-argument callable returning either
+    a single RegistryEntry (keyed by the entry point's own name) or a
+    Mapping[str, RegistryEntry] (a batch, keyed by the mapping's keys).
+
+    Plugin-supplied entries never override a built-in or an explicit
+    register() call: discovery order across installed distributions is not
+    user-controlled the way an explicit register() call is, so explicit
+    registration always wins over auto-discovery.
+    """
+    global _plugins_loaded
+    if _plugins_loaded:
+        return
+    _plugins_loaded = True
+    for entry_point in importlib.metadata.entry_points(group=PLUGIN_ENTRY_POINT_GROUP):
+        produced = entry_point.load()()
+        if isinstance(produced, RegistryEntry):
+            _REGISTRY.setdefault(entry_point.name, produced)
+        else:
+            for name, entry in produced.items():
+                _REGISTRY.setdefault(name, entry)
+
+
 def registry_entry(name: str) -> RegistryEntry | None:
-    """Look up one package in the built-in registry.
+    """Look up one package in the registry, built-in or plugin-supplied.
 
     Args:
         name: The package name as written in the depends() spec.
@@ -142,13 +195,16 @@ def registry_entry(name: str) -> RegistryEntry | None:
     Returns:
         The registry entry, or None for a package we do not know.
     """
+    if name not in _REGISTRY:
+        _load_plugin_registrations()
     return _REGISTRY.get(name)
 
 
 def known_packages() -> tuple[str, ...]:
-    """List every package the built-in registry knows, for error messages.
+    """List every package the registry knows, built-in and plugin-supplied.
 
     Returns:
         The registered package names, sorted.
     """
+    _load_plugin_registrations()
     return tuple(sorted(_REGISTRY))

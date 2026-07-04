@@ -43,6 +43,15 @@ engine.link(zlib_dep)                 # implementation detail, stays private
 
 No more guessing among `PUBLIC`, `PRIVATE`, and `INTERFACE`: `public=True` when your headers expose it, nothing otherwise. Header-only libraries pick `INTERFACE` automatically because there is no other correct answer.
 
+### Private headers and a per-target standard
+
+```python
+engine.include_dirs("src/engine/internal")   # PRIVATE, never exposed to consumers
+engine.cpp_std = 17                          # overrides the project's default for this target only
+```
+
+`include_dirs()` is the private counterpart to `public_headers=`: for the internal headers a target's own sources need but consumers never should. `cpp_std` lets one target compile against a different standard than the rest of the project (a vendored C++17 core underneath a C++23 app), without a second `Project`.
+
 ### Subprojects (Composite)
 
 ```python
@@ -77,6 +86,30 @@ Resolution runs in parallel threads on free-threaded Python, one per dependency.
 project.dependencies.lock()      # refresh the lockfile explicitly
 ```
 
+### Extending the registry
+
+The eleven built-in packages are a seed, not a ceiling. Teach CMakeless about your own packages, once, in either of two ways:
+
+```python
+import cmakeless
+from cmakeless import RegistryEntry
+
+cmakeless.register_dependency(
+    "mylib",
+    RegistryEntry(cmake_name="MyLib", targets=("mylib::mylib",), vcpkg_name="mylib"),
+)
+```
+
+or ship it as an installed plugin distribution, discovered automatically without any per-project code:
+
+```toml
+# pyproject.toml of a plugin package
+[project.entry-points."cmakeless.registry"]
+mylib = "my_plugin:registry_entries"   # a zero-argument callable returning RegistryEntry or dict[str, RegistryEntry]
+```
+
+An explicit `register_dependency()` call always wins over a plugin-supplied entry, and a plugin never overrides a built-in package.
+
 ---
 
 ## 3. Compiler Settings Without Flag Archaeology
@@ -96,10 +129,50 @@ Escape hatches keep full control local and explicit:
 
 ```python
 app.compile_options("-march=native", when="gcc|clang")
+app.link_options("-Wl,--as-needed", when="gcc|clang")
 app.define("GAME_MAX_PLAYERS", 8)
 ```
 
-`ccache`/`sccache` are auto-detected and wired as compiler launchers unless disabled: `project.cache = False`.
+`ccache`/`sccache` are auto-detected and wired as compiler launchers (Makefiles, Ninja, and Ninja Multi-Config generators) unless disabled: `project.cache = False`.
+
+### Conditions, typed instead of stringly
+
+The `"gcc|clang"` string above is still valid (kept as sugar), but `When` gives you the same guard for platforms, build configurations, and your own project options, composed with `&`/`|`/`~`:
+
+```python
+from cmakeless import When
+
+app.define("USE_D3D12", when=When.platform("windows"))
+app.compile_options("-march=native", when=When.compiler("gcc", "clang"))
+app.define("ENABLE_TRACING", when=When.config("Debug"))
+```
+
+One factory set, one mechanism: CMakeless decides internally whether a condition becomes a generator expression or an `if()` block, so you never have to.
+
+### Project options
+
+```python
+gui = project.option("MYLIB_BUILD_GUI", default=True, help="Build the Qt front-end")
+app.define("HAS_GUI", when=When.option(gui))
+```
+
+`project.option(...)` declares a real CMake cache variable (`option()` for booleans, `set(... CACHE ...)` otherwise), discoverable without reading a single line of `cmakelessfile.py`:
+
+```console
+$ cmakeless options
+[cmakeless] MYLIB_BUILD_GUI (bool, default=True): Build the Qt front-end
+```
+
+Combine it with a condition (`When.option(gui)`), or override it per preset (section 6).
+
+### Precompiled headers and unity builds
+
+```python
+engine.pch = ["<vector>", "src/engine/pch.hpp"]
+engine.unity = True
+```
+
+**We handle:** `target_precompile_headers()` (system headers verbatim, project headers quoted) and the `UNITY_BUILD` target property, both rejected with a clear error on header-only libraries, which compile nothing.
 
 ---
 
@@ -152,6 +225,12 @@ from cmakeless import Preset, Toolchain
 
 project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
 project.add_preset(Preset("release", optimize="release", lto=True))
+project.add_preset(Preset(
+    "ci",
+    inherits="release",
+    options={"MYLIB_BUILD_GUI": False},
+    env={"CI": "1"},
+))
 
 project.add_toolchain(Toolchain.from_file("cmake/rpi4.toolchain.cmake"))
 project.add_toolchain(Toolchain("arm64-linux", compiler="aarch64-linux-gnu-g++"))
@@ -161,7 +240,7 @@ project.add_toolchain(Toolchain("arm64-linux", compiler="aarch64-linux-gnu-g++")
 $ cmakeless build --preset release
 ```
 
-**We handle:** generation of `CMakePresets.json` (so CLion, Visual Studio, and VS Code pick up your presets natively), per-preset build directories (out-of-source always, no in-source builds possible by construction), multi-config generator support on Windows, and toolchain-file generation for the simple cross cases while accepting your existing toolchain files unchanged for the hard ones.
+**We handle:** generation of `CMakePresets.json` (so CLion, Visual Studio, and VS Code pick up your presets natively), per-preset build directories (out-of-source always, no in-source builds possible by construction), multi-config generator support on Windows, toolchain-file generation for the simple cross cases while accepting your existing toolchain files unchanged for the hard ones, and per-preset cache-variable overrides (`options=`, validated against declared `project.option()`s), environment blocks (`env=`), and inheritance (`inherits=`, cycle-checked).
 
 On free-threaded Python, configuring multiple presets runs concurrently.
 
@@ -197,11 +276,37 @@ No opt-in required, because there is no reason not to want these:
 The 1% rule: anything we do not model must still be reachable, locally and visibly.
 
 ```python
-engine.raw_cmake('set_target_properties(engine PROPERTIES UNITY_BUILD ON)')
+engine.raw_cmake('set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)')
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 
-Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `cmakelessfile.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)).
+Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `cmakelessfile.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)). Precompiled headers and unity builds used to be the flagship example here (section 3 now models them directly); this is the up-to-date version of "still genuinely unmodeled."
+
+---
+
+## 10. Custom Build Steps
+
+**You write:**
+
+```python
+gen = project.add_command(
+    output=["generated/version.cpp"],
+    command=["python", "tools/gen_version.py", "--out", "generated/version.cpp"],
+    depends=["tools/gen_version.py"],
+    comment="Generating version.cpp",
+)
+app.add_sources(gen)   # wires the dependency edge; no special CMake syntax needed
+
+project.add_custom_target(
+    "cook-assets",
+    command=["python", "tools/cook.py", "assets/", "--out", "cooked/"],
+    depends=[assets_manifest],
+)
+```
+
+**We handle:** `add_custom_command(OUTPUT ...)` and `add_custom_target(...)` wiring, always with `VERBATIM`, so commands are argument lists, never shell strings, portable across cmd/POSIX by construction and immune to injection. Passing a `Command` handle to `add_sources()` or to another command's/custom target's `depends=` keeps the dependency graph validated in Python: a command whose output nothing consumes is a freeze-time warning, not a silent gap.
+
+This is the answer to "does CMakeless support custom build steps": code generation, asset cooking, shader compilation, anything `add_custom_command`/`add_custom_target` would do by hand, now typed and validated.
 
 ---
 

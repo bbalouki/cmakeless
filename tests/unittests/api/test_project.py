@@ -1,12 +1,18 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The Project builder freezes into a validated model."""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
 
-from cmakeless import ConfigurationError, Executable, Project
+from cmakeless import ConfigurationError, Executable, Preset, Project
+from cmakeless.api import _context
 
 
 def test_add_executable_returns_builder(project_dir: Path) -> None:
@@ -114,3 +120,41 @@ def test_target_raw_cmake_freezes_into_model(project_dir: Path) -> None:
     assert model.executables[0].raw_cmake == (
         "set_target_properties(app PROPERTIES ENABLE_EXPORTS ON)",
     )
+
+
+class _FakeConanRun:
+    """Records subprocess invocations and reports success for every one."""
+
+    def __init__(self) -> None:
+        """Start with no recorded commands."""
+        self.commands: list[list[str]] = []
+
+    def __call__(self, command: list[str], **_: object) -> subprocess.CompletedProcess[str]:
+        """Record the command and report a successful exit."""
+        self.commands.append(command)
+        return subprocess.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
+
+
+def test_conan_debug_preset_installs_debug_dependencies(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Debug preset makes the Conan adapter install Debug dependencies.
+
+    Regression test for IMPROVEMENTS.md 2.2: the Conan adapter used to
+    hard-code build_type=Release regardless of the active preset.
+    """
+    monkeypatch.setattr("cmakeless.deps.conan.shutil.which", lambda _: "/usr/bin/conan")
+    fake_run = _FakeConanRun()
+    monkeypatch.setattr("cmakeless.deps.conan.subprocess.run", fake_run)
+
+    project = Project("demo", root=project_dir)
+    project.package_manager = "conan"
+    project.add_preset(Preset("debug", optimize="debug"))
+    app = project.add_executable("app", sources=["src/main.cpp"])
+    app.depends("fmt/10.2.1")
+
+    with _context.preset_override("debug"):
+        project._prepare()
+
+    (command,) = fake_run.commands
+    assert "build_type=Debug" in command

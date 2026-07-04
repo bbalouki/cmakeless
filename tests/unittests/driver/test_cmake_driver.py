@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Driver behavior with the subprocess boundary mocked (a true external)."""
 
 from __future__ import annotations
@@ -8,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from cmakeless.driver.cmake_driver import CMakeDriver
+from cmakeless.driver.generators import select_generator
 from cmakeless.errors import CMakeError, ToolchainError
 
 
@@ -161,16 +166,38 @@ def test_preset_replaces_explicit_directories(
     assert "-B" not in command
 
 
-def test_ccache_is_wired_as_launcher_for_ninja(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize("generator_name", ["ninja", "ninja-multi", "make"])
+def test_ccache_is_wired_as_launcher_for_makefile_and_ninja_families(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, generator_name: str
 ) -> None:
-    """Ccache is wired as launcher for ninja."""
+    """Ccache is wired as launcher for makefile and ninja families."""
     patch_tools(monkeypatch, ccache=True)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
-    driver = CMakeDriver(source_dir=tmp_path, build_dir=tmp_path / "build")
+    driver = CMakeDriver(
+        source_dir=tmp_path,
+        build_dir=tmp_path / "build",
+        generator=select_generator(generator_name),
+    )
     driver.configure()
     assert "-DCMAKE_CXX_COMPILER_LAUNCHER=/usr/bin/ccache" in fake_run.commands[0]
+
+
+@pytest.mark.parametrize("generator_name", ["vs", "xcode"])
+def test_ccache_is_not_wired_for_vs_or_xcode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, generator_name: str
+) -> None:
+    """Ccache is not wired for vs or xcode."""
+    patch_tools(monkeypatch, ccache=True)
+    fake_run = FakeRun()
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
+    driver = CMakeDriver(
+        source_dir=tmp_path,
+        build_dir=tmp_path / "build",
+        generator=select_generator(generator_name),
+    )
+    driver.configure()
+    assert not any("COMPILER_LAUNCHER" in arg for arg in fake_run.commands[0])
 
 
 def test_cache_opt_out_disables_the_launcher(

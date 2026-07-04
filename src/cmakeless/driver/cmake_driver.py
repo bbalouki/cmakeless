@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Drives cmake, ctest, and cpack, surfacing failures as structured errors."""
 
 from __future__ import annotations
@@ -10,7 +14,7 @@ from pathlib import Path
 
 from cmakeless.driver.error_translation import extract_diagnostics
 from cmakeless.driver.file_api import TargetInfo, read_reply, write_query
-from cmakeless.driver.generators import Generator, select_generator
+from cmakeless.driver.generators import Generator, GeneratorFamily, select_generator
 from cmakeless.errors import CMakeError, ToolchainError
 from cmakeless.observer import Observer, StepFailed, StepFinished, StepStarted, publish
 
@@ -19,6 +23,13 @@ COMPILE_COMMANDS_NAME = "compile_commands.json"
 
 # Compiler caches wired as launchers when found on PATH, best first.
 _CACHE_TOOLS = ("ccache", "sccache")
+
+# CMAKE_CXX_COMPILER_LAUNCHER only works for these generator families; Visual
+# Studio and Xcode need a different mechanism, so wiring it there would be a
+# silently-ignored variable and configure-time noise.
+_CACHE_LAUNCHER_FAMILIES: frozenset[GeneratorFamily] = frozenset(
+    {GeneratorFamily.MAKEFILES, GeneratorFamily.NINJA, GeneratorFamily.NINJA_MULTI_CONFIG}
+)
 
 
 class CMakeDriver:
@@ -48,7 +59,8 @@ class CMakeDriver:
             preset: The CMakePresets.json preset to configure with, or
                 None for the default configuration.
             use_cache: True to wire ccache/sccache as the compiler
-                launcher when one is on PATH (Ninja builds only).
+                launcher when one is on PATH (Makefiles, Ninja, and Ninja
+                Multi-Config builds only).
             observers: Progress-event consumers notified for every step.
         """
         self._source_dir = source_dir
@@ -154,14 +166,15 @@ class CMakeDriver:
     def _cache_launcher_args(self) -> tuple[str, ...]:
         """Wire ccache or sccache as the compiler launcher when available.
 
-        Only Ninja builds get the launcher: the Visual Studio generator
-        ignores it, and warning about an unused variable on every configure
+        Only Makefiles, Ninja, and Ninja Multi-Config builds get the
+        launcher: Visual Studio and Xcode do not honor this variable the
+        same way, and warning about an unused variable on every configure
         would be noise.
 
         Returns:
             The -DCMAKE_CXX_COMPILER_LAUNCHER argument, or nothing.
         """
-        if not self._use_cache or self._generator.name != "ninja":
+        if not self._use_cache or self._generator.family not in _CACHE_LAUNCHER_FAMILIES:
             return ()
         for tool in _CACHE_TOOLS:
             path = shutil.which(tool)

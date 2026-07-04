@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Emitter coverage for tests, sanitizers, presets, toolchains, and install."""
 
 from __future__ import annotations
@@ -244,6 +248,30 @@ def test_presets_json_resolves_toolchain_files() -> None:
     assert document["configurePresets"][0]["toolchainFile"] == (
         "${sourceDir}/cmake/toolchains/arm64-linux.cmake"
     )
+
+
+def test_presets_json_includes_options_env_and_inherits() -> None:
+    """Presets json includes options env and inherits."""
+    model = make_model(
+        presets=(
+            PresetModel(name="base", optimize="release"),
+            PresetModel(
+                name="ci",
+                optimize="release",
+                options=(("MYLIB_BUILD_GUI", False), ("MYLIB_JOBS", 8)),
+                env=(("CI", "1"),),
+                inherits="base",
+            ),
+        )
+    )
+    document = json.loads(emit_presets(model))
+    base, ci = document["configurePresets"]
+    assert "inherits" not in base
+    assert "environment" not in base
+    assert ci["inherits"] == "base"
+    assert ci["environment"] == {"CI": "1"}
+    assert ci["cacheVariables"]["MYLIB_BUILD_GUI"] == "OFF"
+    assert ci["cacheVariables"]["MYLIB_JOBS"] == "8"
 
 
 def test_emit_tree_writes_presets_and_toolchains() -> None:

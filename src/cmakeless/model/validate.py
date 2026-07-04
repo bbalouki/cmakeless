@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Freeze-time validation: every error that can be caught before CMake runs, is.
 
 Each check raises ConfigurationError with what went wrong, where, and what to
@@ -7,6 +11,7 @@ try next.
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from pathlib import Path
 
 from cmakeless.errors import ConfigurationError
@@ -23,7 +28,12 @@ from cmakeless.model.nodes import (
     DependencyModel,
     LibraryKind,
     LibraryModel,
+    OptionModel,
+    OptionType,
+    PresetModel,
     ProjectModel,
+    WhenKind,
+    WhenModel,
 )
 
 # CMake target and project names: conservative subset that never needs quoting.
@@ -47,6 +57,8 @@ def validate_project(model: ProjectModel) -> None:
     _check_package_manager(model)
     _check_target_names(model)
     _check_sources(model)
+    _check_include_dirs(model)
+    _check_pch_and_unity(model)
     _check_libraries(model)
     _check_tests(model)
     _check_python_modules(model)
@@ -54,6 +66,10 @@ def validate_project(model: ProjectModel) -> None:
     _check_dependencies(model)
     _check_links(model)
     _check_link_cycles(model)
+    _check_options(model)
+    _check_when_option_references(model)
+    _check_commands(model)
+    _check_custom_targets(model)
     _check_toolchains(model)
     _check_presets(model)
     _check_installs(model)
@@ -85,18 +101,45 @@ def _check_name(name: str, *, kind: str, script: str) -> None:
 def _check_cpp_std(model: ProjectModel) -> None:
     """Reject C++ standards CMake's compile features do not know.
 
+    Checks the project-wide standard and every target's own override.
+
     Args:
         model: The frozen project to check.
 
     Raises:
-        ConfigurationError: If ``model.cpp_std`` is not a known standard.
+        ConfigurationError: If a standard is not a known one.
     """
-    if model.cpp_std not in SUPPORTED_CPP_STANDARDS:
+    _check_one_cpp_std(model.cpp_std, where=f"project {model.name!r}", model=model)
+    for target in model.all_targets():
+        if target.cpp_std is None:
+            continue
+        if _is_header_only(target):
+            raise ConfigurationError(
+                f"Header-only library {target.name!r} in {model.source_script} "
+                f"cannot override cpp_std: it compiles nothing, and CMake only "
+                f"allows INTERFACE properties on an INTERFACE library. Set "
+                f"cpp_std on the targets that consume it instead."
+            )
+        _check_one_cpp_std(target.cpp_std, where=f"target {target.name!r}", model=model)
+
+
+def _check_one_cpp_std(value: int, *, where: str, model: ProjectModel) -> None:
+    """Reject a single C++ standard value CMake's compile features do not know.
+
+    Args:
+        value: The C++ standard to check.
+        where: Location phrase for the message ("project 'app'", "target
+            'engine'").
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: If ``value`` is not a known standard.
+    """
+    if value not in SUPPORTED_CPP_STANDARDS:
         supported = ", ".join(str(std) for std in sorted(SUPPORTED_CPP_STANDARDS))
         raise ConfigurationError(
-            f"Unknown C++ standard {model.cpp_std!r} for project {model.name!r} "
-            f"in {model.source_script}. Pick one of: {supported} "
-            f"(for example cpp_std=20)."
+            f"Unknown C++ standard {value!r} for {where} in {model.source_script}. "
+            f"Pick one of: {supported} (for example cpp_std=20)."
         )
 
 
@@ -229,6 +272,9 @@ def _tree_dependencies(model: ProjectModel) -> list[tuple[str, DependencyModel]]
 def _check_target_names(model: ProjectModel) -> None:
     """Require every target name to be valid and unique within the project.
 
+    Custom targets share this same namespace with compiled targets: CMake
+    has one flat target namespace per directory scope.
+
     Args:
         model: The frozen project to check.
 
@@ -236,7 +282,8 @@ def _check_target_names(model: ProjectModel) -> None:
         ConfigurationError: On an invalid or duplicated target name.
     """
     seen: set[str] = set()
-    for target in model.all_targets():
+    names = (*model.all_targets(), *model.custom_targets)
+    for target in names:
         _check_name(target.name, kind="target", script=model.source_script)
         if target.name in seen:
             raise ConfigurationError(
@@ -250,6 +297,9 @@ def _check_target_names(model: ProjectModel) -> None:
 def _check_sources(model: ProjectModel) -> None:
     """Require every compiled target to have sources that exist on disk.
 
+    A source that is also a declared add_command() output is exempt: it
+    does not exist until the command actually runs.
+
     Args:
         model: The frozen project to check.
 
@@ -257,6 +307,7 @@ def _check_sources(model: ProjectModel) -> None:
         ConfigurationError: When a target has no sources or names a file
             that does not exist under the project root.
     """
+    generated = {output for command in model.commands for output in command.outputs}
     for target in model.all_targets():
         if _is_header_only(target):
             continue
@@ -266,6 +317,8 @@ def _check_sources(model: ProjectModel) -> None:
                 f"Add at least one file to its 'sources' argument."
             )
         for source in target.sources:
+            if source in generated:
+                continue
             resolved = model.root_dir / source
             if not resolved.is_file():
                 raise ConfigurationError(
@@ -275,8 +328,104 @@ def _check_sources(model: ProjectModel) -> None:
                 )
 
 
+def _check_directory_exists(
+    directory: Path, model: ProjectModel, *, kind: str, owner: str, fix: str
+) -> None:
+    """Require a declared directory to exist under the project root.
+
+    Args:
+        directory: Project-root-relative directory to check.
+        model: The owning project, for message context.
+        kind: What kind of directory this is, for the message ("Public
+            header directory", "Private include directory").
+        owner: Who declared it, for the message ("library 'engine'",
+            "target 'app'").
+        fix: What to try next, for the message ("Check the 'public_headers'
+            argument", "Check the include_dirs() call").
+
+    Raises:
+        ConfigurationError: When the directory does not exist.
+    """
+    resolved = model.root_dir / directory
+    if not resolved.is_dir():
+        raise ConfigurationError(
+            f"{kind} '{directory.as_posix()}' for {owner} does not exist "
+            f"(looked for {resolved}). {fix} in {model.source_script}, or "
+            f"create the directory."
+        )
+
+
+def _check_include_dirs(model: ProjectModel) -> None:
+    """Check every target's private include directories exist on disk.
+
+    Public include directories (libraries' public_headers) are checked
+    alongside header-only shape in _check_libraries, since both are
+    library-specific rules.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a header-only library declares private
+            include directories (it has no PRIVATE scope: CMake only
+            allows INTERFACE properties on an INTERFACE library), or when
+            a private include directory is missing.
+    """
+    for target in model.all_targets():
+        if target.private_include_dirs and _is_header_only(target):
+            raise ConfigurationError(
+                f"Header-only library {target.name!r} in {model.source_script} "
+                f"cannot have private include directories: it compiles nothing, "
+                f"and CMake only allows INTERFACE properties on an INTERFACE "
+                f"library. Add include_dirs() on the targets that consume it "
+                f"instead."
+            )
+        for include_dir in target.private_include_dirs:
+            _check_directory_exists(
+                include_dir,
+                model,
+                kind="Private include directory",
+                owner=f"target {target.name!r}",
+                fix="Check the include_dirs() call",
+            )
+
+
+def _check_pch_and_unity(model: ProjectModel) -> None:
+    """Check precompiled-header and unity-build settings.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a header-only library declares pch headers
+            or requests a unity build (both compile nothing, and CMake only
+            allows INTERFACE properties on an INTERFACE library), or when a
+            project-relative pch header does not exist.
+    """
+    for target in model.all_targets():
+        if (target.pch_headers or target.unity) and _is_header_only(target):
+            raise ConfigurationError(
+                f"Header-only library {target.name!r} in {model.source_script} "
+                f"cannot use precompiled headers or unity builds: it compiles "
+                f"nothing, and CMake only allows INTERFACE properties on an "
+                f"INTERFACE library. Set pch/unity on the targets that consume "
+                f"it instead."
+            )
+        for header in target.pch_headers:
+            if header.startswith("<") and header.endswith(">"):
+                continue
+            resolved = model.root_dir / header
+            if not resolved.is_file():
+                raise ConfigurationError(
+                    f"Precompiled header {header!r} for target {target.name!r} "
+                    f"does not exist (looked for {resolved}). Check the 'pch' "
+                    f"attribute in {model.source_script}, use an angle-bracket "
+                    f"system header like '<vector>', or create the file."
+                )
+
+
 def _check_libraries(model: ProjectModel) -> None:
-    """Check library-specific rules: header-only shape and include dirs.
+    """Check library-specific rules: header-only shape and public include dirs.
 
     Args:
         model: The frozen project to check.
@@ -289,14 +438,13 @@ def _check_libraries(model: ProjectModel) -> None:
         if library.kind is LibraryKind.HEADER_ONLY:
             _check_header_only_shape(library, model)
         for include_dir in library.public_include_dirs:
-            resolved = model.root_dir / include_dir
-            if not resolved.is_dir():
-                raise ConfigurationError(
-                    f"Public header directory '{include_dir.as_posix()}' for library "
-                    f"{library.name!r} does not exist (looked for {resolved}). Check "
-                    f"the 'public_headers' argument in {model.source_script}, or "
-                    f"create the directory."
-                )
+            _check_directory_exists(
+                include_dir,
+                model,
+                kind="Public header directory",
+                owner=f"library {library.name!r}",
+                fix="Check the 'public_headers' argument",
+            )
 
 
 def _check_header_only_shape(library: LibraryModel, model: ProjectModel) -> None:
@@ -496,6 +644,81 @@ def _check_sanitizer_names(sanitize: tuple[str, ...], *, where: str, model: Proj
         )
 
 
+def _check_options(model: ProjectModel) -> None:
+    """Reject invalid or duplicated option declarations.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: On an invalid or duplicated option name.
+    """
+    seen: set[str] = set()
+    for option in model.options:
+        _check_name(option.name, kind="option", script=model.source_script)
+        if option.name in seen:
+            raise ConfigurationError(
+                f"Duplicate option name {option.name!r} in {model.source_script}: "
+                f"every option needs a unique name. Rename or remove one of them."
+            )
+        seen.add(option.name)
+
+
+def _check_when_option_references(model: ProjectModel) -> None:
+    """Require every When.option(...) reference to name a declared option.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a When condition references an option name
+            no project.option() call declared.
+    """
+    known = {option.name for option in model.options}
+    for target in model.all_targets():
+        for when in _target_whens(target):
+            for name in _collect_option_names(when):
+                if name not in known:
+                    raise ConfigurationError(
+                        f"When.option({name!r}) on target {target.name!r} in "
+                        f"{model.source_script} references an option that was "
+                        f"never declared. Add project.option({name!r}, "
+                        f"default=...), or fix the name."
+                    )
+
+
+def _target_whens(target: CompiledModel) -> list[WhenModel]:
+    """Collect every When condition attached to one target's settings.
+
+    Args:
+        target: The compiled target to inspect.
+
+    Returns:
+        Every non-None when= guard on the target's defines, compile
+        options, and link options, in declaration order.
+    """
+    whens: list[WhenModel] = []
+    whens.extend(define.when for define in target.defines if define.when is not None)
+    whens.extend(options.when for options in target.compile_options if options.when is not None)
+    whens.extend(options.when for options in target.link_options if options.when is not None)
+    return whens
+
+
+def _collect_option_names(when: WhenModel) -> set[str]:
+    """Recursively collect every OPTION leaf's name inside a condition tree.
+
+    Args:
+        when: The condition to walk.
+
+    Returns:
+        The referenced option names.
+    """
+    if when.kind is WhenKind.OPTION:
+        assert when.option_name is not None, "OPTION leaves always carry a name"
+        return {when.option_name}
+    return {name for operand in when.operands for name in _collect_option_names(operand)}
+
+
 def _check_toolchains(model: ProjectModel) -> None:
     """Check toolchain rules: valid unique names, existing files, a compiler.
 
@@ -551,16 +774,20 @@ def _check_toolchain_shape(
 
 
 def _check_presets(model: ProjectModel) -> None:
-    """Check preset rules: unique names, known levels, resolvable toolchains.
+    """Check preset rules: unique names, known levels, resolvable references.
 
     Args:
         model: The frozen project to check.
 
     Raises:
         ConfigurationError: On a duplicate preset name, an unknown optimize
-            level, a bad sanitizer list, or a dangling toolchain reference.
+            level, a bad sanitizer list, a dangling toolchain/inherits
+            reference, or an option override that is undeclared or of the
+            wrong type.
     """
     toolchain_names = {toolchain.name for toolchain in model.toolchains}
+    option_by_name = {option.name: option for option in model.options}
+    preset_names = {preset.name for preset in model.presets}
     seen: set[str] = set()
     for preset in model.presets:
         _check_name(preset.name, kind="preset", script=model.source_script)
@@ -570,19 +797,133 @@ def _check_presets(model: ProjectModel) -> None:
                 f"every preset needs a unique name. Rename or remove one of them."
             )
         seen.add(preset.name)
-        if preset.optimize not in BUILD_TYPE_BY_OPTIMIZE:
-            levels = ", ".join(repr(level) for level in sorted(BUILD_TYPE_BY_OPTIMIZE))
-            raise ConfigurationError(
-                f"Unknown optimize level {preset.optimize!r} on preset "
-                f"{preset.name!r} in {model.source_script}. Pick one of: {levels}."
-            )
-        _check_sanitizer_names(preset.sanitize, where=f"preset {preset.name!r}", model=model)
-        if preset.toolchain is not None and preset.toolchain not in toolchain_names:
-            raise ConfigurationError(
-                f"Preset {preset.name!r} in {model.source_script} references "
-                f"toolchain {preset.toolchain!r}, which is not registered. Add "
-                f"the matching project.add_toolchain(...) call, or fix the name."
-            )
+        _check_one_preset(preset, toolchain_names, preset_names, option_by_name, model)
+    _check_no_preset_inherit_cycle(model)
+
+
+def _check_one_preset(
+    preset: PresetModel,
+    toolchain_names: set[str],
+    preset_names: set[str],
+    option_by_name: Mapping[str, OptionModel],
+    model: ProjectModel,
+) -> None:
+    """Check one preset's optimize level, sanitizers, and references.
+
+    Args:
+        preset: The preset to check.
+        toolchain_names: Names of every registered toolchain.
+        preset_names: Names of every registered preset.
+        option_by_name: Every declared option, keyed by name.
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: On an unknown optimize level, a bad sanitizer
+            list, a dangling toolchain/inherits reference, or an option
+            override that is undeclared or of the wrong type.
+    """
+    if preset.optimize not in BUILD_TYPE_BY_OPTIMIZE:
+        levels = ", ".join(repr(level) for level in sorted(BUILD_TYPE_BY_OPTIMIZE))
+        raise ConfigurationError(
+            f"Unknown optimize level {preset.optimize!r} on preset "
+            f"{preset.name!r} in {model.source_script}. Pick one of: {levels}."
+        )
+    _check_sanitizer_names(preset.sanitize, where=f"preset {preset.name!r}", model=model)
+    if preset.toolchain is not None and preset.toolchain not in toolchain_names:
+        raise ConfigurationError(
+            f"Preset {preset.name!r} in {model.source_script} references "
+            f"toolchain {preset.toolchain!r}, which is not registered. Add "
+            f"the matching project.add_toolchain(...) call, or fix the name."
+        )
+    if preset.inherits is not None and preset.inherits not in preset_names:
+        raise ConfigurationError(
+            f"Preset {preset.name!r} in {model.source_script} inherits "
+            f"{preset.inherits!r}, which is not registered. Add the "
+            f"matching project.add_preset(Preset({preset.inherits!r}, ...)) "
+            f"call, or fix the name."
+        )
+    for option_name, value in preset.options:
+        _check_preset_option(preset.name, option_name, value, option_by_name, model)
+
+
+def _check_preset_option(
+    preset_name: str,
+    option_name: str,
+    value: bool | int | str,
+    option_by_name: Mapping[str, OptionModel],
+    model: ProjectModel,
+) -> None:
+    """Check one preset option override: a declared option, matching type.
+
+    Args:
+        preset_name: The preset declaring the override, for messages.
+        option_name: The cache-variable name being overridden.
+        value: The override value.
+        option_by_name: Every declared option, keyed by name.
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: When the option was never declared, or the
+            override's value is of a different type than the option's
+            declared type.
+    """
+    option = option_by_name.get(option_name)
+    if option is None:
+        raise ConfigurationError(
+            f"Preset {preset_name!r} in {model.source_script} sets "
+            f"{option_name!r}, which was never declared. Add "
+            f"project.option({option_name!r}, default=...), or fix the name."
+        )
+    if _classify_option_value(value) is not option.value_type:
+        raise ConfigurationError(
+            f"Preset {preset_name!r} in {model.source_script} sets "
+            f"{option_name!r}={value!r}, but that option is declared as "
+            f"{option.value_type.value}. Pass a matching value, or fix "
+            f"project.option({option_name!r}, ...)'s declared type."
+        )
+
+
+def _classify_option_value(value: bool | int | str) -> OptionType:
+    """Classify a Python value the same way Option's own type inference does.
+
+    bool is checked before int because bool is an int subclass in Python.
+
+    Args:
+        value: The value to classify.
+
+    Returns:
+        The matching OptionType.
+    """
+    if isinstance(value, bool):
+        return OptionType.BOOL
+    if isinstance(value, int):
+        return OptionType.INT
+    return OptionType.STRING
+
+
+def _check_no_preset_inherit_cycle(model: ProjectModel) -> None:
+    """Reject a chain of preset inheritance that cycles back on itself.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When following inherits= links returns to a
+            preset already visited.
+    """
+    inherits_by_name = {preset.name: preset.inherits for preset in model.presets}
+    for start in sorted(inherits_by_name):
+        chain = [start]
+        current = inherits_by_name[start]
+        while current is not None:
+            if current in chain:
+                raise ConfigurationError(
+                    f"Preset inheritance cycle in {model.source_script}: "
+                    f"{' -> '.join([*chain, current])}. Break the cycle by "
+                    f"removing one preset's inherits= reference."
+                )
+            chain.append(current)
+            current = inherits_by_name.get(current)
 
 
 def _check_installs(model: ProjectModel) -> None:
@@ -644,6 +985,28 @@ def _check_package_formats(model: ProjectModel) -> None:
         )
 
 
+def _check_relative_path(path: Path, *, what: str, script: str, fix: str) -> None:
+    """Require a declared path to be relative and stay inside the project root.
+
+    Args:
+        path: The path to check.
+        what: What the path names, for the message (for example
+            "raw_cmake_file", "Subproject directory", "add_command() output").
+        script: Display name of the build description, for the message.
+        fix: What to try next, for the message.
+
+    Raises:
+        ConfigurationError: When the path is absolute or escapes the root.
+    """
+    # anchor catches a leading '/' even on Windows, where is_absolute()
+    # needs a drive letter and would miss "/etc/evil.cmake".
+    if path.anchor or path.is_absolute() or ".." in path.parts:
+        raise ConfigurationError(
+            f"{what} '{path.as_posix()}' in {script} must be a relative path "
+            f"inside the project root. {fix}"
+        )
+
+
 def _check_raw_cmake_files(model: ProjectModel) -> None:
     """Check that every raw_cmake_file names a real file inside the root.
 
@@ -659,20 +1022,81 @@ def _check_raw_cmake_files(model: ProjectModel) -> None:
             names no existing file.
     """
     for raw_file in model.raw_cmake_files:
-        # anchor catches a leading '/' even on Windows, where is_absolute()
-        # needs a drive letter and would miss "/etc/evil.cmake".
-        if raw_file.anchor or raw_file.is_absolute() or ".." in raw_file.parts:
-            raise ConfigurationError(
-                f"raw_cmake_file '{raw_file.as_posix()}' in {model.source_script} "
-                f"must be a relative path inside the project root. Move the file "
-                f"under the root, or pass a path relative to it."
-            )
+        _check_relative_path(
+            raw_file,
+            what="raw_cmake_file",
+            script=model.source_script,
+            fix="Move the file under the root, or pass a path relative to it.",
+        )
         resolved = model.root_dir / raw_file
         if not resolved.is_file():
             raise ConfigurationError(
                 f"raw_cmake_file '{raw_file.as_posix()}' added in {model.source_script} "
                 f"does not exist (looked for {resolved}). Create the file, or fix "
                 f"the path."
+            )
+
+
+def _check_commands(model: ProjectModel) -> None:
+    """Check add_command() rules: relative paths, and depends= that exist.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When an output/depends path is absolute or
+            escapes the root, or when a depends= entry that is not another
+            command's output names a file that does not exist.
+    """
+    outputs = {output for command in model.commands for output in command.outputs}
+    for command in model.commands:
+        for output in command.outputs:
+            _check_relative_path(
+                output,
+                what="add_command() output",
+                script=model.source_script,
+                fix="Move it under the root, or pass a path relative to it.",
+            )
+        for depend in command.depends:
+            _check_relative_path(
+                depend,
+                what="add_command() depends",
+                script=model.source_script,
+                fix="Move it under the root, or pass a path relative to it.",
+            )
+            if depend in outputs:
+                continue
+            resolved = model.root_dir / depend
+            if not resolved.is_file():
+                raise ConfigurationError(
+                    f"add_command() depends '{depend.as_posix()}' in "
+                    f"{model.source_script} does not exist (looked for "
+                    f"{resolved}) and is not another command's output. Create "
+                    f"the file, or fix the path."
+                )
+
+
+def _check_custom_targets(model: ProjectModel) -> None:
+    """Check add_custom_target() rules: relative depends= paths only.
+
+    Name validity and uniqueness are checked alongside compiled targets in
+    _check_target_names, since custom targets share CMake's global target
+    namespace.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a depends= path is absolute or escapes the
+            root.
+    """
+    for custom_target in model.custom_targets:
+        for depend in custom_target.depends:
+            _check_relative_path(
+                depend,
+                what="add_custom_target() depends",
+                script=model.source_script,
+                fix="Move it under the root, or pass a path relative to it.",
             )
 
 
@@ -689,13 +1113,12 @@ def _check_subprojects(model: ProjectModel) -> None:
     seen_dirs: set[str] = set()
     for subproject in model.subprojects:
         directory = subproject.directory
-        if directory.is_absolute() or ".." in directory.parts:
-            raise ConfigurationError(
-                f"Subproject directory '{directory.as_posix()}' in "
-                f"{model.source_script} must be a relative path inside the project "
-                f"root. Move the subproject under the root, or make it its own "
-                f"project."
-            )
+        _check_relative_path(
+            directory,
+            what="Subproject directory",
+            script=model.source_script,
+            fix="Move the subproject under the root, or make it its own project.",
+        )
         key = directory.as_posix()
         if key in seen_dirs:
             raise ConfigurationError(

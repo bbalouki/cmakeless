@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Layer 2: the immutable, validated build graph.
 
 Pure data. No CMake knowledge, no subprocess calls. The model is the single

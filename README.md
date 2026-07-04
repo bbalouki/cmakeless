@@ -1,9 +1,10 @@
 # CMakeless
 
 [![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
+[![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
 <!-- [![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/) -->
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
 
 **CMakeless is a pure-Python frontend for CMake: a modern CMake alternative that lets you describe C++ builds in real Python instead of the CMake language, then generates clean, human-readable `CMakeLists.txt` and drives CMake for you.**
@@ -97,7 +98,7 @@ To be clear about what CMakeless is *not*: scikit-build-core and meson-python so
 $ pip install cmakeless
 ```
 
-Requirements: Python 3.13+ and CMake 3.25+ on `PATH` (CMake is needed only to build; generating `CMakeLists.txt` works without it).
+Requirements: Python 3.12+ and CMake 3.25+ on `PATH` (CMake is needed only to build; generating `CMakeLists.txt` works without it).
 
 Scaffold a new project in one command:
 
@@ -179,6 +180,7 @@ from cmakeless import Preset
 
 project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
 project.add_preset(Preset("release", optimize="release", lto=True))
+project.add_preset(Preset("ci", inherits="release", options={"MYGAME_BUILD_TOOLS": False}))
 
 project.install(engine, headers=True)   # export set + Config.cmake, so others can find_package(mygame)
 project.install(app)
@@ -215,7 +217,10 @@ project.lto = True
 | `target.sanitize = ["address"]` | sanitizer flags on **both** compile and link, per-compiler, rejected loudly where unsupported |
 | `project.add_test(...)` | GoogleTest/Catch2/doctest fetch, `enable_testing()`, per-case CTest discovery, Windows DLL paths |
 | `project.add_python_module(...)` | pybind11/nanobind fetch, `find_package(Python)`, `<backend>_add_module`, stubs, env install |
-| `project.add_preset(Preset(...))` | `CMakePresets.json`, per-preset out-of-source build trees, multi-config support |
+| `project.add_preset(Preset(..., options=, env=, inherits=))` | `CMakePresets.json`, per-preset out-of-source build trees, multi-config support |
+| `app.link_options(...)` / `When.compiler(...)` | `target_link_options`, generator-expression guards, no manual `$<...>` syntax |
+| `project.option(...)` / `cmakeless options` | `option()`/`set(... CACHE ...)`, discoverable without reading the script |
+| `project.add_command(...)` / `add_custom_target(...)` | `add_custom_command(OUTPUT ...)`/`add_custom_target` wiring, argv-safe (`VERBATIM`) |
 | `project.install(...)` / `project.package(...)` | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack |
 | `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin |
 
@@ -284,7 +289,7 @@ Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake 
 
 ## Requirements
 
-- Python 3.13+
+- Python 3.12+
 - CMake 3.25+ on `PATH` (only for building; generation works without it)
 
 ## Learn more

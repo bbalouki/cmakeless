@@ -1,10 +1,16 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Emitter coverage for Python modules: backends, stubs, and settings reuse."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cmakeless.emitter import emit_cmakelists
+import pytest
+
+from cmakeless.emitter import cmake_emitter, emit_cmakelists
 from cmakeless.model.nodes import (
     DefineModel,
     LibraryKind,
@@ -42,8 +48,9 @@ def nanobind_module(**overrides: object) -> PythonModuleModel:
     return PythonModuleModel(**fields)  # type: ignore[arg-type]
 
 
-def test_python_module_finds_python_and_calls_add_module() -> None:
+def test_python_module_finds_python_and_calls_add_module(monkeypatch: pytest.MonkeyPatch) -> None:
     """Python module finds python and calls add module."""
+    monkeypatch.setattr(cmake_emitter, "_PYTHON_VERSION", "3.13")
     model = make_model(python_modules=(nanobind_module(),))
     text = emit_cmakelists(model, tool_version=FIXED_VERSION)
     assert "find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)" in text
@@ -106,8 +113,9 @@ def test_python_module_output_is_deterministic() -> None:
     )
 
 
-def test_python_module_golden_file() -> None:
+def test_python_module_golden_file(monkeypatch: pytest.MonkeyPatch) -> None:
     """Python module golden file."""
+    monkeypatch.setattr(cmake_emitter, "_PYTHON_VERSION", "3.13")
     engine = LibraryModel(name="engine", kind=LibraryKind.STATIC, sources=(Path("src/engine.cpp"),))
     module = PythonModuleModel(
         name="mymath",

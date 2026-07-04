@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The cmakeless command line: finds cmakelessfile.py and runs it.
 
 The console script and 'python -m cmakeless' share this one implementation.
@@ -145,6 +149,7 @@ def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         "package": "build everything, then produce packages through CPack",
         "clean": "delete the project's build directory",
         "lock": "resolve dependencies and refresh cmakeless.lock",
+        "options": "list this project's declared options without building anything",
     }
     for verb, help_text in help_by_verb.items():
         _add_verb_options(subparsers.add_parser(verb, help=help_text), verb)
@@ -162,12 +167,12 @@ def _add_verb_options(verb_parser: argparse.ArgumentParser, verb: str) -> None:
         default=BUILD_SCRIPT_NAME,
         help=f"path to the build description (default: {BUILD_SCRIPT_NAME})",
     )
-    if verb not in ("clean", "lock"):
+    if verb not in ("clean", "lock", "options"):
         verb_parser.add_argument(
             "--generator",
             default=None,
-            help='CMake generator: "ninja", "vs", or any raw -G name '
-            "(default: ninja when available)",
+            help='CMake generator: "ninja", "ninja-multi", "make", "vs", "xcode", '
+            "or any raw -G name (default: ninja when available)",
         )
         verb_parser.add_argument(
             "--preset",

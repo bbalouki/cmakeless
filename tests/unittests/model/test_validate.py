@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Freeze-time validation catches mistakes before CMake ever runs."""
 
 from __future__ import annotations
@@ -111,6 +115,21 @@ def test_unknown_cpp_std_rejected(project_dir: Path, bad_std: int) -> None:
     model = make_model(project_dir, cpp_std=bad_std)
     with pytest.raises(ConfigurationError, match="Unknown C\\+\\+ standard"):
         validate_project(model)
+
+
+def test_unknown_per_target_cpp_std_rejected(project_dir: Path) -> None:
+    """An unknown per-target cpp_std override is rejected, naming the target."""
+    target = ExecutableModel(name="app", sources=(Path("src/main.cpp"),), cpp_std=42)
+    model = make_model(project_dir, executables=(target,))
+    with pytest.raises(ConfigurationError, match="target 'app'"):
+        validate_project(model)
+
+
+def test_valid_per_target_cpp_std_passes(project_dir: Path) -> None:
+    """A per-target cpp_std override that differs from the project's is fine."""
+    target = ExecutableModel(name="app", sources=(Path("src/main.cpp"),), cpp_std=23)
+    model = make_model(project_dir, cpp_std=17, executables=(target,))
+    validate_project(model)
 
 
 def test_unknown_package_manager_rejected(project_dir: Path) -> None:

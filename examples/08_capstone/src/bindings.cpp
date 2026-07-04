@@ -1,3 +1,9 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ */
+
 // Expose the stats::Series class to Python with pybind11, so the same C++ that
 // powers the CLI is importable as a native module. Building the extension is a
 // single add_python_module() call in cmakelessfile.py; no separate binding build.

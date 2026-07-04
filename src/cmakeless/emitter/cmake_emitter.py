@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Model to CMakeLists.txt: a Visitor over the frozen build graph.
 
 The generated file is our public face. The contract: modern target-centric
@@ -11,6 +15,7 @@ per-target-kind variations, which is what keeps the output uniform and boring.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from cmakeless.emitter.presets_emitter import emit_presets
@@ -22,22 +27,33 @@ from cmakeless.emitter.sanitizers import (
     static_sanitize_lines,
 )
 from cmakeless.emitter.toolchain_emitter import emit_toolchain
+from cmakeless.emitter.when_emitter import guarded
 from cmakeless.model.nodes import (
     BUILD_TYPE_BY_OPTIMIZE,
     CPACK_GENERATOR_BY_FORMAT,
+    CommandModel,
     CompiledModel,
     CompileOptionsModel,
+    CustomTargetModel,
     DependencyModel,
     ExecutableModel,
     InstallModel,
     LibraryKind,
     LibraryModel,
+    LinkOptionsModel,
+    OptionModel,
+    OptionType,
     ProjectModel,
     PythonModuleModel,
     TestModel,
 )
 
 CMAKE_MINIMUM_VERSION = "3.25"
+
+# The Python version requested by find_package(Python ...) for modules: the
+# interpreter actually running cmakeless, not a hard-coded constant, so the
+# emitted CMake always matches the ABI the invoking interpreter expects.
+_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 # Warning presets translated per compiler family; "default" emits nothing and
 # leaves the compiler's own defaults in charge.
@@ -51,14 +67,6 @@ _STRICT_WARNINGS_OTHER: tuple[str, ...] = (
 )
 _NO_WARNINGS_MSVC: tuple[str, ...] = ("/W0",)
 _NO_WARNINGS_OTHER: tuple[str, ...] = ("-w",)
-
-# Canonical compiler identifiers (model vocabulary) to CMake compiler ids.
-_CMAKE_ID_BY_COMPILER = {
-    "gnu": "GNU",
-    "clang": "Clang",
-    "appleclang": "AppleClang",
-    "msvc": "MSVC",
-}
 
 # Per-framework discovery-module setup, emitted once per framework in use.
 # The guards make one file serve both worlds: an installed package provides
@@ -180,6 +188,7 @@ class _CMakeListsVisitor:
             self._header(),
             self._preamble(),
             *self._default_build_config(),
+            *self._options_section(),
             *self._raw_cmake_file_includes(),
             *self._module_includes(),
         ]
@@ -193,7 +202,9 @@ class _CMakeListsVisitor:
         )
         subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
         sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
+        sections.extend(self._command_sections())
         sections.extend(self._target_sections())
+        sections.extend(self._custom_target_sections())
         sections.extend(self._install_sections())
         sections.extend(self._cpack_section())
         return "\n\n".join(sections) + "\n"
@@ -226,6 +237,105 @@ class _CMakeListsVisitor:
             for test in sorted(self._model.tests, key=lambda target: target.name)
         )
         return sections
+
+    def _command_sections(self) -> list[str]:
+        """Emit every add_command() step, sorted by first output for determinism.
+
+        Returns:
+            One add_custom_command() section per registered command.
+        """
+        return [
+            self._visit_command(command)
+            for command in sorted(
+                self._model.commands, key=lambda command: command.outputs[0].as_posix()
+            )
+        ]
+
+    def _anchor_command_token(self, token: str, *, depends: tuple[Path, ...]) -> str:
+        """Anchor a COMMAND argument that names a declared output or depend.
+
+        CMake runs a custom command's argument vector with the build
+        directory as the default working directory, unlike OUTPUT/DEPENDS
+        paths, which CMake always resolves itself regardless of where the
+        command actually runs. A bare relative path *inside* the command
+        line (a script's own argv, not the OUTPUT/DEPENDS clauses) would
+        therefore be looked up from the wrong place. Anchoring only the
+        tokens that exactly match a declared output (this command's own, or
+        another command's, so chained code-generation steps work too) or
+        depend keeps every other argument (flags, the interpreter name)
+        untouched.
+
+        Args:
+            token: One argument from the command's argument vector.
+            depends: The command's declared dependencies.
+
+        Returns:
+            The token, prefixed with ${CMAKE_CURRENT_BINARY_DIR}/ or
+            ${CMAKE_CURRENT_SOURCE_DIR}/ when it names a declared path, else
+            unchanged.
+        """
+        normalized = Path(token).as_posix()
+        all_outputs = {output.as_posix() for cmd in self._model.commands for output in cmd.outputs}
+        if normalized in all_outputs:
+            return f"${{CMAKE_CURRENT_BINARY_DIR}}/{normalized}"
+        if any(normalized == depend.as_posix() for depend in depends):
+            return f"${{CMAKE_CURRENT_SOURCE_DIR}}/{normalized}"
+        return token
+
+    def _visit_command(self, command: CommandModel) -> str:
+        """Emit one build-time step as add_custom_command(OUTPUT ...).
+
+        Args:
+            command: The command to emit.
+
+        Returns:
+            The command's complete section text.
+        """
+        argv = " ".join(
+            self._anchor_command_token(token, depends=command.depends) for token in command.command
+        )
+        lines = ["add_custom_command(", "    OUTPUT"]
+        lines.extend(f"        {output.as_posix()}" for output in command.outputs)
+        lines.append("    COMMAND " + argv)
+        if command.depends:
+            depends = " ".join(depend.as_posix() for depend in sorted(command.depends))
+            lines.append(f"    DEPENDS {depends}")
+        if command.comment is not None:
+            lines.append(f'    COMMENT "{command.comment}"')
+        lines.append("    VERBATIM")
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _custom_target_sections(self) -> list[str]:
+        """Emit every add_custom_target(), sorted by name for determinism.
+
+        Returns:
+            One add_custom_target() section per registered custom target.
+        """
+        return [
+            self._visit_custom_target(target)
+            for target in sorted(self._model.custom_targets, key=lambda target: target.name)
+        ]
+
+    def _visit_custom_target(self, target: CustomTargetModel) -> str:
+        """Emit one always-runnable target as add_custom_target(...).
+
+        Args:
+            target: The custom target to emit.
+
+        Returns:
+            The target's complete section text.
+        """
+        argv = " ".join(
+            self._anchor_command_token(token, depends=target.depends) for token in target.command
+        )
+        lines = [f"add_custom_target({target.name}", "    COMMAND " + argv]
+        if target.depends:
+            depends = " ".join(depend.as_posix() for depend in sorted(target.depends))
+            lines.append(f"    DEPENDS {depends}")
+        lines.append("    VERBATIM")
+        lines.append(")")
+        return "\n".join(lines)
 
     def _module_includes(self) -> list[str]:
         """Collect the include() lines the emitted commands rely on.
@@ -301,6 +411,33 @@ class _CMakeListsVisitor:
                 "endif()"
             )
         return sections
+
+    def _options_section(self) -> list[str]:
+        """Declare every project.option() as a CMake cache variable.
+
+        Returns:
+            One command per option, sorted by name for determinism; empty
+            when the project declares none.
+        """
+        return [
+            self._visit_option(option)
+            for option in sorted(self._model.options, key=lambda option: option.name)
+        ]
+
+    def _visit_option(self, option: OptionModel) -> str:
+        """Emit one declared option as option() or a CACHE variable.
+
+        Args:
+            option: The option to emit.
+
+        Returns:
+            The command text.
+        """
+        help_text = option.help.replace('"', '\\"')
+        if option.value_type is OptionType.BOOL:
+            value = "ON" if option.default else "OFF"
+            return f'option({option.name} "{help_text}" {value})'
+        return f'set({option.name} "{option.default}" CACHE STRING "{help_text}")'
 
     def _raw_cmake_file_includes(self) -> list[str]:
         """Include the project's raw_cmake_file escape-hatch files near the top.
@@ -386,6 +523,17 @@ class _CMakeListsVisitor:
             f"endif()"
         )
 
+    def _cpp_std_for(self, target: CompiledModel) -> int:
+        """The C++ standard a target compiles with: its own override, or the project's.
+
+        Args:
+            target: The target to resolve the standard for.
+
+        Returns:
+            The target's cpp_std override when set, else the project's.
+        """
+        return target.cpp_std if target.cpp_std is not None else self._model.cpp_std
+
     def _visit_executable(self, target: ExecutableModel) -> str:
         """Emit one executable target.
 
@@ -397,8 +545,11 @@ class _CMakeListsVisitor:
         """
         blocks = [f"add_executable({target.name})"]
         blocks.append(self._sources_block(target, "PRIVATE"))
+        private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
+        if private_include_dirs is not None:
+            blocks.append(private_include_dirs)
         blocks.append(
-            f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
+            f"target_compile_features({target.name} PRIVATE cxx_std_{self._cpp_std_for(target)})"
         )
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         return "\n\n".join(blocks)
@@ -416,7 +567,8 @@ class _CMakeListsVisitor:
             return []
         lines = (
             "# The invoking interpreter's development headers build the modules below.\n"
-            "find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)"
+            f"find_package(Python {_PYTHON_VERSION} COMPONENTS Interpreter "
+            f"Development.Module REQUIRED)"
         )
         if any(module.binding == "pybind11" for module in self._model.python_modules):
             lines += "\n# Make pybind11 build against the Python found above, not its own guess.\n"
@@ -434,8 +586,11 @@ class _CMakeListsVisitor:
         """
         blocks = [f"{target.binding}_add_module({target.name})"]
         blocks.append(self._sources_block(target, "PRIVATE"))
+        private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
+        if private_include_dirs is not None:
+            blocks.append(private_include_dirs)
         blocks.append(
-            f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
+            f"target_compile_features({target.name} PRIVATE cxx_std_{self._cpp_std_for(target)})"
         )
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         if target.stubs and target.binding == "nanobind":
@@ -474,10 +629,13 @@ class _CMakeListsVisitor:
         keyword = "STATIC" if target.kind is LibraryKind.STATIC else "SHARED"
         blocks = [f"add_library({target.name} {keyword})"]
         blocks.append(self._sources_block(target, "PRIVATE"))
+        private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
+        if private_include_dirs is not None:
+            blocks.append(private_include_dirs)
         if target.public_include_dirs:
             blocks.append(self._include_dirs_block(target, "PUBLIC"))
         blocks.append(
-            f"target_compile_features({target.name} PUBLIC cxx_std_{self._model.cpp_std})"
+            f"target_compile_features({target.name} PUBLIC cxx_std_{self._cpp_std_for(target)})"
         )
         # Explicit PIC keeps static libraries linkable into shared ones.
         blocks.append(
@@ -499,8 +657,11 @@ class _CMakeListsVisitor:
         """
         blocks = [f"add_executable({target.name})"]
         blocks.append(self._sources_block(target, "PRIVATE"))
+        private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
+        if private_include_dirs is not None:
+            blocks.append(private_include_dirs)
         blocks.append(
-            f"target_compile_features({target.name} PRIVATE cxx_std_{self._model.cpp_std})"
+            f"target_compile_features({target.name} PRIVATE cxx_std_{self._cpp_std_for(target)})"
         )
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         if self._links_shared_library(target):
@@ -607,7 +768,7 @@ class _CMakeListsVisitor:
         blocks = [f"add_library({target.name} INTERFACE)"]
         blocks.append(self._include_dirs_block(target, "INTERFACE"))
         blocks.append(
-            f"target_compile_features({target.name} INTERFACE cxx_std_{self._model.cpp_std})"
+            f"target_compile_features({target.name} INTERFACE cxx_std_{self._cpp_std_for(target)})"
         )
         blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
         return "\n\n".join(blocks)
@@ -626,6 +787,77 @@ class _CMakeListsVisitor:
         lines.extend(f"    {source.as_posix()}" for source in sorted(target.sources))
         lines.append(")")
         return "\n".join(lines)
+
+    def _private_include_dirs_block(self, target: CompiledModel, visibility: str) -> str | None:
+        """Write a target_include_directories command for a target's own private dirs.
+
+        Unlike a library's public include dirs, private dirs never leak
+        into an install interface, so no $<BUILD_INTERFACE:...> wrapping is
+        needed here.
+
+        Args:
+            target: The target whose private include dirs to list.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The command text, or None when the target has none.
+        """
+        if not target.private_include_dirs:
+            return None
+        lines = [f"target_include_directories({target.name} {visibility}"]
+        lines.extend(
+            f"    {directory.as_posix()}" for directory in sorted(target.private_include_dirs)
+        )
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _link_options_block(self, target: CompiledModel, visibility: str) -> str | None:
+        """Write a target_link_options command, if any link options were requested.
+
+        Args:
+            target: The target whose link options to list.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The command text, or None when the target has no link options.
+        """
+        if not target.link_options:
+            return None
+        lines = [f"target_link_options({target.name} {visibility}"]
+        lines.extend(f"    {self._link_option_line(options)}" for options in target.link_options)
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _pch_block(self, target: CompiledModel, visibility: str) -> str | None:
+        """Write a target_precompile_headers command, if any headers were requested.
+
+        Args:
+            target: The target whose pch headers to list.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The command text, or None when the target has no pch headers.
+        """
+        if not target.pch_headers:
+            return None
+        lines = [f"target_precompile_headers({target.name} {visibility}"]
+        lines.extend(f"    {_pch_token(header)}" for header in target.pch_headers)
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _unity_block(self, target: CompiledModel) -> str | None:
+        """Write the UNITY_BUILD target property, if a unity build was requested.
+
+        Args:
+            target: The target to check.
+
+        Returns:
+            The set_target_properties command text, or None when unity
+            builds were not requested.
+        """
+        if not target.unity:
+            return None
+        return f"set_target_properties({target.name} PROPERTIES UNITY_BUILD ON)"
 
     def _include_dirs_block(self, target: LibraryModel, visibility: str) -> str:
         """Write a target_include_directories command for public headers.
@@ -694,6 +926,15 @@ class _CMakeListsVisitor:
             lines.extend(f"    {line}" for line in option_lines)
             lines.append(")")
             blocks.append("\n".join(lines))
+        blocks.extend(
+            block
+            for block in (
+                self._link_options_block(target, visibility),
+                self._pch_block(target, visibility),
+                self._unity_block(target),
+            )
+            if block is not None
+        )
         if warnings:
             blocks.extend(self._sanitize_blocks(target, visibility))
         if target.links:
@@ -901,8 +1142,8 @@ class _CMakeListsVisitor:
         """
         lines = [f"target_compile_definitions({target.name} {visibility}"]
         for define in sorted(target.defines, key=lambda define: define.name):
-            rendered = define.name if define.value is None else f"{define.name}={define.value}"
-            lines.append(f"    {rendered}")
+            token = define.name if define.value is None else f"{define.name}={define.value}"
+            lines.append(f"    {guarded(token, define.when)}")
         lines.append(")")
         return "\n".join(lines)
 
@@ -927,17 +1168,25 @@ class _CMakeListsVisitor:
         """Render one compile_options() call as a single flag line.
 
         Args:
-            options: The flags and their optional compiler guard.
+            options: The flags and their optional When guard.
 
         Returns:
             The flags joined for CMake, wrapped in a generator expression
-            when guarded to specific compilers.
+            when guarded.
         """
-        flags = ";".join(options.flags)
-        if not options.compilers:
-            return flags
-        compiler_ids = ",".join(_CMAKE_ID_BY_COMPILER[compiler] for compiler in options.compilers)
-        return f"$<$<CXX_COMPILER_ID:{compiler_ids}>:{flags}>"
+        return guarded(";".join(options.flags), options.when)
+
+    def _link_option_line(self, options: LinkOptionsModel) -> str:
+        """Render one link_options() call as a single flag line.
+
+        Args:
+            options: The flags and their optional When guard.
+
+        Returns:
+            The flags joined for CMake, wrapped in a generator expression
+            when guarded.
+        """
+        return guarded(";".join(options.flags), options.when)
 
     def _links_block(self, target: CompiledModel) -> str:
         """Write a target_link_libraries command with explicit visibility.
@@ -990,6 +1239,21 @@ def _resolved_cmake_name(dependency: DependencyModel) -> str:
     """
     assert dependency.cmake_name is not None, "the emitter requires a resolved model"
     return dependency.cmake_name
+
+
+def _pch_token(header: str) -> str:
+    """Render one precompiled header for target_precompile_headers().
+
+    Args:
+        header: An angle-bracket system header ("<vector>") or a
+            project-relative path.
+
+    Returns:
+        The header verbatim when it is already angle-bracketed, else quoted.
+    """
+    if header.startswith("<") and header.endswith(">"):
+        return header
+    return f'"{header}"'
 
 
 def _components_suffix(dependency: DependencyModel) -> str:
