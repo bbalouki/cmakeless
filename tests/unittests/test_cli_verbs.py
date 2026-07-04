@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The CLI verbs that execute cmakelessfile.py: configure, clean, lock, and init."""
 
 from __future__ import annotations
@@ -70,6 +74,44 @@ def test_lock_without_dependencies_writes_nothing(
     assert main(["lock"]) == 0
     assert not (demo_project / "cmakeless.lock").exists()
     assert "No dependencies" in capsys.readouterr().out
+
+
+def test_options_without_declarations_prints_a_message(
+    demo_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Options without declarations prints a message."""
+    assert main(["options"]) == 0
+    assert "No options declared" in capsys.readouterr().out
+
+
+OPTIONS_BUILD_PY = """\
+from cmakeless import Project
+
+project = Project("demo", cpp_std=20)
+project.option("MYLIB_BUILD_GUI", default=True, help="Build the Qt front-end")
+project.option("MYLIB_JOBS", default=4)
+project.add_executable("demo", sources=["src/main.cpp"])
+project.build()
+"""
+
+
+def test_options_lists_declared_options(
+    demo_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Options lists declared options."""
+    (demo_project / "cmakelessfile.py").write_text(OPTIONS_BUILD_PY, encoding="utf-8")
+    assert main(["options"]) == 0
+    out = capsys.readouterr().out
+    assert "MYLIB_BUILD_GUI (bool, default=True): Build the Qt front-end" in out
+    assert "MYLIB_JOBS (int, default=4)" in out
+
+
+def test_options_verb_does_not_require_cmake(
+    demo_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Options verb does not require cmake: it never shells out."""
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.shutil.which", lambda _: None)
+    assert main(["options"]) == 0
 
 
 PROBE_BUILD_PY = """\
