@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The DependencyProvider Strategy interface every backend adapts to.
 
 Each adapter in this package (find_package, FetchContent fallback, vcpkg,
@@ -71,27 +75,32 @@ class DependencyProvider:
         del model, lock
         return {}
 
-    def toolchain_args(self, build_dir: Path) -> tuple[str, ...]:
+    def toolchain_args(self, build_dir: Path, *, build_type: str) -> tuple[str, ...]:
         """Extra cmake configure arguments this backend needs, if any.
 
         Args:
             build_dir: The project's out-of-source build directory.
+            build_type: The active CMake build type ("Debug", "Release",
+                "RelWithDebInfo", or "MinSizeRel"), so a backend that installs
+                configuration-specific artifacts (Conan) matches the build
+                it is about to configure.
 
         Returns:
             Argument strings appended to the configure command; empty by
             default.
         """
-        del build_dir
+        del build_dir, build_type
         return ()
 
-    def pre_configure(self, *, root_dir: Path, build_dir: Path) -> None:
+    def pre_configure(self, *, root_dir: Path, build_dir: Path, build_type: str) -> None:
         """Run backend tooling that must happen before cmake configure.
 
         Args:
             root_dir: The project root (where manifests were written).
             build_dir: The project's out-of-source build directory.
+            build_type: The active CMake build type; see toolchain_args().
         """
-        del root_dir, build_dir
+        del root_dir, build_dir, build_type
 
     def lock_baseline(self, context: ResolutionContext) -> str | None:
         """Report the vcpkg builtin-baseline to record in the lockfile.
