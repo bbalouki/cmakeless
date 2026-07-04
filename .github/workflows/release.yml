@@ -19,9 +19,6 @@ jobs:
         with:
           python-version: "3.13"
 
-      # The version is hand-maintained in _version.py, so the pushed tag must
-      # match it; a mismatch means a release was tagged without a version bump.
-      # Read it with sed so the check needs no environment sync.
       - name: Verify tag matches the package version
         run: |
           tag="${GITHUB_REF_NAME#v}"
