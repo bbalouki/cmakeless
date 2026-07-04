@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Testing as a first-class verb: Catch2 arrives and registers itself.
 
 add_test() fetches the framework like any dependency (pinned in
