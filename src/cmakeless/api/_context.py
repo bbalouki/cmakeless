@@ -34,6 +34,10 @@ _generator_override: list[str] = []
 _preset_override: list[str] = []
 _sanitize_override: list[tuple[str, ...]] = []
 _prefix_override: list[str] = []
+_offline_override: list[bool] = []
+_sbom_format_override: list[str] = []
+_sbom_output_override: list[str] = []
+_vendor_directory_override: list[str] = []
 
 
 @contextmanager
@@ -244,3 +248,116 @@ def active_prefix() -> str | None:
         The innermost overridden prefix, or None when unset.
     """
     return _prefix_override[-1] if _prefix_override else None
+
+
+@contextmanager
+def offline_override(offline: bool) -> Generator[None]:
+    """Make dependency resolution and package-manager installs run --offline.
+
+    Args:
+        offline: True to disallow network access during resolution;
+            False is a no-op (the context still pushes/pops, harmlessly).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    _offline_override.append(offline)
+    try:
+        yield
+    finally:
+        _offline_override.pop()
+
+
+def active_offline() -> bool:
+    """Look up whether --offline is active.
+
+    Returns:
+        The innermost overridden value, or False when unset.
+    """
+    return _offline_override[-1] if _offline_override else False
+
+
+@contextmanager
+def sbom_format_override(format_name: str) -> Generator[None]:
+    """Make 'cmakeless sbom' write the given SBOM format.
+
+    Args:
+        format_name: "cyclonedx" or "spdx", from --format.
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    _sbom_format_override.append(format_name)
+    try:
+        yield
+    finally:
+        _sbom_format_override.pop()
+
+
+def active_sbom_format() -> str:
+    """Look up the SBOM format set by the CLI.
+
+    Returns:
+        The innermost overridden format, or "cyclonedx" when unset.
+    """
+    return _sbom_format_override[-1] if _sbom_format_override else "cyclonedx"
+
+
+@contextmanager
+def sbom_output_override(output: str | None) -> Generator[None]:
+    """Make 'cmakeless sbom' write to the given path.
+
+    Args:
+        output: The path from --output, or None for no preference (the
+            context is then a no-op).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    if output is None:
+        yield
+        return
+    _sbom_output_override.append(output)
+    try:
+        yield
+    finally:
+        _sbom_output_override.pop()
+
+
+def active_sbom_output() -> str | None:
+    """Look up the SBOM output path set by the CLI.
+
+    Returns:
+        The innermost overridden path, or None when unset.
+    """
+    return _sbom_output_override[-1] if _sbom_output_override else None
+
+
+@contextmanager
+def vendor_directory_override(directory: str | None) -> Generator[None]:
+    """Make 'cmakeless vendor' download into the given directory.
+
+    Args:
+        directory: The path from --directory, or None for no preference
+            (the context is then a no-op).
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    if directory is None:
+        yield
+        return
+    _vendor_directory_override.append(directory)
+    try:
+        yield
+    finally:
+        _vendor_directory_override.pop()
+
+
+def active_vendor_directory() -> str | None:
+    """Look up the vendor directory set by the CLI.
+
+    Returns:
+        The innermost overridden path, or None when unset.
+    """
+    return _vendor_directory_override[-1] if _vendor_directory_override else None
