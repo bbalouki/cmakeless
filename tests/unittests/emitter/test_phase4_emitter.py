@@ -8,9 +8,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
-from cmakeless.emitter import cmake_emitter, emit_cmakelists
+from cmakeless._constants import MIN_PYTHON_VERSION
+from cmakeless.emitter import emit_cmakelists
 from cmakeless.model.nodes import (
     DefineModel,
     LibraryKind,
@@ -48,15 +47,36 @@ def nanobind_module(**overrides: object) -> PythonModuleModel:
     return PythonModuleModel(**fields)  # type: ignore[arg-type]
 
 
-def test_python_module_finds_python_and_calls_add_module(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_python_module_finds_python_and_calls_add_module() -> None:
     """Python module finds python and calls add module."""
-    monkeypatch.setattr(cmake_emitter, "_PYTHON_VERSION", "3.13")
-    model = make_model(python_modules=(nanobind_module(),))
+    model = make_model(python_modules=(nanobind_module(python_version="3.13"),))
     text = emit_cmakelists(model, tool_version=FIXED_VERSION)
     assert "find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)" in text
     assert "nanobind_add_module(core)" in text
     assert "target_sources(core PRIVATE" in text
     assert "target_compile_features(core PRIVATE cxx_std_17)" in text
+
+
+def test_python_module_defaults_to_the_minimum_supported_version() -> None:
+    """No python_version= override falls back to CMakeless's own floor."""
+    model = make_model(python_modules=(nanobind_module(),))
+    text = emit_cmakelists(model, tool_version=FIXED_VERSION)
+    assert (
+        f"find_package(Python {MIN_PYTHON_VERSION} COMPONENTS Interpreter "
+        f"Development.Module REQUIRED)" in text
+    )
+
+
+def test_multiple_python_modules_use_the_highest_requested_version() -> None:
+    """Two modules with different floors combine to the highest one."""
+    model = make_model(
+        python_modules=(
+            nanobind_module(name="low", python_version="3.12"),
+            nanobind_module(name="high", python_version="3.14"),
+        )
+    )
+    text = emit_cmakelists(model, tool_version=FIXED_VERSION)
+    assert "find_package(Python 3.14 COMPONENTS Interpreter Development.Module REQUIRED)" in text
 
 
 def test_nanobind_module_generates_a_stub() -> None:
@@ -113,15 +133,15 @@ def test_python_module_output_is_deterministic() -> None:
     )
 
 
-def test_python_module_golden_file(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_python_module_golden_file() -> None:
     """Python module golden file."""
-    monkeypatch.setattr(cmake_emitter, "_PYTHON_VERSION", "3.13")
     engine = LibraryModel(name="engine", kind=LibraryKind.STATIC, sources=(Path("src/engine.cpp"),))
     module = PythonModuleModel(
         name="mymath",
         sources=(Path("src/bindings.cpp"),),
         binding="pybind11",
         stubs=False,
+        python_version="3.13",
         defines=(DefineModel(name="MYMATH_VERSION", value="1"),),
         links=(LinkModel(target="engine"),),
     )
