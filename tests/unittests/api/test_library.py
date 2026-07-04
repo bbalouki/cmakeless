@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Library targets, the link graph, and compile settings through the public API."""
 
 from __future__ import annotations
@@ -7,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from cmakeless import ConfigurationError, Library, Project
-from cmakeless.model.nodes import LibraryKind
+from cmakeless.model.nodes import LibraryKind, WhenKind
 
 
 @pytest.fixture
@@ -141,7 +145,10 @@ def test_define_and_compile_options(library_project: Project) -> None:
     assert (target.defines[0].name, target.defines[0].value) == ("GAME_MAX_PLAYERS", "8")
     assert target.defines[1].value is None
     assert target.compile_options[0].flags == ("-march=native",)
-    assert target.compile_options[0].compilers == ("gnu", "clang", "appleclang")
+    when = target.compile_options[0].when
+    assert when is not None
+    assert when.kind is WhenKind.COMPILER
+    assert when.names == ("GNU", "Clang", "AppleClang")
 
 
 def test_unknown_when_compiler_rejected(library_project: Project) -> None:
