@@ -47,6 +47,10 @@ jobs:
       # The network flag unskips the end-to-end dependency tests, which
       # download and compile a real third-party package (fmt).
       - name: Test
-        run: uv run pytest
+        run: uv run pytest --cov --cov-branch --cov-report=xml
         env:
           CMAKELESS_NETWORK_TESTS: "1"
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
