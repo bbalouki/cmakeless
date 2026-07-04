@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: `add_python_module()`'s generated `find_package(Python ...)` no
+  longer tracks whichever interpreter happens to invoke `cmakeless`.** That
+  behavior made the generated `CMakeLists.txt` non-deterministic across
+  machines: the same `cmakelessfile.py` emitted a different minimum Python
+  version depending on who ran it, violating the emitter's own "same model
+  in, byte-identical output out" contract. It now defaults to CMakeless's own
+  supported floor (3.12) and accepts an explicit `python_version="3.13"`
+  override; a project with several Python modules requesting different
+  floors emits the highest one, since `find_package(Python X.Y ...)` already
+  means "X.Y or newer."
+
 ## [0.5.0]
 
 The language unlock: options, typed conditions, and custom build steps —
@@ -70,20 +83,20 @@ CMake" and the full power of CMake, in Python, with types and a debugger.
   `Library(public_headers=...)`), `target.link_options(...)` (mirrors
   `compile_options()`), a per-target `cpp_std` override, and
   `target.pch = [...]`/`target.unity = True` for precompiled headers and
-  unity builds — retiring the `raw_cmake()` workaround the escape hatch's
+  unity builds, retiring the `raw_cmake()` workaround the escape hatch's
   own docstring used to demonstrate.
 - **An extensible dependency registry** (IMPROVEMENTS §2.1):
   `cmakeless.register_dependency(name, RegistryEntry(...))` registers or
   overrides one package, and installed plugin distributions can contribute
   entries via the `"cmakeless.registry"` entry-point group. The curated list
-  itself stays the same eleven packages for now; growing it from vcpkg/Conan
+  itself stays the same ten packages for now; growing it from vcpkg/Conan
   metadata at scale is future work (see ROADMAP.md sub-phase 4.4).
 
 ### Docs
 
 - `ROADMAP.md`'s Phase 4 is now followed by sub-phases 4.1–4.3 (this
   release) and 4.4–4.6 (planned: the interop unlock, the portability
-  release, and documentation/quality debt — see ROADMAP.md for what each
+  release, and documentation/quality debt, see ROADMAP.md for what each
   covers).
 - `FEATURES.md` and `README.md` updated throughout for the new surface.
 
