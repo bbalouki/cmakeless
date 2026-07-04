@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Mutable target builders.
 
 Users create these via Project.add_executable() and Project.add_library();
@@ -10,6 +14,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from cmakeless.api.commands import Command
+from cmakeless.api.when import When
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
     PYTHON_BINDING_BACKENDS,
@@ -20,26 +26,22 @@ from cmakeless.model.nodes import (
     LibraryKind,
     LibraryModel,
     LinkModel,
+    LinkOptionsModel,
     PythonModuleModel,
     TestModel,
+    WhenModel,
 )
 
 if TYPE_CHECKING:
     from cmakeless.api.dependencies import Dependencies, Dependency
+    from cmakeless.api.options import Option
 
 type LibraryKindName = Literal["static", "shared", "header_only"]
 type TestFrameworkName = Literal["gtest", "catch2", "doctest", "none"]
 type PythonBindingName = Literal["pybind11", "nanobind"]
+type WhenArgument = str | When | Option | None
 
 _GLOB_CHARACTERS = frozenset("*?[")
-
-# Friendly compiler names accepted in when= guards, mapped to canonical ids.
-_COMPILERS_BY_TOKEN: dict[str, tuple[str, ...]] = {
-    "gcc": ("gnu",),
-    "clang": ("clang", "appleclang"),
-    "appleclang": ("appleclang",),
-    "msvc": ("msvc",),
-}
 
 
 class _Target:
@@ -50,6 +52,14 @@ class _Target:
         sanitize: Sanitizer names ("address", "undefined", "thread",
             "leak") applied to this target's compile and link steps; plain
             attribute, assign a list to change it.
+        cpp_std: This target's own C++ standard, overriding the project's;
+            plain attribute, assign an int to change it, or leave it None
+            to use the project's cpp_std.
+        pch: Headers to precompile for this target; plain attribute,
+            assign a list of headers (angle-bracket system headers like
+            "<vector>", or project-relative paths) to change it.
+        unity: True to build this target as a single unity translation
+            unit; plain attribute, assign a bool to change it.
 
     Use raw_cmake() to emit CMake this API does not model, verbatim, after
     the target is defined.
@@ -77,49 +87,109 @@ class _Target:
         self._sources: list[str] = list(sources)
         self._script = script
         self.sanitize: Sequence[str] = []
+        self.cpp_std: int | None = None
+        self.pch: Sequence[str] = []
+        self.unity: bool = False
         self._defines: list[DefineModel] = []
         self._compile_options: list[CompileOptionsModel] = []
+        self._link_options: list[LinkOptionsModel] = []
         self._links: list[tuple[Library, bool]] = []
         self._dependencies = dependencies
         self._dependency_links: list[tuple[Dependency, bool]] = []
         self._raw_cmake: list[str] = []
+        self._private_include_dirs: list[str] = []
+        self._generated_sources: set[str] = set()
 
     @property
     def name(self) -> str:
         """The target's unique name."""
         return self._name
 
-    def add_sources(self, *sources: str) -> None:
-        """Append more source files or glob patterns to this target.
+    def add_sources(self, *sources: str | Command) -> None:
+        """Append more source files, glob patterns, or a Command's output.
 
         Args:
-            *sources: Source files or glob patterns, project-root-relative.
+            *sources: Source files or glob patterns, project-root-relative,
+                or a Command handle (its declared outputs are added as
+                sources; they are not checked for existence at freeze time,
+                since a command's output does not exist until it runs).
         """
-        self._sources.extend(sources)
+        for source in sources:
+            if isinstance(source, Command):
+                self._sources.extend(source.outputs)
+                self._generated_sources.update(source.outputs)
+            else:
+                self._sources.append(source)
 
-    def define(self, name: str, value: str | int | None = None) -> None:
+    def include_dirs(self, *dirs: str) -> None:
+        """Add directories, private to this target, that its own sources may #include.
+
+        Contrast with Library(public_headers=...), which exposes headers to
+        consumers (PUBLIC/INTERFACE); these directories never leave this
+        target's own compile step.
+
+        Args:
+            *dirs: Directories, project-root-relative, to add as private
+                include directories.
+        """
+        self._private_include_dirs.extend(dirs)
+
+    def define(
+        self, name: str, value: str | int | None = None, *, when: WhenArgument = None
+    ) -> None:
         """Add a preprocessor definition.
 
         Args:
             name: The macro name, for example ``GAME_MAX_PLAYERS``.
             value: The macro value; omit for a bare define.
-        """
-        self._defines.append(DefineModel(name=name, value=_format_define_value(value)))
+            when: A condition guarding the define (see When), a
+                '|'-separated compiler-name string (sugar for
+                When.compiler(...)), an Option (sugar for When.option(...)),
+                or None to apply it unconditionally.
 
-    def compile_options(self, *flags: str, when: str | None = None) -> None:
-        """Add raw compiler flags, optionally only for some compilers.
+        Raises:
+            ConfigurationError: When ``when`` is a string naming an unknown
+                compiler.
+        """
+        self._defines.append(
+            DefineModel(name=name, value=_format_define_value(value), when=self._resolve_when(when))
+        )
+
+    def compile_options(self, *flags: str, when: WhenArgument = None) -> None:
+        """Add raw compiler flags, optionally guarded by a condition.
 
         Args:
             *flags: The flags exactly as the compiler expects them.
-            when: A '|'-separated list of compiler names the flags apply to:
-                "gcc", "clang", "appleclang", "msvc" (for example
-                when="gcc|clang"); None applies them everywhere.
+            when: A condition guarding the flags (see When), a
+                '|'-separated compiler-name string (sugar for
+                When.compiler(...), for example when="gcc|clang"), an
+                Option (sugar for When.option(...)), or None to apply them
+                unconditionally.
 
         Raises:
-            ConfigurationError: When ``when`` names an unknown compiler.
+            ConfigurationError: When ``when`` is a string naming an unknown
+                compiler.
         """
         self._compile_options.append(
-            CompileOptionsModel(flags=tuple(flags), compilers=self._resolve_when(when))
+            CompileOptionsModel(flags=tuple(flags), when=self._resolve_when(when))
+        )
+
+    def link_options(self, *flags: str, when: WhenArgument = None) -> None:
+        """Add raw linker flags, optionally guarded by a condition.
+
+        Args:
+            *flags: The flags exactly as the linker expects them.
+            when: A condition guarding the flags (see When), a
+                '|'-separated compiler-name string (sugar for
+                When.compiler(...)), an Option (sugar for When.option(...)),
+                or None to apply them unconditionally.
+
+        Raises:
+            ConfigurationError: When ``when`` is a string naming an unknown
+                compiler.
+        """
+        self._link_options.append(
+            LinkOptionsModel(flags=tuple(flags), when=self._resolve_when(when))
         )
 
     def raw_cmake(self, snippet: str) -> None:
@@ -132,7 +202,7 @@ class _Target:
 
         Args:
             snippet: The CMake to emit, for example
-                ``set_target_properties(engine PROPERTIES UNITY_BUILD ON)``.
+                ``set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)``.
 
         Raises:
             ConfigurationError: When the snippet is empty or only whitespace.
@@ -208,36 +278,28 @@ class _Target:
             )
         self._links.append((library, public))
 
-    def _resolve_when(self, when: str | None) -> tuple[str, ...]:
-        """Translate a when= guard into canonical compiler identifiers.
+    def _resolve_when(self, when: WhenArgument) -> WhenModel | None:
+        """Normalize a when= argument to the model's condition tree.
 
         Args:
-            when: The user-facing guard string, or None for no guard.
+            when: None for no guard; a '|'-separated compiler-name string
+                (kept as sugar for When.compiler(...), for example
+                when="gcc|clang"); an Option (sugar for When.option(...));
+                or a When value built from its factory methods.
 
         Returns:
-            Canonical compiler ids in first-mention order; empty for None.
+            The frozen WhenModel, or None for no guard.
 
         Raises:
-            ConfigurationError: When the guard names an unknown compiler.
+            ConfigurationError: When a string names an unknown compiler.
         """
         if when is None:
-            return ()
-        compilers: list[str] = []
-        for token in when.split("|"):
-            normalized = token.strip().lower()
-            if normalized not in _COMPILERS_BY_TOKEN:
-                known = ", ".join(sorted(_COMPILERS_BY_TOKEN))
-                raise ConfigurationError(
-                    f"Unknown compiler {token!r} in when= guard on target "
-                    f"{self._name!r} in {self._script}. Use a '|'-separated list "
-                    f'of: {known} (for example when="gcc|clang").'
-                )
-            compilers.extend(
-                compiler
-                for compiler in _COMPILERS_BY_TOKEN[normalized]
-                if compiler not in compilers
-            )
-        return tuple(compilers)
+            return None
+        if isinstance(when, When):
+            return when._freeze()
+        if isinstance(when, str):
+            return When.compiler(*when.split("|"))._freeze()
+        return When.option(when)._freeze()
 
     def _freeze_sources(self, root: Path) -> tuple[Path, ...]:
         """Expand glob patterns here in Python, where they can be validated.
@@ -253,7 +315,7 @@ class _Target:
         """
         resolved: list[Path] = []
         for entry in self._sources:
-            if _GLOB_CHARACTERS.isdisjoint(entry):
+            if entry in self._generated_sources or _GLOB_CHARACTERS.isdisjoint(entry):
                 resolved.append(Path(entry))
                 continue
             matches = sorted(path.relative_to(root) for path in root.glob(entry) if path.is_file())
@@ -265,6 +327,24 @@ class _Target:
                 )
             resolved.extend(matches)
         return tuple(resolved)
+
+    def _freeze_private_include_dirs(self) -> tuple[Path, ...]:
+        """Normalize the private include dirs into the model's path tuple.
+
+        Returns:
+            The requested directories as Path objects, in call order;
+            existence is checked on the frozen model.
+        """
+        return tuple(Path(directory) for directory in self._private_include_dirs)
+
+    def _freeze_pch(self) -> tuple[str, ...]:
+        """Normalize the pch attribute into the model's header tuple.
+
+        Returns:
+            The requested headers in call order; existence (for
+            project-relative entries) is checked on the frozen model.
+        """
+        return tuple(self.pch)
 
     def _freeze_sanitize(self) -> tuple[str, ...]:
         """Normalize the sanitize attribute into the model's sorted tuple.
@@ -328,9 +408,14 @@ class Executable(_Target):
             sources=self._freeze_sources(root),
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
+            link_options=tuple(self._link_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
             raw_cmake=tuple(self._raw_cmake),
+            private_include_dirs=self._freeze_private_include_dirs(),
+            cpp_std=self.cpp_std,
+            pch_headers=self._freeze_pch(),
+            unity=self.unity,
         )
 
 
@@ -417,9 +502,14 @@ class Test(_Target):
             framework=self._framework,
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
+            link_options=tuple(self._link_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
             raw_cmake=tuple(self._raw_cmake),
+            private_include_dirs=self._freeze_private_include_dirs(),
+            cpp_std=self.cpp_std,
+            pch_headers=self._freeze_pch(),
+            unity=self.unity,
         )
 
 
@@ -516,9 +606,14 @@ class PythonModule(_Target):
             install_to_environment=self._install,
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
+            link_options=tuple(self._link_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
             raw_cmake=tuple(self._raw_cmake),
+            private_include_dirs=self._freeze_private_include_dirs(),
+            cpp_std=self.cpp_std,
+            pch_headers=self._freeze_pch(),
+            unity=self.unity,
         )
 
 
@@ -620,9 +715,14 @@ class Library(_Target):
             public_include_dirs=tuple(Path(header) for header in self._public_headers),
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
+            link_options=tuple(self._link_options),
             links=self._freeze_links(),
             sanitize=self._freeze_sanitize(),
             raw_cmake=tuple(self._raw_cmake),
+            private_include_dirs=self._freeze_private_include_dirs(),
+            cpp_std=self.cpp_std,
+            pch_headers=self._freeze_pch(),
+            unity=self.unity,
         )
 
 
