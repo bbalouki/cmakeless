@@ -26,4 +26,5 @@ examples/**/cmake/toolchains/
 examples/**/compile_commands.json
 IMPROVEMENTS.md
 SUGGESTIONS.md
+CLAUDE.md
 *code-workspace
