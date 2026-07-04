@@ -562,6 +562,56 @@ class CustomTargetModel:
     depends: tuple[Path, ...] = ()
 
 
+class ModuleKind(enum.Enum):
+    """Which form a project.include()/include_module() call takes.
+
+    Attributes:
+        FILE: A project-relative .cmake file, included by path.
+        NAMED: A bare module name, included by CMake's own module lookup.
+    """
+
+    FILE = "file"
+    NAMED = "named"
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleCallModel:
+    """One validated call to a function or macro a reflected include defined.
+
+    Attributes:
+        function: The function or macro name, exactly as CMake reported it.
+        args: Positional arguments, in call order.
+    """
+
+    function: str
+    args: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ModuleModel:
+    """A project.include()/include_module() call, reflection already resolved.
+
+    Reflection (discovering functions, variables, and targets by running
+    real CMake) happens eagerly in the API layer, since mod.call(...) must
+    validate immediately; this node only carries what was already validated.
+
+    Attributes:
+        kind: FILE (a path) or NAMED (a bare module name).
+        reference: Project-root-relative path, POSIX-normalized (FILE), or
+            the bare module name exactly as given (NAMED).
+        module_path: Project-root-relative extra CMAKE_MODULE_PATH entry for
+            NAMED includes, or None.
+        calls: Validated mod.call(...) invocations, in declaration order.
+            Never sorted, unlike commands/custom_targets: CMake function
+            calls can have order-dependent side effects.
+    """
+
+    kind: ModuleKind
+    reference: str
+    module_path: Path | None = None
+    calls: tuple[ModuleCallModel, ...] = ()
+
+
 type TargetModel = ExecutableModel | LibraryModel
 
 # Every node the emitter compiles and settings blocks apply to, sharing the
@@ -610,6 +660,8 @@ class ProjectModel:
         commands: Build-time steps declared by project.add_command().
         custom_targets: Always-runnable targets declared by
             project.add_custom_target().
+        modules: Reflected includes declared by project.include()/
+            include_module().
         package_formats: CPack formats project.package() requested.
         cache: True to wire ccache/sccache as the compiler launcher when
             one is found on PATH.
@@ -642,6 +694,7 @@ class ProjectModel:
     options: tuple[OptionModel, ...] = ()
     commands: tuple[CommandModel, ...] = ()
     custom_targets: tuple[CustomTargetModel, ...] = ()
+    modules: tuple[ModuleModel, ...] = ()
     package_formats: tuple[str, ...] = ()
     cache: bool = True
     optimize: str | None = None
