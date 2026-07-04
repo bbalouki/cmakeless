@@ -9,6 +9,9 @@ project(demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 include(FetchContent)
 
 # fmt 10.2.1: system package when available, pinned source fetch otherwise.
