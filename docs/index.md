@@ -34,6 +34,9 @@ $ cmakeless test                      # CTest with per-case discovery
 $ cmakeless build --preset release    # from your CMakePresets.json
 $ cmakeless install --prefix dist     # install rules and export sets
 $ cmakeless package                   # CPack archives
+$ cmakeless doctor                    # check cmake/generator/ccache/vcpkg/Conan/network
+$ cmakeless sbom --format spdx        # a bill of materials from cmakeless.lock
+$ cmakeless vendor && cmakeless build --offline   # zero-network build
 ```
 
 Interop and introspection are one call each too:
