@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Emitter coverage for libraries, settings, links, and subproject trees."""
 
 from __future__ import annotations
@@ -14,7 +18,11 @@ from cmakeless.model.nodes import (
     LinkModel,
     ProjectModel,
     SubprojectModel,
+    WhenKind,
+    WhenModel,
 )
+
+_GNU_CLANG_WHEN = WhenModel(kind=WhenKind.COMPILER, names=("GNU", "Clang"))
 
 FIXED_VERSION = "1.2.3"
 
@@ -124,7 +132,7 @@ def test_defines_and_guarded_options() -> None:
         sources=(Path("src/main.cpp"),),
         defines=(DefineModel("USE_AUDIO"), DefineModel("GAME_MAX_PLAYERS", "8")),
         compile_options=(
-            CompileOptionsModel(flags=("-march=native",), compilers=("gnu", "clang")),
+            CompileOptionsModel(flags=("-march=native",), when=_GNU_CLANG_WHEN),
             CompileOptionsModel(flags=("-fno-exceptions",)),
         ),
     )
@@ -203,9 +211,7 @@ def kitchen_sink_model() -> ProjectModel:
         name="app",
         sources=(Path("src/main.cpp"),),
         defines=(DefineModel("GAME_MAX_PLAYERS", "8"),),
-        compile_options=(
-            CompileOptionsModel(flags=("-march=native",), compilers=("gnu", "clang")),
-        ),
+        compile_options=(CompileOptionsModel(flags=("-march=native",), when=_GNU_CLANG_WHEN),),
         links=(LinkModel(target="engine", public=False),),
     )
     return make_model(
