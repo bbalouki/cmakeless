@@ -39,6 +39,29 @@ def test_known_packages_are_sorted_and_include_the_staples() -> None:
     assert {"fmt", "boost", "catch2", "googletest"} <= set(names)
 
 
+def test_registry_grew_well_beyond_the_original_ten_staples() -> None:
+    """The registry grew well beyond the original ten staples (ROADMAP Phase 5.3)."""
+    assert len(known_packages()) >= 40
+
+
+def test_gaming_and_engineering_staples_carry_the_folklore() -> None:
+    """A sample of newly curated gaming/engineering packages carry real folklore."""
+    sdl2 = registry_entry("sdl2")
+    assert sdl2 is not None
+    assert sdl2.cmake_name == "SDL2"
+    assert sdl2.targets == ("SDL2::SDL2",)
+    assert sdl2.conan_name == "sdl"  # named "sdl", not "sdl2", in Conan Center
+
+    glfw = registry_entry("glfw")
+    assert glfw is not None
+    assert glfw.cmake_name == "glfw3"  # find_package() name keeps the "3"
+    assert glfw.targets == ("glfw",)  # the target it exports does not
+
+    eigen = registry_entry("eigen")
+    assert eigen is not None
+    assert eigen.vcpkg_name == "eigen3"  # vcpkg port keeps the "3" too
+
+
 def test_every_entry_names_all_backends() -> None:
     """Every entry names all backends."""
     for name in known_packages():
