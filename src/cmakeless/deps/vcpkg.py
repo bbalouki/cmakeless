@@ -25,7 +25,7 @@ from cmakeless.deps.provider import (
     collect_tree_dependencies,
 )
 from cmakeless.deps.registry import registry_entry
-from cmakeless.errors import ToolchainError
+from cmakeless.errors import DependencyError, ToolchainError
 from cmakeless.model.nodes import DependencyModel, ProjectModel
 
 MANIFEST_NAME = "vcpkg.json"
@@ -104,6 +104,44 @@ class VcpkgAdapter(DependencyProvider):
         del build_dir, build_type
         toolchain = vcpkg_root() / "scripts" / "buildsystems" / "vcpkg.cmake"
         return (f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",)
+
+    def pre_configure(
+        self, *, root_dir: Path, build_dir: Path, build_type: str, offline: bool = False
+    ) -> None:
+        """Check that vcpkg has already installed this manifest, when offline.
+
+        vcpkg's own toolchain file triggers the actual package install
+        during CMake's configure step (manifest mode, invisible to this
+        adapter), so the only network-safe thing this layer can do is
+        verify the expected install output already exists before letting
+        configure run at all: manifest-mode vcpkg installs into
+        ${CMAKE_BINARY_DIR}/vcpkg_installed by default.
+
+        Args:
+            root_dir: The project root containing vcpkg.json (unused; the
+                install directory under build_dir is what matters here).
+            build_dir: The project's out-of-source build directory.
+            build_type: The active CMake build type (unused; vcpkg's own
+                toolchain file handles every configuration).
+            offline: True to require the manifest's packages to already be
+                installed, rather than letting vcpkg fetch them during
+                configure.
+
+        Raises:
+            DependencyError: When offline and vcpkg has not installed this
+                manifest's packages into build_dir yet.
+        """
+        del root_dir, build_type
+        if not offline:
+            return
+        installed = build_dir / "vcpkg_installed"
+        if not installed.is_dir() or not any(installed.iterdir()):
+            raise DependencyError(
+                f"--offline requires vcpkg to have already installed this "
+                f"manifest's packages, but {installed} does not exist yet. Run "
+                f"'cmakeless configure' once with network access first, or drop "
+                f"--offline."
+            )
 
     def lock_baseline(self, context: ResolutionContext) -> str | None:
         """Determine the builtin-baseline commit to record in the lockfile.
