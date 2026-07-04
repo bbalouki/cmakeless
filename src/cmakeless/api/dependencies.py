@@ -11,15 +11,19 @@ rejects conflicting versions immediately, and owns the lockfile refresh.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cmakeless._constants import BUILD_SCRIPT_NAME
+from cmakeless.api import _context
 from cmakeless.deps.find_package import fill_metadata
-from cmakeless.deps.lockfile import LOCKFILE_NAME
+from cmakeless.deps.lockfile import LOCKFILE_NAME, read_lockfile
 from cmakeless.deps.resolver import resolve_dependencies
-from cmakeless.errors import ConfigurationError
+from cmakeless.deps.sbom import SBOM_FORMATS, generate_cyclonedx, generate_spdx
+from cmakeless.deps.vendor import vendor_packages
+from cmakeless.errors import ConfigurationError, DependencyError
 from cmakeless.model.nodes import DependencyModel
 
 if TYPE_CHECKING:
@@ -213,8 +217,88 @@ class Dependencies:
         """
         model = self._project.freeze()
         lock_path = self._project.root / LOCKFILE_NAME
-        resolve_dependencies(model, lock_path=lock_path, force=True)
+        resolve_dependencies(
+            model, lock_path=lock_path, force=True, offline=_context.active_offline()
+        )
         return lock_path
+
+    def sbom(self, *, format: str = "cyclonedx", output: str | Path | None = None) -> Path:
+        """Write a CycloneDX or SPDX bill of materials from cmakeless.lock.
+
+        Reads the already-resolved lockfile rather than re-resolving
+        dependencies, so it needs no network and reflects exactly what a
+        prior 'cmakeless lock' pinned.
+
+        Args:
+            format: "cyclonedx" (the default) or "spdx".
+            output: The file to write, or None for
+                "<project name>.cdx.json"/"<project name>.spdx.json" in the
+                project root.
+
+        Returns:
+            The written file's path.
+
+        Raises:
+            ConfigurationError: When ``format`` is not a known one.
+            DependencyError: When no cmakeless.lock exists yet.
+        """
+        if format not in SBOM_FORMATS:
+            known = ", ".join(repr(name) for name in sorted(SBOM_FORMATS))
+            raise ConfigurationError(f"Unknown SBOM format {format!r}. Pick one of: {known}.")
+        lock_path = self._project.root / LOCKFILE_NAME
+        if not lock_path.is_file():
+            raise DependencyError(
+                f"No {LOCKFILE_NAME} found at {lock_path}. Run `cmakeless lock` "
+                f"first to resolve dependencies before generating a bill of "
+                f"materials."
+            )
+        lock = read_lockfile(lock_path)
+        if format == "cyclonedx":
+            document = generate_cyclonedx(
+                lock, project_name=self._project.name, project_version=self._project._version
+            )
+            suffix = "cdx.json"
+        else:
+            document = generate_spdx(
+                lock, project_name=self._project.name, project_version=self._project._version
+            )
+            suffix = "spdx.json"
+        out_path = (
+            Path(output)
+            if output is not None
+            else self._project.root / f"{self._project.name}.{suffix}"
+        )
+        out_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        return out_path
+
+    def vendor(self, *, directory: str | Path | None = None) -> Path:
+        """Download every locked dependency's archive for zero-network builds.
+
+        Also writes cmakeless.mirror.json so a later --offline build
+        resolves each vendored package from the local copy automatically.
+
+        Args:
+            directory: Where to download archives, or None for "vendor" in
+                the project root.
+
+        Returns:
+            The vendor directory.
+
+        Raises:
+            DependencyError: When no cmakeless.lock exists yet, a download
+                fails, or a downloaded archive's hash does not match its
+                locked pin.
+        """
+        lock_path = self._project.root / LOCKFILE_NAME
+        if not lock_path.is_file():
+            raise DependencyError(
+                f"No {LOCKFILE_NAME} found at {lock_path}. Run `cmakeless lock` "
+                f"first to resolve dependencies before vendoring them."
+            )
+        lock = read_lockfile(lock_path)
+        vendor_dir = Path(directory) if directory is not None else self._project.root / "vendor"
+        vendor_packages(lock, directory=vendor_dir, root_dir=self._project.root)
+        return vendor_dir
 
     def _freeze(self) -> tuple[DependencyModel, ...]:
         """Freeze the collection into model nodes, sorted by name.
