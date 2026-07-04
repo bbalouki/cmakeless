@@ -11,7 +11,8 @@ never changes when the backend does.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cmakeless.deps.lockfile import LockData
@@ -27,11 +28,20 @@ class ResolutionContext:
         lock: The lockfile contents loaded before resolution started.
         force: True when the user asked to refresh pins (dependencies.lock()),
             so locked entries must be re-resolved instead of reused.
+        offline: True when --offline was passed: no network access is
+            allowed, so a package that would need a live fetch must be
+            satisfied from the lockfile, the mirror map, or the registry's
+            curated hash, or resolution fails loudly.
+        mirror: Package name to local/mirror URL, from cmakeless.mirror.json
+            ('cmakeless vendor' populates it); consulted before falling back
+            to a package's registry/upstream URL.
     """
 
     root_dir: Path
     lock: LockData
     force: bool = False
+    offline: bool = False
+    mirror: Mapping[str, str] = field(default_factory=dict)
 
 
 class DependencyProvider:
@@ -92,15 +102,19 @@ class DependencyProvider:
         del build_dir, build_type
         return ()
 
-    def pre_configure(self, *, root_dir: Path, build_dir: Path, build_type: str) -> None:
+    def pre_configure(
+        self, *, root_dir: Path, build_dir: Path, build_type: str, offline: bool = False
+    ) -> None:
         """Run backend tooling that must happen before cmake configure.
 
         Args:
             root_dir: The project root (where manifests were written).
             build_dir: The project's out-of-source build directory.
             build_type: The active CMake build type; see toolchain_args().
+            offline: True when --offline was passed; the default backends
+                have no pre_configure step at all, so this is unused here.
         """
-        del root_dir, build_dir, build_type
+        del root_dir, build_dir, build_type, offline
 
     def lock_baseline(self, context: ResolutionContext) -> str | None:
         """Report the vcpkg builtin-baseline to record in the lockfile.
