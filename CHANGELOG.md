@@ -5,6 +5,65 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4]
+
+The portability release: the industries-readiness work (gaming, finance,
+engineering, aerospace) — a curated cross-compilation toolchain gallery,
+supply-chain tooling for zero-network builds, static-analysis wiring, and a
+one-command environment check (see ROADMAP.md Phase 5.4).
+
+### Added
+
+- **A curated `Toolchain` gallery**: `Toolchain.arm_none_eabi(cpu=...)` (bare-metal
+  ARM), `Toolchain.ios(platform=..., deployment_target=...)`, `Toolchain.android(ndk=...,
+  abi=..., platform=...)`, and `Toolchain.emscripten(emsdk=...)`, each building on the
+  existing `Toolchain` primitives (a compiler/system-name description, or a
+  wrapped SDK toolchain file) with the project's signature helpful errors:
+  `abi`/`platform` enum typos are rejected immediately, at the call site;
+  filesystem existence of a wrapped SDK file is checked at freeze time, same
+  as `Toolchain.from_file()`. Android and Emscripten wrap the NDK's/SDK's own
+  toolchain file, seeded with the extra cache variables it expects
+  (`ANDROID_ABI`, `CMAKE_OSX_SYSROOT`, ...) via a small generated wrapper.
+- **`cmakeless sbom --format cyclonedx|spdx`**: a CycloneDX 1.5 or SPDX 2.3
+  bill of materials generated straight from `cmakeless.lock`'s already-complete
+  dependency inventory, no network or re-resolution required.
+- **`cmakeless vendor`**: downloads every locked dependency's archive,
+  verifies it against its locked SHA256, and records the local copy in the
+  new `cmakeless.mirror.json`, so a later `--offline` build resolves each
+  vendored package from disk automatically.
+- **`--offline`**: disallows network access during dependency resolution.
+  The default `find_package`-then-`FetchContent` backend resolves from the
+  lockfile, the mirror map, or a registry-curated hash, raising a clear
+  `DependencyError` naming `cmakeless vendor` as the fix when none is
+  available; the vcpkg backend checks that its manifest is already installed
+  into `vcpkg_installed` before letting configure run; the Conan backend
+  passes `--build=never` instead of `--build=missing`, so Conan itself fails
+  loudly on anything not already in its local cache. The mirror substitution
+  is applied only for emission, never written back into `cmakeless.lock`,
+  which keeps recording the canonical upstream pin.
+- **`project.lint(clang_tidy=True, iwyu=False)`** and the matching
+  **`target.lint(...)`** override: wires `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE`
+  per compiled target. The project-wide setting applies to every target that
+  has not called its own `lint()` (which always wins, including calling it
+  with both arguments `False` to opt a specific target out); header-only
+  libraries are silently skipped, since they compile nothing. Both accept
+  `True` for the tool's bare default command, or a sequence for extra
+  arguments (for example `["clang-tidy", "-checks=-*,modernize-*"]`).
+- **`cmakeless doctor`**: a standalone verb (no `cmakelessfile.py` required)
+  that checks `cmake`'s presence and version, the auto-selected generator,
+  `ccache`/`sccache`/`vcpkg`/`conan` on `PATH`, and network reachability,
+  printing exactly what a new machine is missing.
+- `Dependencies` joins the public API (it was already the return type of
+  `project.dependencies`, but missing from `cmakeless`'s own top-level import
+  surface).
+
+### Docs
+
+- `FEATURES.md`, `README.md`, `docs/index.md`, and `examples/README.md`
+  updated for the new surface; `examples/11_portability` demonstrates the
+  toolchain gallery, `project.lint(...)`, and the `doctor`/`sbom`/`vendor`/
+  `--offline` workflow end to end.
+
 ## [0.5.3]
 
 The interop unlock: reflect a `.cmake` file or a built-in CMake module through

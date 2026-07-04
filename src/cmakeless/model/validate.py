@@ -33,6 +33,7 @@ from cmakeless.model.nodes import (
     OptionType,
     PresetModel,
     ProjectModel,
+    ToolchainModel,
     WhenKind,
     WhenModel,
 )
@@ -741,33 +742,35 @@ def _check_toolchains(model: ProjectModel) -> None:
                 f"Rename or remove one of them."
             )
         seen.add(toolchain.name)
-        _check_toolchain_shape(toolchain.name, toolchain.file, toolchain.compiler, model)
+        _check_toolchain_shape(toolchain, model)
 
 
-def _check_toolchain_shape(
-    name: str, file: Path | None, compiler: str | None, model: ProjectModel
-) -> None:
+def _check_toolchain_shape(toolchain: ToolchainModel, model: ProjectModel) -> None:
     """Check one toolchain's shape: a real file, or enough to generate one.
 
+    A generated toolchain (no wrapped file) needs a compiler, a
+    system_name, or variables to be worth generating: Toolchain.ios(), for
+    example, cross-compiles with the same host clang, so it sets only
+    system_name and variables, no compiler.
+
     Args:
-        name: The toolchain's name, for messages.
-        file: The wrapped toolchain file path, or None when generated.
-        compiler: The generated toolchain's compiler, or None.
+        toolchain: The toolchain to check.
         model: The owning project, for message context.
 
     Raises:
-        ConfigurationError: When the wrapped file is missing or a
-            generated toolchain names no compiler.
+        ConfigurationError: When the wrapped file is missing, or a
+            generated toolchain has nothing to generate.
     """
+    name, file = toolchain.name, toolchain.file
     if file is not None:
         resolved = file if file.is_absolute() else model.root_dir / file
         if not resolved.is_file():
             raise ConfigurationError(
                 f"Toolchain {name!r} in {model.source_script} wraps "
                 f"'{file.as_posix()}', which does not exist (looked for "
-                f"{resolved}). Fix the path passed to Toolchain.from_file()."
+                f"{resolved}). Check the path is correct."
             )
-    elif not compiler:
+    elif not toolchain.compiler and not toolchain.system_name and not toolchain.variables:
         raise ConfigurationError(
             f"Toolchain {name!r} in {model.source_script} has neither a file "
             f"nor a compiler. Pass compiler=... to Toolchain(), or wrap an "

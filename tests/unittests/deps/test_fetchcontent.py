@@ -40,10 +40,22 @@ def failing_download(url: str) -> bytes:
     raise AssertionError(f"unexpected network access: {url}")
 
 
-def make_context(*, locked: LockedPackage | None = None, force: bool = False) -> ResolutionContext:
+def make_context(
+    *,
+    locked: LockedPackage | None = None,
+    force: bool = False,
+    offline: bool = False,
+    mirror: dict[str, str] | None = None,
+) -> ResolutionContext:
     """A resolution context around at most one locked package."""
     packages = {locked.name: locked} if locked is not None else {}
-    return ResolutionContext(root_dir=Path(), lock=LockData(packages=packages), force=force)
+    return ResolutionContext(
+        root_dir=Path(),
+        lock=LockData(packages=packages),
+        force=force,
+        offline=offline,
+        mirror=mirror if mirror is not None else {},
+    )
 
 
 def locked_fmt(*, version: str = "10.2.1") -> LockedPackage:
@@ -141,6 +153,22 @@ def test_not_fetchable_package_recommends_a_package_manager() -> None:
     dependency = DependencyModel(name="boost", version="1.84.0", components=("asio",))
     with pytest.raises(DependencyError, match="vcpkg"):
         adapter.resolve(dependency, make_context())
+
+
+def test_offline_with_no_cache_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Offline with no cache raises."""
+    adapter = AutoAdapter(download=failing_download)
+    context = make_context(offline=True)
+    with pytest.raises(DependencyError, match="offline"):
+        adapter.resolve(DependencyModel(name="fmt", version="99.0.0"), context)
+
+
+def test_offline_with_a_locked_hash_succeeds_without_downloading() -> None:
+    """Offline with a locked hash succeeds without downloading."""
+    adapter = AutoAdapter(download=failing_download)
+    context = make_context(locked=locked_fmt(), offline=True)
+    completed = adapter.resolve(DependencyModel(name="fmt", version="10.2.1"), context)
+    assert completed.sha256 == "locked-hash"
 
 
 def test_download_failure_says_what_to_try_next() -> None:

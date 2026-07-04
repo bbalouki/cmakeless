@@ -18,7 +18,11 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from cmakeless._constants import CMAKELESS_SYSTEM_NAME_VAR, CMAKELESS_SYSTEM_PROCESSOR_VAR
+from cmakeless._constants import (
+    CMAKE_MINIMUM_VERSION,
+    CMAKELESS_SYSTEM_NAME_VAR,
+    CMAKELESS_SYSTEM_PROCESSOR_VAR,
+)
 from cmakeless.emitter.presets_emitter import emit_presets
 from cmakeless.emitter.sanitizers import (
     MSVC_SUPPORTED_SANITIZERS,
@@ -50,8 +54,6 @@ from cmakeless.model.nodes import (
     PythonModuleModel,
     TestModel,
 )
-
-CMAKE_MINIMUM_VERSION = "3.25"
 
 # Warning presets translated per compiler family; "default" emits nothing and
 # leaves the compiler's own defaults in charge.
@@ -132,7 +134,7 @@ def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
     if model.presets:
         files[Path("CMakePresets.json")] = emit_presets(model)
     for toolchain in sorted(model.toolchains, key=lambda node: node.name):
-        if toolchain.file is None:
+        if toolchain.file is None or toolchain.variables:
             files[Path("cmake") / "toolchains" / f"{toolchain.name}.cmake"] = emit_toolchain(
                 toolchain, tool_version=tool_version, source_script=model.source_script
             )
@@ -918,6 +920,36 @@ class _CMakeListsVisitor:
             return None
         return f"set_target_properties({target.name} PROPERTIES UNITY_BUILD ON)"
 
+    def _lint_block(self, target: CompiledModel) -> str | None:
+        """Write the CXX_CLANG_TIDY/CXX_INCLUDE_WHAT_YOU_USE target properties.
+
+        A target's own lint() call always wins; otherwise the project's
+        project.lint() setting applies, mirroring how _cpp_std_for()
+        resolves a target's own cpp_std against the project's.
+
+        Args:
+            target: The target whose lint settings to resolve and emit.
+
+        Returns:
+            The set_target_properties command text, or None when neither
+            tool resolves to a non-empty command for this target.
+        """
+        clang_tidy = (
+            target.clang_tidy if target.clang_tidy is not None else self._model.lint_clang_tidy
+        )
+        iwyu = target.iwyu if target.iwyu is not None else self._model.lint_iwyu
+        properties: list[str] = []
+        if clang_tidy:
+            properties.append(f'CXX_CLANG_TIDY "{";".join(clang_tidy)}"')
+        if iwyu:
+            properties.append(f'CXX_INCLUDE_WHAT_YOU_USE "{";".join(iwyu)}"')
+        if not properties:
+            return None
+        lines = [f"set_target_properties({target.name} PROPERTIES"]
+        lines.extend(f"    {property_line}" for property_line in properties)
+        lines.append(")")
+        return "\n".join(lines)
+
     def _include_dirs_block(self, target: LibraryModel, visibility: str) -> str:
         """Write a target_include_directories command for public headers.
 
@@ -995,11 +1027,28 @@ class _CMakeListsVisitor:
             if block is not None
         )
         if warnings:
-            blocks.extend(self._sanitize_blocks(target, visibility))
+            blocks.extend(self._warned_blocks(target, visibility))
         if target.links:
             blocks.append(self._links_block(target))
         if target.raw_cmake:
             blocks.append(self._raw_cmake_block(target))
+        return blocks
+
+    def _warned_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
+        """Emit the settings that do not apply to warning-free INTERFACE targets.
+
+        Args:
+            target: The target whose sanitizer and lint settings to emit.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The sanitizer blocks, then the lint block if either resolves to
+            a non-empty command.
+        """
+        blocks = list(self._sanitize_blocks(target, visibility))
+        lint_block = self._lint_block(target)
+        if lint_block is not None:
+            blocks.append(lint_block)
         return blocks
 
     def _raw_cmake_block(self, target: CompiledModel) -> str:

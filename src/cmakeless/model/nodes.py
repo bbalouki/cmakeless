@@ -262,6 +262,14 @@ class ExecutableModel:
             (``<vector>``) verbatim and project-relative paths otherwise.
         unity: True to build this target as a single unity translation
             unit (UNITY_BUILD).
+        clang_tidy: This target's own clang-tidy command (and extra
+            arguments) to run as CXX_CLANG_TIDY, or None to inherit the
+            project's project.lint() setting; a target that called
+            target.lint() always has a concrete tuple (possibly empty, to
+            opt out of the project default).
+        iwyu: This target's own include-what-you-use command (and extra
+            arguments) to run as CXX_INCLUDE_WHAT_YOU_USE, or None to
+            inherit the project's project.lint() setting.
     """
 
     name: str
@@ -276,6 +284,8 @@ class ExecutableModel:
     cpp_std: int | None = None
     pch_headers: tuple[str, ...] = ()
     unity: bool = False
+    clang_tidy: tuple[str, ...] | None = None
+    iwyu: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -304,6 +314,14 @@ class LibraryModel:
             (``<vector>``) verbatim and project-relative paths otherwise.
         unity: True to build this target as a single unity translation
             unit (UNITY_BUILD).
+        clang_tidy: This target's own clang-tidy command (and extra
+            arguments) to run as CXX_CLANG_TIDY, or None to inherit the
+            project's project.lint() setting; a target that called
+            target.lint() always has a concrete tuple (possibly empty, to
+            opt out of the project default).
+        iwyu: This target's own include-what-you-use command (and extra
+            arguments) to run as CXX_INCLUDE_WHAT_YOU_USE, or None to
+            inherit the project's project.lint() setting.
     """
 
     name: str
@@ -320,6 +338,8 @@ class LibraryModel:
     cpp_std: int | None = None
     pch_headers: tuple[str, ...] = ()
     unity: bool = False
+    clang_tidy: tuple[str, ...] | None = None
+    iwyu: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -348,6 +368,10 @@ class TestModel:
             (``<vector>``) verbatim and project-relative paths otherwise.
         unity: True to build this target as a single unity translation
             unit (UNITY_BUILD).
+        clang_tidy: This target's own clang-tidy command, or None to
+            inherit the project's project.lint() setting.
+        iwyu: This target's own include-what-you-use command, or None to
+            inherit the project's project.lint() setting.
     """
 
     # Tell pytest this model is not a test case, despite the Test* name.
@@ -366,6 +390,8 @@ class TestModel:
     cpp_std: int | None = None
     pch_headers: tuple[str, ...] = ()
     unity: bool = False
+    clang_tidy: tuple[str, ...] | None = None
+    iwyu: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +431,10 @@ class PythonModuleModel:
             (``<vector>``) verbatim and project-relative paths otherwise.
         unity: True to build this target as a single unity translation
             unit (UNITY_BUILD).
+        clang_tidy: This target's own clang-tidy command, or None to
+            inherit the project's project.lint() setting.
+        iwyu: This target's own include-what-you-use command, or None to
+            inherit the project's project.lint() setting.
     """
 
     name: str
@@ -423,6 +453,8 @@ class PythonModuleModel:
     cpp_std: int | None = None
     pch_headers: tuple[str, ...] = ()
     unity: bool = False
+    clang_tidy: tuple[str, ...] | None = None
+    iwyu: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,13 +497,17 @@ class ToolchainModel:
 
     Attributes:
         name: The toolchain name presets reference.
-        file: Project-root-relative path of an existing toolchain file, or
-            None when the toolchain is generated.
+        file: Project-root-relative (or absolute) path of an existing
+            toolchain file, or None when the toolchain is generated.
         compiler: The C++ compiler for a generated toolchain, or None.
         system_name: CMAKE_SYSTEM_NAME for a generated cross toolchain
             (for example "Linux"), or None for a host build.
         system_processor: CMAKE_SYSTEM_PROCESSOR for a generated cross
             toolchain (for example "aarch64"), or None.
+        variables: Extra (name, value) cache-variable pairs seeded before
+            compiler/system_name/processor and any wrapped ``file``'s
+            include() (for example ANDROID_ABI, CMAKE_OSX_SYSROOT); empty
+            for a plain generated or wrapped toolchain.
     """
 
     name: str
@@ -479,6 +515,7 @@ class ToolchainModel:
     compiler: str | None = None
     system_name: str | None = None
     system_processor: str | None = None
+    variables: tuple[tuple[str, str], ...] = ()
 
 
 class OptionType(enum.Enum):
@@ -673,6 +710,12 @@ class ProjectModel:
             build; a preset's own setting wins when one is active.
         raw_cmake_files: Extra CMake files include()d at the top of the
             generated CMakeLists.txt, in the order they were added.
+        lint_clang_tidy: The project-wide clang-tidy command (and extra
+            arguments) project.lint() declared, applied to every compiled
+            target that has not called its own target.lint(); empty means
+            clang-tidy is off by default.
+        lint_iwyu: The project-wide include-what-you-use command declared
+            by project.lint(), same inheritance rule as lint_clang_tidy.
     """
 
     name: str
@@ -700,6 +743,8 @@ class ProjectModel:
     optimize: str | None = None
     lto: bool = False
     raw_cmake_files: tuple[Path, ...] = ()
+    lint_clang_tidy: tuple[str, ...] = ()
+    lint_iwyu: tuple[str, ...] = ()
 
     def targets(self) -> tuple[TargetModel, ...]:
         """Collect this project's own compiled targets (tests excluded).

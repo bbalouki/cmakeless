@@ -124,9 +124,13 @@ def _toolchain_file(toolchain: ToolchainModel) -> str:
         toolchain: The referenced toolchain.
 
     Returns:
-        The path, anchored at ${sourceDir}; generated toolchains live
-        under cmake/toolchains/.
+        A wrapped file's own path (absolute paths as-is, relative ones
+        anchored at ${sourceDir}) when it has no extra variables; otherwise
+        the generated cmake/toolchains/ file (plain generated toolchains,
+        and wrapped ones that needed variables seeded before their include()).
     """
-    if toolchain.file is not None:
+    if toolchain.file is not None and not toolchain.variables:
+        if toolchain.file.is_absolute():
+            return toolchain.file.as_posix()
         return f"${{sourceDir}}/{toolchain.file.as_posix()}"
     return f"${{sourceDir}}/cmake/toolchains/{toolchain.name}.cmake"

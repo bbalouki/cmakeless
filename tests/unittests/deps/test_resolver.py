@@ -15,7 +15,8 @@ import pytest
 from cmakeless.deps.conan import ConanAdapter
 from cmakeless.deps.fetchcontent import AutoAdapter
 from cmakeless.deps.find_package import FindPackageAdapter
-from cmakeless.deps.lockfile import read_lockfile
+from cmakeless.deps.lockfile import LockedPackage, read_lockfile, write_lockfile
+from cmakeless.deps.mirror import write_mirror_map
 from cmakeless.deps.provider import DependencyProvider, ResolutionContext
 from cmakeless.deps.resolver import provider_for, resolve_dependencies
 from cmakeless.deps.vcpkg import VcpkgAdapter
@@ -155,6 +156,40 @@ def test_subproject_dependencies_are_collected_and_replaced(tmp_path: Path) -> N
     child_dependency = resolved.subprojects[0].project.dependencies[0]
     assert child_dependency.sha256 == "ab" * 32
     assert "fmt" in read_lockfile(tmp_path / "cmakeless.lock").packages
+
+
+def test_offline_resolution_uses_the_mirror_map(tmp_path: Path) -> None:
+    """Offline resolution uses the mirror map."""
+    lock_path = tmp_path / "cmakeless.lock"
+    write_lockfile(
+        lock_path,
+        {
+            "fmt": LockedPackage(
+                name="fmt",
+                version="10.2.1",
+                backend="auto",
+                cmake_name="fmt",
+                targets=("fmt::fmt",),
+                url="https://example.com/fmt.tar.gz",
+                sha256="ab" * 32,
+            )
+        },
+    )
+    write_mirror_map(tmp_path, {"fmt": "file:///vendor/fmt.tar.gz"})
+    model = make_model((DependencyModel(name="fmt", version="10.2.1"),))
+
+    def refuse(url: str) -> bytes:
+        """Fail the test if a download is attempted."""
+        raise AssertionError(f"unexpected network access: {url}")
+
+    resolved = resolve_dependencies(
+        model, lock_path=lock_path, provider=AutoAdapter(download=refuse), offline=True
+    )
+    assert resolved.dependencies[0].url == "file:///vendor/fmt.tar.gz"
+    assert resolved.dependencies[0].sha256 == "ab" * 32
+    # The mirror substitution must never leak back into the committable
+    # lockfile: it stays pointed at the canonical upstream URL.
+    assert read_lockfile(lock_path).packages["fmt"].url == "https://example.com/fmt.tar.gz"
 
 
 def test_resolution_failure_propagates(tmp_path: Path) -> None:

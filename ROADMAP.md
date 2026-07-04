@@ -135,12 +135,16 @@ Carried over from the "call `include()` and read variables from Python" idea: th
 
 ## Phase 5.4: The Portability Release, v0.5.4
 
-Not yet built; the industries-readiness work (gaming, finance, engineering, aerospace):
+The industries-readiness work (gaming, finance, engineering, aerospace):
 
-- A curated toolchain gallery: `Toolchain.arm_none_eabi()`, `Toolchain.emscripten()`, `Toolchain.android(ndk=..., abi=...)`, `Toolchain.ios()` and many more, each validated with the project's signature helpful errors.
+- A curated toolchain gallery: `Toolchain.arm_none_eabi()`, `Toolchain.emscripten()`, `Toolchain.android(ndk=..., abi=...)`, `Toolchain.ios()`, each validated with the project's signature helpful errors.
 - `cmakeless sbom` (CycloneDX/SPDX from `cmakeless.lock`'s already-complete dependency inventory), `--offline` (fail loudly rather than fetch) plus a mirror map, and a `cmakeless vendor` verb to download every locked dependency for zero-network builds.
-- `project.lint(clang_tidy=True, iwyu=False)` wiring `CMAKE_CXX_CLANG_TIDY`/IWYU per target.
+- `project.lint(clang_tidy=True, iwyu=False)` (and a per-target `target.lint(...)` override) wiring `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE` per target.
 - A `cmakeless doctor` verb: one command that checks CMake version, generator, compilers, ccache, vcpkg/Conan, and network access, and prints exactly what a new machine is missing.
+
+**Exit criterion:** a project registers a bare-metal ARM toolchain and an iOS toolchain without installing either SDK, generates a CycloneDX and an SPDX bill of materials from `cmakeless.lock`, vendors its one dependency and rebuilds with `--offline` using only the local copy, wires `clang-tidy` into its default build, and `cmakeless doctor` reports the local machine's CMake/generator/cache/network status with no project present at all.
+
+**Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial — vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
 
 ## Phase 5.5: Documentation and Quality Debt, v0.5.5
 

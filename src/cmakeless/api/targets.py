@@ -63,7 +63,8 @@ class _Target:
             unit; plain attribute, assign a bool to change it.
 
     Use raw_cmake() to emit CMake this API does not model, verbatim, after
-    the target is defined.
+    the target is defined. Use lint() to override project.lint()'s
+    clang-tidy/IWYU setting for this target alone.
     """
 
     def __init__(
@@ -91,6 +92,8 @@ class _Target:
         self.cpp_std: int | None = None
         self.pch: Sequence[str] = []
         self.unity: bool = False
+        self._lint_clang_tidy: tuple[str, ...] | None = None
+        self._lint_iwyu: tuple[str, ...] | None = None
         self._defines: list[DefineModel] = []
         self._compile_options: list[CompileOptionsModel] = []
         self._link_options: list[LinkOptionsModel] = []
@@ -214,6 +217,27 @@ class _Target:
                 f"{self._script}. Pass the CMake to emit, or remove the call."
             )
         self._raw_cmake.append(snippet)
+
+    def lint(
+        self, *, clang_tidy: bool | Sequence[str] = False, iwyu: bool | Sequence[str] = False
+    ) -> None:
+        """Override project.lint()'s clang-tidy/IWYU setting for this target alone.
+
+        Once called, this target's own setting always wins over the
+        project's, including calling lint() with both arguments False to
+        opt this target out of a project-wide default.
+
+        Args:
+            clang_tidy: True to run clang-tidy with its own defaults, a
+                sequence to pass the command and extra arguments (for
+                example ["clang-tidy", "-checks=-*,modernize-*"]), or False
+                to disable it for this target.
+            iwyu: True to run include-what-you-use, a sequence for the
+                command and extra arguments, or False to disable it for
+                this target.
+        """
+        self._lint_clang_tidy = _lint_tool_names(clang_tidy, tool="clang-tidy")
+        self._lint_iwyu = _lint_tool_names(iwyu, tool="include-what-you-use")
 
     def depends(
         self,
@@ -417,6 +441,8 @@ class Executable(_Target):
             cpp_std=self.cpp_std,
             pch_headers=self._freeze_pch(),
             unity=self.unity,
+            clang_tidy=self._lint_clang_tidy,
+            iwyu=self._lint_iwyu,
         )
 
 
@@ -511,6 +537,8 @@ class Test(_Target):
             cpp_std=self.cpp_std,
             pch_headers=self._freeze_pch(),
             unity=self.unity,
+            clang_tidy=self._lint_clang_tidy,
+            iwyu=self._lint_iwyu,
         )
 
 
@@ -626,6 +654,8 @@ class PythonModule(_Target):
             cpp_std=self.cpp_std,
             pch_headers=self._freeze_pch(),
             unity=self.unity,
+            clang_tidy=self._lint_clang_tidy,
+            iwyu=self._lint_iwyu,
         )
 
 
@@ -735,7 +765,28 @@ class Library(_Target):
             cpp_std=self.cpp_std,
             pch_headers=self._freeze_pch(),
             unity=self.unity,
+            clang_tidy=self._lint_clang_tidy,
+            iwyu=self._lint_iwyu,
         )
+
+
+def _lint_tool_names(value: bool | Sequence[str], *, tool: str) -> tuple[str, ...]:
+    """Normalize a lint()/Project.lint() argument to its command tuple.
+
+    Args:
+        value: True for the tool's own defaults, a sequence for the command
+            and extra arguments, or False to disable it.
+        tool: The tool's default command name ("clang-tidy" or
+            "include-what-you-use"), used when ``value`` is True.
+
+    Returns:
+        An empty tuple when disabled, else the command as a tuple.
+    """
+    if value is False:
+        return ()
+    if value is True:
+        return (tool,)
+    return tuple(value)
 
 
 def _format_define_value(value: str | int | None) -> str | None:

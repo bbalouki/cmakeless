@@ -14,7 +14,7 @@ import pytest
 from cmakeless.deps.lockfile import LockData
 from cmakeless.deps.provider import ResolutionContext
 from cmakeless.deps.vcpkg import VcpkgAdapter, vcpkg_root
-from cmakeless.errors import ToolchainError
+from cmakeless.errors import DependencyError, ToolchainError
 from cmakeless.model.nodes import DependencyModel, ProjectModel
 
 
@@ -121,6 +121,31 @@ def test_lock_baseline_tolerates_a_missing_installation(
     hide_vcpkg(monkeypatch)
     context = ResolutionContext(root_dir=Path(), lock=LockData(packages={}))
     assert VcpkgAdapter().lock_baseline(context) is None
+
+
+def test_offline_without_install_raises(tmp_path: Path) -> None:
+    """Offline without install raises."""
+    with pytest.raises(DependencyError, match="already installed"):
+        VcpkgAdapter().pre_configure(
+            root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release", offline=True
+        )
+
+
+def test_offline_with_install_present_succeeds(tmp_path: Path) -> None:
+    """Offline with install present succeeds."""
+    installed = tmp_path / "build" / "vcpkg_installed" / "x64-linux"
+    installed.mkdir(parents=True)
+    (installed / "lib").mkdir()
+    VcpkgAdapter().pre_configure(
+        root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release", offline=True
+    )
+
+
+def test_online_needs_no_install_directory(tmp_path: Path) -> None:
+    """Online needs no install directory."""
+    VcpkgAdapter().pre_configure(
+        root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release", offline=False
+    )
 
 
 def test_resolve_fills_metadata_only() -> None:

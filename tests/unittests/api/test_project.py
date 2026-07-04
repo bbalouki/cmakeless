@@ -91,6 +91,28 @@ def test_optimize_and_lto_freeze_into_model(project_dir: Path) -> None:
     assert model.lto is True
 
 
+def test_lint_freezes_the_project_wide_default(project_dir: Path) -> None:
+    """project.lint() freezes into ProjectModel's project-wide default fields."""
+    project = Project("demo", root=project_dir)
+    project.add_executable("app", sources=["src/main.cpp"])
+    project.lint(clang_tidy=True, iwyu=["include-what-you-use", "-Xiwyu"])
+    model = project.freeze()
+    assert model.lint_clang_tidy == ("clang-tidy",)
+    assert model.lint_iwyu == ("include-what-you-use", "-Xiwyu")
+    # Targets themselves stay unresolved (None): the emitter resolves
+    # inheritance, mirroring how cpp_std overrides are resolved there too.
+    assert model.executables[0].clang_tidy is None
+
+
+def test_lint_off_by_default(project_dir: Path) -> None:
+    """A project that never calls lint() has empty project-wide defaults."""
+    project = Project("demo", root=project_dir)
+    project.add_executable("app", sources=["src/main.cpp"])
+    model = project.freeze()
+    assert model.lint_clang_tidy == ()
+    assert model.lint_iwyu == ()
+
+
 def test_raw_cmake_file_freezes_into_model(project_dir: Path) -> None:
     """A raw_cmake_file lands in the model when the file exists."""
     (project_dir / "cmake").mkdir()

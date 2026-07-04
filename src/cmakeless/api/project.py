@@ -155,6 +155,8 @@ class Project:
         self.cache = True
         self.optimize: str | None = None
         self.lto = False
+        self._lint_clang_tidy: tuple[str, ...] = ()
+        self._lint_iwyu: tuple[str, ...] = ()
         script = _calling_script()
         self._root = _resolve_root(root, script)
         self._source_script = script.name if script is not None else BUILD_SCRIPT_NAME
@@ -442,6 +444,28 @@ class Project:
         """
         self._toolchains.append(toolchain)
         return toolchain
+
+    def lint(
+        self, *, clang_tidy: bool | Sequence[str] = False, iwyu: bool | Sequence[str] = False
+    ) -> None:
+        """Wire clang-tidy and/or include-what-you-use into every compiled target.
+
+        Applies to every executable, library, test, and Python module that
+        has not called its own target.lint() (which always wins for that
+        target); header-only libraries compile nothing, so they are
+        silently skipped rather than erroring.
+
+        Args:
+            clang_tidy: True to run clang-tidy with its own defaults, a
+                sequence to pass the command and extra arguments (for
+                example ["clang-tidy", "-checks=-*,modernize-*"]), or False
+                (the default) to disable it.
+            iwyu: True to run include-what-you-use, a sequence for the
+                command and extra arguments, or False (the default) to
+                disable it.
+        """
+        self._lint_clang_tidy = _lint_tool_names(clang_tidy, tool="clang-tidy")
+        self._lint_iwyu = _lint_tool_names(iwyu, tool="include-what-you-use")
 
     def install(self, target: Executable | Library, *, headers: bool = False) -> None:
         """Declare that a target ships: emitted as install and export rules.
@@ -770,7 +794,12 @@ class Project:
         build_dir = self._build_dir(preset)
         build_type = self._resolve_build_type(model, preset)
         if provider is not None:
-            provider.pre_configure(root_dir=self._root, build_dir=build_dir, build_type=build_type)
+            provider.pre_configure(
+                root_dir=self._root,
+                build_dir=build_dir,
+                build_type=build_type,
+                offline=_context.active_offline(),
+            )
         self._driver(model, provider, preset=preset).configure()
 
     def test(self) -> None:
@@ -825,6 +854,10 @@ class Project:
             self._refresh_lock()
         elif verb == "options":
             self._print_options()
+        elif verb == "sbom":
+            self._generate_sbom()
+        elif verb == "vendor":
+            self._vendor_dependencies()
         elif verb == "test":
             self.test()
         elif verb in ("install", "package"):
@@ -932,7 +965,12 @@ class Project:
         build_dir = self._build_dir(preset)
         if provider is not None:
             build_type = self._resolve_build_type(model, preset)
-            provider.pre_configure(root_dir=self._root, build_dir=build_dir, build_type=build_type)
+            provider.pre_configure(
+                root_dir=self._root,
+                build_dir=build_dir,
+                build_type=build_type,
+                offline=_context.active_offline(),
+            )
         return _Prepared(self._driver(model, provider, preset=preset), model, build_dir)
 
     def _resolve_build_type(self, model: ProjectModel, preset: str | None) -> str:
@@ -1022,10 +1060,7 @@ class Project:
             tests=tuple(target._freeze(self._root) for target in self._tests),
             python_modules=tuple(module._freeze(self._root) for module in self._python_modules),
             dependencies=self._dependencies._freeze(),
-            subprojects=tuple(
-                SubprojectModel(directory=directory, project=child._freeze_without_validation())
-                for directory, child in self._subprojects
-            ),
+            subprojects=self._freeze_subprojects(),
             presets=tuple(preset._freeze() for preset in self._presets),
             options=tuple(option._freeze() for option in self._options),
             commands=tuple(command._freeze() for command in self._commands),
@@ -1040,6 +1075,19 @@ class Project:
             optimize=self.optimize,
             lto=self.lto,
             raw_cmake_files=tuple(Path(raw_file) for raw_file in self._raw_cmake_files),
+            lint_clang_tidy=self._lint_clang_tidy,
+            lint_iwyu=self._lint_iwyu,
+        )
+
+    def _freeze_subprojects(self) -> tuple[SubprojectModel, ...]:
+        """Freeze every mounted subproject without validating it yet.
+
+        Returns:
+            One SubprojectModel per add_subproject() call, in call order.
+        """
+        return tuple(
+            SubprojectModel(directory=directory, project=child._freeze_without_validation())
+            for directory, child in self._subprojects
         )
 
     def _resolved_model(self) -> ProjectModel:
@@ -1049,7 +1097,9 @@ class Project:
             The model with every dependency pin filled; resolution also
             refreshes cmakeless.lock when the tree has dependencies.
         """
-        return resolve_dependencies(self.freeze(), lock_path=self._root / LOCKFILE_NAME)
+        return resolve_dependencies(
+            self.freeze(), lock_path=self._root / LOCKFILE_NAME, offline=_context.active_offline()
+        )
 
     def _write_outputs(self, model: ProjectModel) -> list[Path]:
         """Write the emitted CMake tree and any backend manifest files.
@@ -1092,6 +1142,18 @@ class Project:
             print(f"[cmakeless] Dependency pins refreshed in {lock_path}")
         else:
             print("[cmakeless] No dependencies to lock; nothing written.")
+
+    def _generate_sbom(self) -> None:
+        """Perform the 'sbom' verb: write a bill of materials from cmakeless.lock."""
+        path = self._dependencies.sbom(
+            format=_context.active_sbom_format(), output=_context.active_sbom_output()
+        )
+        print(f"[cmakeless] Wrote {path}")
+
+    def _vendor_dependencies(self) -> None:
+        """Perform the 'vendor' verb: download every locked dependency for offline builds."""
+        directory = self._dependencies.vendor(directory=_context.active_vendor_directory())
+        print(f"[cmakeless] Vendored dependencies into {directory}")
 
     def _print_options(self) -> None:
         """Perform the 'options' verb: list every declared option, no build.
@@ -1147,6 +1209,25 @@ class Project:
             use_cache=self.cache,
             observers=self._observers,
         )
+
+
+def _lint_tool_names(value: bool | Sequence[str], *, tool: str) -> tuple[str, ...]:
+    """Normalize a project.lint()/target.lint() argument to its command tuple.
+
+    Args:
+        value: True for the tool's own defaults, a sequence for the command
+            and extra arguments, or False to disable it.
+        tool: The tool's default command name ("clang-tidy" or
+            "include-what-you-use"), used when ``value`` is True.
+
+    Returns:
+        An empty tuple when disabled, else the command as a tuple.
+    """
+    if value is False:
+        return ()
+    if value is True:
+        return (tool,)
+    return tuple(value)
 
 
 def _resolve_root(root: str | Path | None, script: Path | None) -> Path:
