@@ -139,6 +139,182 @@ _REGISTRY: dict[str, RegistryEntry] = {
         vcpkg_name="boost",
         conan_name="boost",
     ),
+    # Growing the curated list from vcpkg/Conan metadata at scale (ROADMAP.md
+    # Phase 5.3): general-purpose, gaming, and finance/engineering/aerospace
+    # staples. None of these pin url_template/sha256_by_version, matching
+    # zlib/boost above: they resolve through find_package or a package
+    # manager backend by default, and an explicit depends(url=..., sha256=...)
+    # override opts a project into "auto" mode's FetchContent fallback.
+    "abseil": RegistryEntry(
+        cmake_name="absl",
+        targets=(),
+        component_target_template="absl::{component}",
+        vcpkg_name="abseil",
+        conan_name="abseil",
+    ),
+    "protobuf": RegistryEntry(
+        cmake_name="protobuf",
+        targets=("protobuf::libprotobuf",),
+        vcpkg_name="protobuf",
+        conan_name="protobuf",
+    ),
+    "grpc": RegistryEntry(
+        cmake_name="gRPC", targets=("gRPC::grpc++",), vcpkg_name="grpc", conan_name="grpc"
+    ),
+    "openssl": RegistryEntry(
+        cmake_name="OpenSSL",
+        targets=("OpenSSL::SSL", "OpenSSL::Crypto"),
+        vcpkg_name="openssl",
+        conan_name="openssl",
+    ),
+    "curl": RegistryEntry(
+        cmake_name="CURL", targets=("CURL::libcurl",), vcpkg_name="curl", conan_name="libcurl"
+    ),
+    "sqlite3": RegistryEntry(
+        cmake_name="SQLite3",
+        targets=("SQLite::SQLite3",),
+        vcpkg_name="sqlite3",
+        conan_name="sqlite3",
+    ),
+    "eigen": RegistryEntry(
+        cmake_name="Eigen3",
+        targets=("Eigen3::Eigen",),
+        vcpkg_name="eigen3",
+        conan_name="eigen",
+    ),
+    "glm": RegistryEntry(
+        cmake_name="glm", targets=("glm::glm",), vcpkg_name="glm", conan_name="glm"
+    ),
+    "tbb": RegistryEntry(
+        cmake_name="TBB", targets=("TBB::tbb",), vcpkg_name="tbb", conan_name="onetbb"
+    ),
+    "benchmark": RegistryEntry(
+        cmake_name="benchmark",
+        targets=("benchmark::benchmark",),
+        vcpkg_name="benchmark",
+        conan_name="benchmark",
+    ),
+    "gflags": RegistryEntry(
+        cmake_name="gflags", targets=("gflags::gflags",), vcpkg_name="gflags", conan_name="gflags"
+    ),
+    "glog": RegistryEntry(
+        cmake_name="glog", targets=("glog::glog",), vcpkg_name="glog", conan_name="glog"
+    ),
+    "yaml-cpp": RegistryEntry(
+        cmake_name="yaml-cpp",
+        targets=("yaml-cpp::yaml-cpp",),
+        vcpkg_name="yaml-cpp",
+        conan_name="yaml-cpp",
+    ),
+    "tinyxml2": RegistryEntry(
+        cmake_name="tinyxml2",
+        targets=("tinyxml2::tinyxml2",),
+        vcpkg_name="tinyxml2",
+        conan_name="tinyxml2",
+    ),
+    "pugixml": RegistryEntry(
+        cmake_name="pugixml",
+        targets=("pugixml::pugixml",),
+        vcpkg_name="pugixml",
+        conan_name="pugixml",
+    ),
+    "cxxopts": RegistryEntry(
+        cmake_name="cxxopts",
+        targets=("cxxopts::cxxopts",),
+        vcpkg_name="cxxopts",
+        conan_name="cxxopts",
+    ),
+    "cli11": RegistryEntry(
+        cmake_name="CLI11", targets=("CLI11::CLI11",), vcpkg_name="cli11", conan_name="cli11"
+    ),
+    "cereal": RegistryEntry(
+        cmake_name="cereal", targets=("cereal::cereal",), vcpkg_name="cereal", conan_name="cereal"
+    ),
+    "range-v3": RegistryEntry(
+        cmake_name="range-v3",
+        targets=("range-v3::range-v3",),
+        vcpkg_name="range-v3",
+        conan_name="range-v3",
+    ),
+    "toml11": RegistryEntry(
+        cmake_name="toml11",
+        targets=("toml11::toml11",),
+        vcpkg_name="toml11",
+        conan_name="toml11",
+    ),
+    "mimalloc": RegistryEntry(
+        cmake_name="mimalloc",
+        targets=("mimalloc",),
+        vcpkg_name="mimalloc",
+        conan_name="mimalloc",
+    ),
+    # Gaming.
+    "sdl2": RegistryEntry(
+        cmake_name="SDL2", targets=("SDL2::SDL2",), vcpkg_name="sdl2", conan_name="sdl"
+    ),
+    # glfw's find_package name keeps the "3" its CMake config ships under;
+    # the target it exports does not.
+    "glfw": RegistryEntry(
+        cmake_name="glfw3", targets=("glfw",), vcpkg_name="glfw3", conan_name="glfw"
+    ),
+    "glew": RegistryEntry(
+        cmake_name="GLEW", targets=("GLEW::GLEW",), vcpkg_name="glew", conan_name="glew"
+    ),
+    "vulkan": RegistryEntry(
+        cmake_name="Vulkan",
+        targets=("Vulkan::Vulkan",),
+        vcpkg_name="vulkan",
+        conan_name="vulkan-loader",
+    ),
+    "imgui": RegistryEntry(
+        cmake_name="imgui", targets=("imgui::imgui",), vcpkg_name="imgui", conan_name="imgui"
+    ),
+    "box2d": RegistryEntry(
+        cmake_name="box2d", targets=("box2d::box2d",), vcpkg_name="box2d", conan_name="box2d"
+    ),
+    "openal-soft": RegistryEntry(
+        cmake_name="OpenAL",
+        targets=("OpenAL::OpenAL",),
+        vcpkg_name="openal-soft",
+        conan_name="openal",
+    ),
+    "freetype": RegistryEntry(
+        cmake_name="Freetype",
+        targets=("Freetype::Freetype",),
+        vcpkg_name="freetype",
+        conan_name="freetype",
+    ),
+    "assimp": RegistryEntry(
+        cmake_name="assimp", targets=("assimp::assimp",), vcpkg_name="assimp", conan_name="assimp"
+    ),
+    "entt": RegistryEntry(
+        cmake_name="EnTT", targets=("EnTT::EnTT",), vcpkg_name="entt", conan_name="entt"
+    ),
+    # Finance, engineering, and aerospace.
+    "quantlib": RegistryEntry(
+        cmake_name="QuantLib",
+        targets=("QuantLib::QuantLib",),
+        vcpkg_name="quantlib",
+        conan_name="quantlib",
+    ),
+    "date": RegistryEntry(
+        cmake_name="date", targets=("date::date",), vcpkg_name="date", conan_name="date"
+    ),
+    # OpenCV's exported targets are per-module (opencv_core, opencv_imgproc,
+    # ...); this default covers the common case, override targets=[...] for
+    # additional modules.
+    "opencv": RegistryEntry(
+        cmake_name="OpenCV", targets=("opencv_core",), vcpkg_name="opencv4", conan_name="opencv"
+    ),
+    "ceres": RegistryEntry(
+        cmake_name="Ceres",
+        targets=("Ceres::ceres",),
+        vcpkg_name="ceres",
+        conan_name="ceres-solver",
+    ),
+    "proj": RegistryEntry(
+        cmake_name="PROJ", targets=("PROJ::proj",), vcpkg_name="proj", conan_name="proj"
+    ),
 }
 
 
