@@ -14,10 +14,10 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 | 3 | v0.3 | Quality of life: tests, presets, install |
 | 4 | v0.4 | Interop and parallelism |
 | 4.1–4.3 | v0.5 | The language unlock: options, conditions, custom build steps |
-| 4.4 | planned | The interop unlock |
-| 4.5 | planned | The portability release |
-| 4.6 | planned | Documentation and quality debt |
-| 5 | v1.0 | Stability promise |
+| 5.1 | v0.5.1 | The interop unlock |
+| 5.2 | v0.5.2 | The portability release |
+| 5.3 | v0.5.3 | Documentation and quality debt |
+| 5.4 - 5.9 | v1.0 | Stability promise |
 
 Scope is the fixed variable, order is the promise.
 
@@ -94,7 +94,7 @@ Bugs and gaps in what already shipped, closed before any new language surface la
 - Dynamic Python version in generated `find_package(Python ...)` calls, tracking the interpreter that is actually running CMakeless instead of a hard-coded constant.
 - ccache/sccache wired for every generator family where `CMAKE_CXX_COMPILER_LAUNCHER` actually works (Makefiles, Ninja, Ninja Multi-Config), plus new generator shorthands (`"ninja-multi"`, `"make"`, `"xcode"`) alongside `"ninja"`/`"vs"`.
 - The Conan adapter derives its build type from the active preset or `project.optimize`, instead of always installing Release dependencies.
-- A public dependency-registry registration API (`cmakeless.register_dependency(...)`) and installed-plugin discovery via the `"cmakeless.registry"` entry-point group; the curated list itself stays eleven packages for now (growing it at scale is Phase 4.4).
+- A public dependency-registry registration API (`cmakeless.register_dependency(...)`) and installed-plugin discovery via the `"cmakeless.registry"` entry-point group; the curated list itself stays ten packages for now (growing it at scale is Phase 4.4).
 - Private include directories (`target.include_dirs(...)`) and a per-target C++ standard override (`target.cpp_std`), closing two of the four target-vocabulary gaps.
 - The Python floor drops to 3.12 (not 3.10, to keep the PEP 695 syntax already in `api/targets.py` and `_parallel.py` unrewritten); CI tests 3.12 and 3.13 across all three OSes.
 
@@ -102,7 +102,7 @@ Bugs and gaps in what already shipped, closed before any new language surface la
 
 ## Phase 5.1: The Language Unlock, v0.5.1
 
-The `When` condition object and everything it powers — the highest-leverage addition in this release, because it turns `raw_cmake()` from a necessity into a rarity while staying a closed, validated vocabulary rather than a new DSL:
+The `When` condition object and everything it powers, the highest-leverage addition in this release, because it turns `raw_cmake()` from a necessity into a rarity while staying a closed, validated vocabulary rather than a new DSL:
 
 - `When.platform(...)`, `When.compiler(...)`, `When.config(...)`, `When.option(...)`, composable with `&`/`|`/`~`; wired into `define()`, `compile_options()`, and the new `link_options()` (mirroring `compile_options()`). The legacy `when="gcc|clang"` string form stays as sugar for `When.compiler(...)`.
 - Precompiled headers and unity builds (`target.pch = [...]`, `target.unity = True`), retiring the `raw_cmake()` workaround its own docstring used to demonstrate.
@@ -125,7 +125,7 @@ The `When` condition object and everything it powers — the highest-leverage ad
 
 Not yet built; carried over from the "call `include()` and read variables from Python" idea:
 
-- `project.include("cmake/CPM.cmake")` / `project.include_module(...)` with reflection: run real CMake (script mode or a throwaway trace-expand configure plus the File API) to discover a module's functions, variables, and targets, and validate `mod.call(...)` invocations before emission — never a hand-written CMake-language parser.
+- `project.include("cmake/CPM.cmake")` / `project.include_module(...)` with reflection: run real CMake (script mode or a throwaway trace-expand configure plus the File API) to discover a module's functions, variables, and targets, and validate `mod.call(...)` invocations before emission, never a hand-written CMake-language parser.
 - `project.cmake_info()`: a post-configure read of the resolved generator, compiler ID/version, system name/processor, and the project's own options' final values, via the same File API pattern `targets_info()` already uses.
 - Growing the curated dependency registry from vcpkg/Conan metadata at scale (the registration mechanism from 4.1 is the seed, not the ceiling).
 
