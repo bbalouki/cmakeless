@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
+[![codecov](https://codecov.io/github/bbalouki/cmakeless/graph/badge.svg?token=BZ4416XX4I)](https://codecov.io/github/bbalouki/cmakeless)
 [![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
