@@ -21,6 +21,7 @@ from pathlib import Path
 from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._version import __version__
 from cmakeless.api import _context
+from cmakeless.driver.doctor import run_diagnostics
 from cmakeless.errors import CmakelessError, ConfigurationError
 
 _INIT_BUILD_PY = """\
@@ -65,6 +66,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "init":
             _init_project(Path.cwd(), name=args.name)
+        elif args.command == "doctor":
+            return 0 if _print_doctor_report() else 1
         else:
             _run_verb(args)
     except CmakelessError as error:
@@ -86,12 +89,20 @@ def _run_verb(args: argparse.Namespace) -> None:
     preset = getattr(args, "preset", None)
     sanitize = _parse_sanitize(getattr(args, "sanitize", None))
     prefix = getattr(args, "prefix", None)
+    offline = getattr(args, "offline", False)
+    sbom_format = getattr(args, "format", "cyclonedx")
+    sbom_output = getattr(args, "output", None)
+    vendor_directory = getattr(args, "directory", None)
     with (
         _context.verb_override(args.command),
         _context.generator_override(generator),
         _context.preset_override(preset),
         _context.sanitize_override(sanitize),
         _context.prefix_override(prefix),
+        _context.offline_override(offline),
+        _context.sbom_format_override(sbom_format),
+        _context.sbom_output_override(sbom_output),
+        _context.vendor_directory_override(vendor_directory),
     ):
         _run_build_script(Path(args.file))
 
@@ -132,6 +143,10 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="project name (default: the current directory's name)",
     )
+    subparsers.add_parser(
+        "doctor",
+        help="check cmake, the generator, ccache/vcpkg/Conan, and network access",
+    )
     return parser
 
 
@@ -150,6 +165,8 @@ def _add_script_verbs(subparsers: argparse._SubParsersAction[argparse.ArgumentPa
         "clean": "delete the project's build directory",
         "lock": "resolve dependencies and refresh cmakeless.lock",
         "options": "list this project's declared options without building anything",
+        "sbom": "generate a CycloneDX or SPDX bill of materials from cmakeless.lock",
+        "vendor": "download every locked dependency into vendor/ for offline builds",
     }
     for verb, help_text in help_by_verb.items():
         _add_verb_options(subparsers.add_parser(verb, help=help_text), verb)
@@ -167,31 +184,112 @@ def _add_verb_options(verb_parser: argparse.ArgumentParser, verb: str) -> None:
         default=BUILD_SCRIPT_NAME,
         help=f"path to the build description (default: {BUILD_SCRIPT_NAME})",
     )
-    if verb not in ("clean", "lock", "options"):
-        verb_parser.add_argument(
-            "--generator",
-            default=None,
-            help='CMake generator: "ninja", "ninja-multi", "make", "vs", "xcode", '
-            "or any raw -G name (default: ninja when available)",
-        )
-        verb_parser.add_argument(
-            "--preset",
-            default=None,
-            help="configure and build with this preset from CMakePresets.json",
-        )
+    if verb not in ("clean", "lock", "options", "sbom", "vendor"):
+        _add_generator_and_preset_options(verb_parser)
     if verb == "test":
-        verb_parser.add_argument(
-            "--sanitize",
-            default=None,
-            help='comma-separated sanitizers to test under, for example "address" '
-            'or "address,undefined"; runs in its own build tree',
-        )
+        _add_sanitize_option(verb_parser)
     if verb == "install":
-        verb_parser.add_argument(
-            "--prefix",
-            default=None,
-            help="installation prefix (default: CMake's platform default)",
-        )
+        _add_prefix_option(verb_parser)
+    if verb == "sbom":
+        _add_sbom_options(verb_parser)
+    if verb == "vendor":
+        _add_vendor_option(verb_parser)
+    if verb not in ("clean", "options", "sbom", "vendor"):
+        _add_offline_option(verb_parser)
+
+
+def _add_generator_and_preset_options(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --generator and --preset on a verb that configures a build.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--generator",
+        default=None,
+        help='CMake generator: "ninja", "ninja-multi", "make", "vs", "xcode", '
+        "or any raw -G name (default: ninja when available)",
+    )
+    verb_parser.add_argument(
+        "--preset",
+        default=None,
+        help="configure and build with this preset from CMakePresets.json",
+    )
+
+
+def _add_sanitize_option(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --sanitize on the 'test' verb.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--sanitize",
+        default=None,
+        help='comma-separated sanitizers to test under, for example "address" '
+        'or "address,undefined"; runs in its own build tree',
+    )
+
+
+def _add_prefix_option(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --prefix on the 'install' verb.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--prefix",
+        default=None,
+        help="installation prefix (default: CMake's platform default)",
+    )
+
+
+def _add_sbom_options(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --format and --output on the 'sbom' verb.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--format",
+        default="cyclonedx",
+        help='SBOM format: "cyclonedx" (the default) or "spdx"',
+    )
+    verb_parser.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="output file (default: <project name>.cdx.json/.spdx.json)",
+    )
+
+
+def _add_vendor_option(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --directory on the 'vendor' verb.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--directory",
+        "-d",
+        default=None,
+        help="where to download archives (default: vendor/)",
+    )
+
+
+def _add_offline_option(verb_parser: argparse.ArgumentParser) -> None:
+    """Register --offline on a verb that may resolve dependencies.
+
+    Args:
+        verb_parser: The verb's own subparser.
+    """
+    verb_parser.add_argument(
+        "--offline",
+        action="store_true",
+        default=False,
+        help="disallow network access; resolve only from cmakeless.lock, "
+        "cmakeless.mirror.json, or an already-populated local cache",
+    )
 
 
 def _run_build_script(script: Path) -> None:
@@ -213,6 +311,20 @@ def _run_build_script(script: Path) -> None:
             f"--file path/to/{BUILD_SCRIPT_NAME}."
         )
     runpy.run_path(str(script), run_name="__main__")
+
+
+def _print_doctor_report() -> bool:
+    """Run and print the 'doctor' verb's environment diagnostics.
+
+    Returns:
+        True when every required check passed, driving main()'s exit code.
+    """
+    checks = run_diagnostics()
+    print("[cmakeless] doctor")
+    for check in checks:
+        status = "ok" if check.ok else ("FAIL" if check.required else "missing")
+        print(f"  {check.name:<10} {status:<6} {check.detail}")
+    return all(check.ok for check in checks if check.required)
 
 
 def _init_project(directory: Path, *, name: str | None) -> None:
