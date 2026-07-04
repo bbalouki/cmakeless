@@ -15,7 +15,7 @@ per-target-kind variations, which is what keeps the output uniform and boring.
 
 from __future__ import annotations
 
-import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 from cmakeless.emitter.presets_emitter import emit_presets
@@ -49,11 +49,6 @@ from cmakeless.model.nodes import (
 )
 
 CMAKE_MINIMUM_VERSION = "3.25"
-
-# The Python version requested by find_package(Python ...) for modules: the
-# interpreter actually running cmakeless, not a hard-coded constant, so the
-# emitted CMake always matches the ABI the invoking interpreter expects.
-_PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 # Warning presets translated per compiler family; "default" emits nothing and
 # leaves the compiler's own defaults in charge.
@@ -565,9 +560,13 @@ class _CMakeListsVisitor:
         """
         if not self._model.python_modules:
             return []
+        version = _max_python_version(
+            module.python_version for module in self._model.python_modules
+        )
         lines = (
-            "# The invoking interpreter's development headers build the modules below.\n"
-            f"find_package(Python {_PYTHON_VERSION} COMPONENTS Interpreter "
+            "# find_package(Python ...) takes a minimum version, not an exact one:\n"
+            "# this is the highest floor any add_python_module(python_version=...) requested.\n"
+            f"find_package(Python {version} COMPONENTS Interpreter "
             f"Development.Module REQUIRED)"
         )
         if any(module.binding == "pybind11" for module in self._model.python_modules):
@@ -1226,6 +1225,23 @@ def _tree_has_tests(model: ProjectModel) -> bool:
     if model.tests:
         return True
     return any(_tree_has_tests(subproject.project) for subproject in model.subprojects)
+
+
+def _max_python_version(versions: Iterable[str]) -> str:
+    """Combine several "MAJOR.MINOR" floors into the single highest one.
+
+    find_package(Python X.Y ...) accepts X.Y or newer, never an exact match,
+    so when a project has several Python modules with different
+    python_version= floors, requiring the highest one satisfies every module
+    at once; no other module's requirement is violated by asking for more.
+
+    Args:
+        versions: One "MAJOR.MINOR" string per Python module in the project.
+
+    Returns:
+        The highest version, formatted "MAJOR.MINOR".
+    """
+    return max(versions, key=lambda version: tuple(int(part) for part in version.split(".")))
 
 
 def _resolved_cmake_name(dependency: DependencyModel) -> str:
