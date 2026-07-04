@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The vcpkg adapter: manifest generation and toolchain wiring.
 
 cmakeless writes a vcpkg.json manifest next to the generated CMakeLists.txt
@@ -82,12 +86,14 @@ class VcpkgAdapter(DependencyProvider):
         text = json.dumps(manifest, indent=2, sort_keys=True) + "\n"
         return {Path(MANIFEST_NAME): text}
 
-    def toolchain_args(self, build_dir: Path) -> tuple[str, ...]:
+    def toolchain_args(self, build_dir: Path, *, build_type: str) -> tuple[str, ...]:
         """Point cmake at the vcpkg toolchain file.
 
         Args:
             build_dir: The project's build directory (unused; vcpkg's
                 toolchain lives in the vcpkg checkout).
+            build_type: The active CMake build type (unused; the vcpkg
+                toolchain file itself handles every configuration).
 
         Returns:
             The -DCMAKE_TOOLCHAIN_FILE argument.
@@ -95,7 +101,7 @@ class VcpkgAdapter(DependencyProvider):
         Raises:
             ToolchainError: When no vcpkg installation can be found.
         """
-        del build_dir
+        del build_dir, build_type
         toolchain = vcpkg_root() / "scripts" / "buildsystems" / "vcpkg.cmake"
         return (f"-DCMAKE_TOOLCHAIN_FILE={toolchain}",)
 
