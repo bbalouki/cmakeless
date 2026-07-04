@@ -304,6 +304,70 @@ def test_wrapped_toolchains_are_never_rewritten() -> None:
     assert list(files) == [Path("CMakeLists.txt")]
 
 
+def test_wrapped_toolchain_with_variables_gets_a_generated_wrapper(tmp_path: Path) -> None:
+    """Wrapped toolchain with variables gets a generated wrapper."""
+    ndk_toolchain = tmp_path / "ndk" / "build" / "cmake" / "android.toolchain.cmake"
+    model = make_model(
+        toolchains=(
+            ToolchainModel(
+                name="android-arm64-v8a",
+                file=ndk_toolchain,
+                variables=(("ANDROID_ABI", "arm64-v8a"), ("ANDROID_PLATFORM", "android-24")),
+            ),
+        )
+    )
+    files = emit_tree(model, tool_version=FIXED_VERSION)
+    wrapper = files[Path("cmake/toolchains/android-arm64-v8a.cmake")]
+    assert 'set(ANDROID_ABI "arm64-v8a")' in wrapper
+    assert 'set(ANDROID_PLATFORM "android-24")' in wrapper
+    assert f'include("{ndk_toolchain.as_posix()}")' in wrapper
+
+
+def test_wrapped_toolchain_with_relative_file_includes_via_source_dir() -> None:
+    """Wrapped toolchain with relative file includes via source dir."""
+    model = make_model(
+        toolchains=(
+            ToolchainModel(
+                name="custom",
+                file=Path("cmake/custom.toolchain.cmake"),
+                variables=(("FOO", "bar"),),
+            ),
+        )
+    )
+    files = emit_tree(model, tool_version=FIXED_VERSION)
+    wrapper = files[Path("cmake/toolchains/custom.cmake")]
+    assert 'include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/custom.toolchain.cmake")' in wrapper
+
+
+def test_presets_point_absolute_wrapped_toolchains_at_their_own_path(tmp_path: Path) -> None:
+    """Presets point absolute wrapped toolchains at their own path."""
+    ndk_toolchain = tmp_path / "ndk" / "build" / "cmake" / "android.toolchain.cmake"
+    model = make_model(
+        presets=(PresetModel(name="cross", optimize="release", toolchain="ndk"),),
+        toolchains=(ToolchainModel(name="ndk", file=ndk_toolchain),),
+    )
+    document = json.loads(emit_presets(model))
+    assert document["configurePresets"][0]["toolchainFile"] == ndk_toolchain.as_posix()
+
+
+def test_presets_point_variable_bearing_toolchains_at_the_generated_wrapper() -> None:
+    """Presets point variable bearing toolchains at the generated wrapper."""
+    model = make_model(
+        presets=(PresetModel(name="cross", optimize="release", toolchain="ndk"),),
+        toolchains=(
+            ToolchainModel(
+                name="ndk",
+                file=Path("/opt/ndk/build/cmake/android.toolchain.cmake"),
+                variables=(("ANDROID_ABI", "arm64-v8a"),),
+            ),
+        ),
+    )
+    document = json.loads(emit_presets(model))
+    assert document["configurePresets"][0]["toolchainFile"] == (
+        "${sourceDir}/cmake/toolchains/ndk.cmake"
+    )
+
+
 def test_presets_output_is_deterministic() -> None:
     """Presets output is deterministic."""
     model = make_model(presets=(PresetModel(name="debug"),))
