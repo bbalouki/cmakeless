@@ -224,6 +224,7 @@ project.lto = True
 | `project.option(...)` / `cmakeless options` | `option()`/`set(... CACHE ...)`, discoverable without reading the script |
 | `project.add_command(...)` / `add_custom_target(...)` | `add_custom_command(OUTPUT ...)`/`add_custom_target` wiring, argv-safe (`VERBATIM`) |
 | `project.install(...)` / `project.package(...)` | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack |
+| `project.include(...)` / `project.include_module(...)` | reflecting a `.cmake` file or module through real CMake, never a hand-written parser |
 | `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin |
 
 Watch progress through the Observer API, and read the configured build as Python objects via the CMake File API:
@@ -242,6 +243,9 @@ project.add_observer(Timer())
 
 for target in project.targets_info():        # read from CMake's File API, not scraped text
     print(target.name, target.type, target.artifacts)
+
+info = project.cmake_info()                  # the resolved generator, compiler, and system
+print(info.generator, info.system_name, [c.compiler_id for c in info.compilers])
 ```
 
 The full before/after catalog lives in [FEATURES.md](FEATURES.md).
@@ -284,7 +288,7 @@ You can, but the point is you should not have to. It regenerates from your `cmak
 Those solve the reverse problem: using CMake or Meson to build a *Python package* that happens to contain C++. CMakeless is for C++ projects, full stop; Python is the authoring language, not the packaging target.
 
 **Do I need CMake installed?**
-To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all.
+To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all — with one exception: `project.include(...)`/`project.include_module(...)` reflect a `.cmake` file or module by running real CMake the moment they are called, since there is no other honest way to know what it defines. A script that never calls either still generates without CMake.
 
 **What happens if I stop using CMakeless later?**
 Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake with no CMakeless runtime dependency. Commit it and walk away.
