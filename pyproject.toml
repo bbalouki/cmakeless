@@ -67,6 +67,7 @@ cmakeless = "cmakeless.cli:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-cov",
     "mypy>=1.14",
     "ruff>=0.9",
 ]
