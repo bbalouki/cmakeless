@@ -89,6 +89,18 @@ def test_pre_configure_runs_conan_install(
     ]
 
 
+def test_offline_passes_build_never(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Offline passes build never."""
+    patch_conan(monkeypatch)
+    fake_run = FakeRun()
+    monkeypatch.setattr("cmakeless.deps.conan.subprocess.run", fake_run)
+    ConanAdapter().pre_configure(
+        root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release", offline=True
+    )
+    assert "--build=never" in fake_run.commands[0]
+    assert "--build=missing" not in fake_run.commands[0]
+
+
 def test_missing_conan_raises_toolchain_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
