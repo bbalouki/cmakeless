@@ -20,3 +20,5 @@ examples/**/CMakeLists.txt
 examples/**/CMakePresets.json
 examples/**/cmake/
 examples/**/compile_commands.json
+IMPROVEMENTS.md
+SUGGESTIONS.md
