@@ -67,21 +67,30 @@ class AutoAdapter(DependencyProvider):
         locked = _locked_pin(completed, context)
         if locked is not None:
             return replace(completed, url=locked[0], sha256=locked[1])
-        url, sha256 = self._pin(completed)
+        url, sha256 = self._pin(completed, context)
         return replace(completed, url=url, sha256=sha256)
 
-    def _pin(self, dependency: DependencyModel) -> tuple[str, str]:
+    def _pin(self, dependency: DependencyModel, context: ResolutionContext) -> tuple[str, str]:
         """Produce the fetch pin from overrides, the registry, or a download.
+
+        The mirror map is deliberately not consulted here: it only ever
+        substitutes the URL of an *already-resolved* package for emission
+        (see resolve_dependencies()'s post-resolution mirror pass), so
+        cmakeless.lock keeps recording the canonical upstream pin, not a
+        machine-local vendor path.
 
         Args:
             dependency: The dependency, its metadata already filled.
+            context: Lockfile contents and resolution flags, including the
+                --offline setting.
 
         Returns:
             The (url, sha256) pair to emit and lock.
 
         Raises:
-            DependencyError: When the package is not fetchable or the
-                archive cannot be downloaded.
+            DependencyError: When the package is not fetchable, offline
+                resolution has no cached hash to use, or the archive cannot
+                be downloaded.
         """
         url = dependency.url if dependency.url is not None else _registry_url(dependency)
         if dependency.sha256 is not None:
@@ -90,6 +99,13 @@ class AutoAdapter(DependencyProvider):
             entry = registry_entry(dependency.name)
             if entry is not None and dependency.version in entry.sha256_by_version:
                 return (url, entry.sha256_by_version[dependency.version])
+        if context.offline:
+            raise DependencyError(
+                f"Cannot resolve package {dependency.name!r} offline (--offline): "
+                f"no cached hash and network access is disabled. Run "
+                f"`cmakeless lock` once with network access first, or drop "
+                f"--offline."
+            )
         return (url, self._download_and_hash(dependency, url))
 
     def _download_and_hash(self, dependency: DependencyModel, url: str) -> str:
