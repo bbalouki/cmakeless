@@ -13,6 +13,7 @@ sorted by name, so thread completion order never leaks into the output.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,7 @@ from cmakeless.deps.conan import ConanAdapter
 from cmakeless.deps.fetchcontent import AutoAdapter
 from cmakeless.deps.find_package import FindPackageAdapter
 from cmakeless.deps.lockfile import LockedPackage, read_lockfile, write_lockfile
+from cmakeless.deps.mirror import read_mirror_map
 from cmakeless.deps.provider import (
     DependencyProvider,
     ResolutionContext,
@@ -54,6 +56,7 @@ def resolve_dependencies(
     lock_path: Path,
     force: bool = False,
     provider: DependencyProvider | None = None,
+    offline: bool = False,
 ) -> ProjectModel:
     """Resolve every dependency in the tree and write the lockfile.
 
@@ -63,6 +66,11 @@ def resolve_dependencies(
         force: True to refresh pins instead of reusing locked entries.
         provider: A replacement provider, used by tests; None selects one
             from the model's package_manager.
+        offline: True to require every dependency to resolve without any
+            network access (from the lockfile or a registry-curated hash;
+            see AutoAdapter._pin()), after which a mirror-map entry (from
+            'cmakeless vendor') swaps in the local URL a build actually
+            fetches from, if the package has one.
 
     Returns:
         The model with every dependency completed; the same model when the
@@ -78,7 +86,11 @@ def resolve_dependencies(
     if provider is None:
         provider = provider_for(model.package_manager)
     context = ResolutionContext(
-        root_dir=lock_path.parent, lock=read_lockfile(lock_path), force=force
+        root_dir=lock_path.parent,
+        lock=read_lockfile(lock_path),
+        force=force,
+        offline=offline,
+        mirror=read_mirror_map(lock_path.parent),
     )
     resolved = _resolve_parallel(provider, dependencies, context)
     packages = {
@@ -86,7 +98,29 @@ def resolve_dependencies(
         for name, dependency in sorted(resolved.items())
     }
     write_lockfile(lock_path, packages, vcpkg_baseline=provider.lock_baseline(context))
-    return _replace_dependencies(model, resolved)
+    # The mirror map only ever substitutes the URL a *build* fetches from;
+    # applying it after the lockfile is already written keeps cmakeless.lock
+    # recording the canonical upstream pin, never a machine-local vendor path.
+    emitted = _apply_mirror(resolved, context.mirror)
+    return _replace_dependencies(model, emitted)
+
+
+def _apply_mirror(
+    resolved: dict[str, DependencyModel], mirror: Mapping[str, str]
+) -> dict[str, DependencyModel]:
+    """Swap in each mirrored package's local URL, for emission only.
+
+    Args:
+        resolved: Completed dependencies keyed by name.
+        mirror: Package name to local/mirror URL, from cmakeless.mirror.json.
+
+    Returns:
+        A copy of ``resolved`` with mirrored packages' URLs replaced.
+    """
+    return {
+        name: replace(dependency, url=mirror[name]) if name in mirror else dependency
+        for name, dependency in resolved.items()
+    }
 
 
 def _resolve_parallel(
