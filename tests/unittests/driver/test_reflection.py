@@ -81,12 +81,43 @@ def test_reflect_falls_back_to_configure_for_non_scriptable_commands(tmp_path: P
 
 @requires_cmake
 def test_reflect_discovers_targets_best_effort(tmp_path: Path) -> None:
-    """Reflect discovers targets best effort, interface libraries included."""
+    """Reflect discovers targets best effort, using a real compiled target.
+
+    A plain STATIC library, not an INTERFACE one: a compiled target's
+    presence in the codemodel's "targets" array has been stable since File
+    API codemodel v2 was introduced, unlike a build-rule-free target's
+    presence under "abstractTargets", which depends on the codemodel minor
+    version a given CMake ships (see test_reflect_may_discover_an_interface_
+    library_target below for that best-effort case specifically).
+    """
+    source = tmp_path / "lib.cpp"
+    source.write_text("void reflected_lib_fn() {}\n", encoding="utf-8")
+    cmake_file = _write(
+        tmp_path / "with_target.cmake",
+        f'add_library(reflected_lib STATIC "{source.as_posix()}")\n',
+    )
+    reflection = reflect(
+        "cmake", work_dir=tmp_path / "work", reference=str(cmake_file), is_file=True, cpp_std=20
+    )
+    assert reflection.targets == ("reflected_lib",)
+
+
+@requires_cmake
+def test_reflect_may_discover_an_interface_library_target(tmp_path: Path) -> None:
+    """Reflect may discover an interface library target, CMake version allowing.
+
+    A build-rule-free target (INTERFACE, ALIAS, IMPORTED) is reported under
+    the codemodel's "abstractTargets" array, a File API addition newer than
+    this project's CMake 3.25 floor; older CMake versions simply omit the
+    key, and the best-effort probe reports no targets rather than failing.
+    Either outcome is correct, so this only checks that nothing raises and
+    a spurious other name is never reported.
+    """
     cmake_file = _write(tmp_path / "with_target.cmake", "add_library(reflected_iface INTERFACE)\n")
     reflection = reflect(
         "cmake", work_dir=tmp_path / "work", reference=str(cmake_file), is_file=True, cpp_std=20
     )
-    assert reflection.targets == ("reflected_iface",)
+    assert reflection.targets in ((), ("reflected_iface",))
 
 
 @requires_cmake
