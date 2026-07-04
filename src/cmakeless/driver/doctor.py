@@ -135,7 +135,11 @@ def _check_network() -> DoctorCheck:
         with a complete lockfile and vendored dependencies need none.
     """
     try:
-        with urllib.request.urlopen(_NETWORK_PROBE_URL, timeout=_NETWORK_TIMEOUT_SECONDS):
+        # nosec B310 - _NETWORK_PROBE_URL is a fixed https:// constant, never
+        # user input, so the scheme is already known-safe here.
+        with urllib.request.urlopen(  # nosec B310
+            _NETWORK_PROBE_URL, timeout=_NETWORK_TIMEOUT_SECONDS
+        ):
             pass
     except (urllib.error.URLError, OSError) as error:
         detail = f"could not reach {_NETWORK_PROBE_URL} ({error})"
