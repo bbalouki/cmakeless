@@ -13,6 +13,10 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 | 2 | v0.2 | Dependencies |
 | 3 | v0.3 | Quality of life: tests, presets, install |
 | 4 | v0.4 | Interop and parallelism |
+| 4.1–4.3 | v0.5 | The language unlock: options, conditions, custom build steps |
+| 4.4 | planned | The interop unlock |
+| 4.5 | planned | The portability release |
+| 4.6 | planned | Documentation and quality debt |
 | 5 | v1.0 | Stability promise |
 
 Scope is the fixed variable, order is the promise.
@@ -83,7 +87,67 @@ The differentiators:
 
 **Exit criterion:** a pybind11-based project migrates its entire binding build to one `add_python_module` call, and multi-preset configure shows measurable wall-clock wins on free-threaded 3.14.
 
-## Phase 5: v1.0, the Stability Promise
+## Phase 5.0: Mechanical Fixes and Extensibility, v0.5
+
+Bugs and gaps in what already shipped, closed before any new language surface lands on top of them:
+
+- Dynamic Python version in generated `find_package(Python ...)` calls, tracking the interpreter that is actually running CMakeless instead of a hard-coded constant.
+- ccache/sccache wired for every generator family where `CMAKE_CXX_COMPILER_LAUNCHER` actually works (Makefiles, Ninja, Ninja Multi-Config), plus new generator shorthands (`"ninja-multi"`, `"make"`, `"xcode"`) alongside `"ninja"`/`"vs"`.
+- The Conan adapter derives its build type from the active preset or `project.optimize`, instead of always installing Release dependencies.
+- A public dependency-registry registration API (`cmakeless.register_dependency(...)`) and installed-plugin discovery via the `"cmakeless.registry"` entry-point group; the curated list itself stays eleven packages for now (growing it at scale is Phase 4.4).
+- Private include directories (`target.include_dirs(...)`) and a per-target C++ standard override (`target.cpp_std`), closing two of the four target-vocabulary gaps.
+- The Python floor drops to 3.12 (not 3.10, to keep the PEP 695 syntax already in `api/targets.py` and `_parallel.py` unrewritten); CI tests 3.12 and 3.13 across all three OSes.
+
+**Exit criterion:** every dependency/generator/target-vocabulary gap above is closed, with zero behavior change for a project that does not opt into the new surface.
+
+## Phase 5.1: The Language Unlock, v0.5.1
+
+The `When` condition object and everything it powers — the highest-leverage addition in this release, because it turns `raw_cmake()` from a necessity into a rarity while staying a closed, validated vocabulary rather than a new DSL:
+
+- `When.platform(...)`, `When.compiler(...)`, `When.config(...)`, `When.option(...)`, composable with `&`/`|`/`~`; wired into `define()`, `compile_options()`, and the new `link_options()` (mirroring `compile_options()`). The legacy `when="gcc|clang"` string form stays as sugar for `When.compiler(...)`.
+- Precompiled headers and unity builds (`target.pch = [...]`, `target.unity = True`), retiring the `raw_cmake()` workaround its own docstring used to demonstrate.
+- `project.option(name, default=..., help=..., type=...)`, validated at freeze time, listed by the new `cmakeless options` verb, and usable in `When.option(...)`.
+- `Preset(options={...}, env={...}, inherits="base")`, so a preset can set cache variables, an environment block, and inherit from another preset, validated the same way toolchain references already are.
+
+**Exit criterion:** a mixed-standard, mixed-configuration project (a vendored C++17 core, a C++23 app, a Debug-only sanitizer flag, an optional GUI target gated on a cache variable) is describable without `raw_cmake()`.
+
+**Deferred from this phase:** a structural `if()`-block renderer for `When` so `link()`/`add_subproject()` can accept `when=` directly (only the compile-level generator-expression form shipped in 4.2). Blocked on new `LinkModel`/`SubprojectModel` fields and on resolving how `When.config(...)` behaves under multi-config generators, where `CMAKE_BUILD_TYPE` is not set at configure time (Visual Studio, Xcode, Ninja Multi-Config); tracked for a future release once that design is settled.
+
+## Phase 5.2: Custom Build Steps, v0.5.2
+
+- `project.add_command(output=[...], command=[...], depends=[...], comment=...)`, returning a handle usable in a target's `add_sources()` and in another command's or custom target's `depends=`.
+- `project.add_custom_target(name, command=[...], depends=[...])` for always-run targets (asset cooking, lint, docs).
+- Commands are argument lists, never shell strings: portable across cmd/POSIX by construction, and injection-proof (CMake's `VERBATIM` keyword is always emitted). An output nothing consumes is a freeze-time warning, not a build error.
+
+**Exit criterion:** a code-generation step (a version-info source file) and an asset-cooking step are both describable without `raw_cmake()`, and the generated `add_custom_command`/`add_custom_target` blocks are indistinguishable from hand-written modern CMake.
+
+## Phase 5.3: The Interop Unlock, v0.5.3
+
+Not yet built; carried over from the "call `include()` and read variables from Python" idea:
+
+- `project.include("cmake/CPM.cmake")` / `project.include_module(...)` with reflection: run real CMake (script mode or a throwaway trace-expand configure plus the File API) to discover a module's functions, variables, and targets, and validate `mod.call(...)` invocations before emission — never a hand-written CMake-language parser.
+- `project.cmake_info()`: a post-configure read of the resolved generator, compiler ID/version, system name/processor, and the project's own options' final values, via the same File API pattern `targets_info()` already uses.
+- Growing the curated dependency registry from vcpkg/Conan metadata at scale (the registration mechanism from 4.1 is the seed, not the ceiling).
+
+## Phase 5.4: The Portability Release, v0.5.4
+
+Not yet built; the industries-readiness work (gaming, finance, engineering, aerospace):
+
+- A curated toolchain gallery: `Toolchain.arm_none_eabi()`, `Toolchain.emscripten()`, `Toolchain.android(ndk=..., abi=...)`, `Toolchain.ios()`, each validated with the project's signature helpful errors.
+- `cmakeless sbom` (CycloneDX/SPDX from `cmakeless.lock`'s already-complete dependency inventory), `--offline` (fail loudly rather than fetch) plus a mirror map, and a `cmakeless vendor` verb to download every locked dependency for zero-network builds.
+- `project.lint(clang_tidy=True, iwyu=False)` wiring `CMAKE_CXX_CLANG_TIDY`/IWYU per target.
+- A `cmakeless doctor` verb: one command that checks CMake version, generator, compilers, ccache, vcpkg/Conan, and network access, and prints exactly what a new machine is missing.
+
+## Phase 5.5: Documentation and Quality Debt, v0.5.5
+
+Not yet built; the adoption-friction work that a growing user base will start to feel:
+
+- A ten-minute tutorial and a task-oriented cookbook ("add an include dir", "cross-compile for ARM", "use a private dependency mirror").
+- A migration guide from raw CMake.
+- An error-message golden-file test suite, so a regression in diagnostic quality fails CI the same way a regression in emitted CMake does.
+- Real, CI-sourced benchmark numbers on all three OSes, free-threaded rows included (today's benchmark table was taken on one machine).
+
+## Phase 5.6: v1.0, the Stability Promise, v1.0.0
 
 v1.0 is a social contract, not a feature list. Declaring it requires:
 
