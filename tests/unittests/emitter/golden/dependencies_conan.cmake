@@ -9,6 +9,9 @@ project(demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 # fmt 10.2.1: provided by Conan (see conanfile.txt).
 find_package(fmt REQUIRED)
 
