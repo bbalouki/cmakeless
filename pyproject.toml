@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cmakeless"
 dynamic = ["version"]
-description = "Write C++ builds in Python, get clean CMakeLists.txt: a modern, type-safe alternative to hand-written CMake."
+description = "Write C++ builds in Python, get clean CMakeLists.txt: A modern, type-safe alternative to hand-written CMake."
 readme = "README.md"
 authors = [
     { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
