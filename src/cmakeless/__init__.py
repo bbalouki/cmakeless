@@ -11,7 +11,7 @@ private machinery.
 
 from cmakeless._version import __version__
 from cmakeless.api.commands import Command, CustomTarget
-from cmakeless.api.dependencies import Dependency
+from cmakeless.api.dependencies import Dependencies, Dependency
 from cmakeless.api.modules import CMakeModule
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
@@ -50,6 +50,7 @@ __all__ = [
     "ConfigurationError",
     "ConsoleObserver",
     "CustomTarget",
+    "Dependencies",
     "Dependency",
     "DependencyError",
     "Diagnostic",
