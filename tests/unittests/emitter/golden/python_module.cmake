@@ -9,7 +9,8 @@ project(mymath_demo
     LANGUAGES CXX
 )
 
-# The invoking interpreter's development headers build the modules below.
+# find_package(Python ...) takes a minimum version, not an exact one:
+# this is the highest floor any add_python_module(python_version=...) requested.
 find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)
 # Make pybind11 build against the Python found above, not its own guess.
 set(PYBIND11_FINDPYTHON ON)

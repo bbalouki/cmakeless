@@ -5,3 +5,8 @@
 """Shared literals with no internal dependencies, safe for any module to import."""
 
 BUILD_SCRIPT_NAME = "cmakelessfile.py"
+
+# The default find_package(Python ...) floor for add_python_module() targets
+# that do not pass python_version=. Keep in sync with pyproject.toml's own
+# requires-python floor: CMakeless itself needs at least this version to run.
+MIN_PYTHON_VERSION = "3.12"

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from cmakeless import ConfigurationError, Project, PythonModule
+from cmakeless._constants import MIN_PYTHON_VERSION
 
 
 @pytest.fixture
@@ -122,3 +123,29 @@ def test_sanitize_attribute_freezes_sorted(module_project: Project) -> None:
     module.sanitize = ["undefined", "address", "undefined"]
     model = module_project.freeze()
     assert model.python_modules[0].sanitize == ("address", "undefined")
+
+
+def test_python_version_defaults_to_the_minimum_supported_version(
+    module_project: Project,
+) -> None:
+    """No python_version= override freezes to CMakeless's own floor."""
+    module_project.add_python_module("core", sources=["src/bindings.cpp"])
+    model = module_project.freeze()
+    assert model.python_modules[0].python_version == MIN_PYTHON_VERSION
+
+
+def test_python_version_override_freezes_onto_the_model(module_project: Project) -> None:
+    """An explicit python_version= freezes onto the model unchanged."""
+    module_project.add_python_module("core", sources=["src/bindings.cpp"], python_version="3.13")
+    model = module_project.freeze()
+    assert model.python_modules[0].python_version == "3.13"
+
+
+def test_malformed_python_version_fails_at_the_call_site(module_project: Project) -> None:
+    """A python_version= that is not "MAJOR.MINOR" fails immediately, not at freeze."""
+    with pytest.raises(ConfigurationError, match="python_version"):
+        module_project.add_python_module("core", sources=["src/bindings.cpp"], python_version="3")
+    with pytest.raises(ConfigurationError, match="python_version"):
+        module_project.add_python_module(
+            "core2", sources=["src/bindings.cpp"], python_version="abc.def"
+        )

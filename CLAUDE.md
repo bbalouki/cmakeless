@@ -6,6 +6,8 @@ CMakeless is a pure-Python frontend for CMake: users write a `cmakelessfile.py` 
 
 ## Repository Layout
 
+- All the source files must contains the license headers.
+
 - `src/cmakeless/`
   - `api/` — the public builder classes (`Project`, `Executable`, `Library`, `Test`, `PythonModule`, `Preset`, `Toolchain`, `Dependency`) that users call from `cmakelessfile.py`.
   - `model/` — the frozen, validated intermediate representation the API builds and the emitter reads.

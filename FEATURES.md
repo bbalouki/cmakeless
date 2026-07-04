@@ -88,7 +88,7 @@ project.dependencies.lock()      # refresh the lockfile explicitly
 
 ### Extending the registry
 
-The eleven built-in packages are a seed, not a ceiling. Teach CMakeless about your own packages, once, in either of two ways:
+The ten built-in packages are a seed, not a ceiling. Teach CMakeless about your own packages, once, in either of two ways:
 
 ```python
 import cmakeless
@@ -213,6 +213,18 @@ bindings.link(engine)
 **We handle:** locating the Python development headers of the *invoking* interpreter, fetching pybind11 or nanobind (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `pybind11_add_module`/`nanobind_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
 
 This is the flagship of the whole idea: the tool that builds your C++ is already inside the interpreter that will import it.
+
+### A stable, deterministic version floor
+
+The generated `find_package(Python ...)` version does **not** depend on whichever interpreter happens to run `cmakeless`: it defaults to CMakeless's own supported floor, so two developers (or a developer and CI) with different Python versions installed get byte-identical `CMakeLists.txt` for the same `cmakelessfile.py`. Raise it explicitly when a module needs newer C API surface:
+
+```python
+bindings = project.add_python_module(
+    "mygame_core", sources=["src/bindings.cpp"], python_version="3.13"
+)
+```
+
+Multiple Python modules with different `python_version=` floors combine to the highest one requested, since `find_package(Python X.Y ...)` already means "X.Y or newer."
 
 ---
 

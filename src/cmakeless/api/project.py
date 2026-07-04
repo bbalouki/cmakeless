@@ -337,6 +337,7 @@ class Project:
         binding: PythonBindingName = "pybind11",
         stubs: bool = True,
         install: bool = True,
+        python_version: str | None = None,
     ) -> PythonModule:
         """Declare a Python extension module built with pybind11 or nanobind.
 
@@ -352,13 +353,20 @@ class Project:
             stubs: True to generate a .pyi stub (nanobind only).
             install: True to copy the built module into the current
                 environment after build.
+            python_version: The minimum Python version find_package(Python
+                ...) requires, as "MAJOR.MINOR" (for example "3.12"), or
+                None (the default) to use CMakeless's own supported floor.
+                This is independent of whichever interpreter happens to
+                invoke cmakeless, so the generated CMakeLists.txt stays
+                byte-identical across machines.
 
         Returns:
             The mutable PythonModule builder, for further link()/define()
             calls.
 
         Raises:
-            ConfigurationError: When ``binding`` is not a known backend.
+            ConfigurationError: When ``binding`` is not a known backend, or
+                ``python_version`` is not a well-formed "MAJOR.MINOR" string.
         """
         module = PythonModule(
             name,
@@ -366,6 +374,7 @@ class Project:
             binding=binding,
             stubs=stubs,
             install=install,
+            python_version=python_version,
             script=self._source_script,
             dependencies=self._dependencies,
         )

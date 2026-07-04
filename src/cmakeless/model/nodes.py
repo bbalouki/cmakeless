@@ -16,6 +16,8 @@ import enum
 from dataclasses import dataclass
 from pathlib import Path
 
+from cmakeless._constants import MIN_PYTHON_VERSION
+
 # The C++ standards CMake's cxx_std_NN compile feature knows about.
 SUPPORTED_CPP_STANDARDS: frozenset[int] = frozenset({11, 14, 17, 20, 23, 26})
 
@@ -382,6 +384,10 @@ class PythonModuleModel:
             only; pybind11 ships no CMake stub command).
         install_to_environment: True to copy the built module (and stub)
             into the invoking interpreter after build, so it imports at once.
+        python_version: The minimum Python version find_package(Python ...)
+            requires for this module, independent of whichever interpreter
+            happens to run cmakeless, so the generated CMake is deterministic
+            across machines.
         defines: Preprocessor definitions for this target.
         compile_options: Extra compiler flags, possibly guarded by a When
             condition.
@@ -406,6 +412,7 @@ class PythonModuleModel:
     binding: str = "pybind11"
     stubs: bool = True
     install_to_environment: bool = True
+    python_version: str = MIN_PYTHON_VERSION
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
     link_options: tuple[LinkOptionsModel, ...] = ()
