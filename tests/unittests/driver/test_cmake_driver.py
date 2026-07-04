@@ -6,12 +6,13 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 import pytest
 
-from cmakeless.driver.cmake_driver import CMakeDriver
+from cmakeless.driver.cmake_driver import CMakeDriver, resolve_tool
 from cmakeless.driver.generators import select_generator
 from cmakeless.errors import CMakeError, ToolchainError
 
@@ -235,6 +236,27 @@ def test_configure_writes_the_file_api_query(
     driver.configure()
     query_dir = tmp_path / "build" / ".cmake" / "api" / "v1" / "query" / "client-cmakeless"
     assert (query_dir / "query.json").is_file()
+
+
+def test_cmake_info_reads_from_the_driver_own_build_dir(
+    driver: CMakeDriver, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Cmake info reads from the driver's own build dir, mirroring targets_info()."""
+    patch_tools(monkeypatch)
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", FakeRun())
+    driver.configure()
+    reply_dir = tmp_path / "build" / ".cmake" / "api" / "v1" / "reply"
+    reply_dir.mkdir(parents=True)
+    index = {"cmake": {"generator": {"name": "Ninja", "multiConfig": False}}, "reply": {}}
+    (reply_dir / "index-1.json").write_text(json.dumps(index), encoding="utf-8")
+    assert driver.cmake_info().generator == "Ninja"
+
+
+def test_resolve_tool_raises_toolchain_error_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Resolve tool raises toolchain error when missing, usable outside a driver instance."""
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.shutil.which", lambda _: None)
+    with pytest.raises(ToolchainError, match=r"cmake\.org"):
+        resolve_tool("cmake")
 
 
 def test_missing_cmake_raises_toolchain_error(
