@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """CMakeless: write your C++ builds in Python. Keep CMake. Lose the pain.
 
 This module is the ONLY public import surface. Everything under
@@ -6,11 +10,16 @@ private machinery.
 """
 
 from cmakeless._version import __version__
+from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependency
+from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
 from cmakeless.api.project import Project
 from cmakeless.api.targets import Executable, Library, PythonModule, Test
 from cmakeless.api.toolchains import Toolchain
+from cmakeless.api.when import When
+from cmakeless.deps.registry import RegistryEntry
+from cmakeless.deps.registry import register as register_dependency
 from cmakeless.driver.file_api import TargetInfo
 from cmakeless.errors import (
     CMakeError,
@@ -33,17 +42,21 @@ __all__ = [
     "BuildEvent",
     "CMakeError",
     "CmakelessError",
+    "Command",
     "ConfigurationError",
     "ConsoleObserver",
+    "CustomTarget",
     "Dependency",
     "DependencyError",
     "Diagnostic",
     "Executable",
     "Library",
     "Observer",
+    "Option",
     "Preset",
     "Project",
     "PythonModule",
+    "RegistryEntry",
     "StepFailed",
     "StepFinished",
     "StepStarted",
@@ -51,5 +64,7 @@ __all__ = [
     "Test",
     "Toolchain",
     "ToolchainError",
+    "When",
     "__version__",
+    "register_dependency",
 ]
