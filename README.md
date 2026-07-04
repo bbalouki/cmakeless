@@ -225,6 +225,10 @@ project.lto = True
 | `project.add_command(...)` / `add_custom_target(...)` | `add_custom_command(OUTPUT ...)`/`add_custom_target` wiring, argv-safe (`VERBATIM`) |
 | `project.install(...)` / `project.package(...)` | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack |
 | `project.include(...)` / `project.include_module(...)` | reflecting a `.cmake` file or module through real CMake, never a hand-written parser |
+| `Toolchain.arm_none_eabi()` / `.ios()` / `.android(ndk=...)` / `.emscripten()` | a curated cross-compilation toolchain gallery, each validated with a helpful error |
+| `project.lint(clang_tidy=True)` / `target.lint(...)` | `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE`, project-wide with a per-target override |
+| `cmakeless sbom` / `cmakeless vendor` / `--offline` | a CycloneDX/SPDX bill of materials, dependency vendoring, and zero-network builds |
+| `cmakeless doctor` | one command checking cmake/generator/ccache/vcpkg/Conan/network, no project needed |
 | `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin |
 
 Watch progress through the Observer API, and read the configured build as Python objects via the CMake File API:
