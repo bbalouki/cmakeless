@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The Conan 2 adapter: conanfile.txt generation and toolchain wiring.
 
 cmakeless writes a conanfile.txt next to the generated CMakeLists.txt, runs
@@ -23,9 +27,6 @@ from cmakeless.errors import DependencyError, ToolchainError
 from cmakeless.model.nodes import DependencyModel, ProjectModel
 
 MANIFEST_NAME = "conanfile.txt"
-
-# Single-config for v0.2: Conan and CMake must agree on the build type.
-_BUILD_TYPE = "Release"
 
 
 class ConanAdapter(DependencyProvider):
@@ -68,24 +69,30 @@ class ConanAdapter(DependencyProvider):
         lines = ["[requires]", *requires, "", "[generators]", "CMakeDeps", "CMakeToolchain", ""]
         return {Path(MANIFEST_NAME): "\n".join(lines)}
 
-    def toolchain_args(self, build_dir: Path) -> tuple[str, ...]:
+    def toolchain_args(self, build_dir: Path, *, build_type: str) -> tuple[str, ...]:
         """Point cmake at the toolchain file 'conan install' generated.
 
         Args:
             build_dir: The build directory the install step populated.
+            build_type: The active CMake build type; must match the one
+                passed to pre_configure() so Conan's installed dependency
+                configuration (Debug/Release/...) agrees with CMake's.
 
         Returns:
             The toolchain-file and build-type arguments.
         """
         toolchain = build_dir / "conan_toolchain.cmake"
-        return (f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DCMAKE_BUILD_TYPE={_BUILD_TYPE}")
+        return (f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DCMAKE_BUILD_TYPE={build_type}")
 
-    def pre_configure(self, *, root_dir: Path, build_dir: Path) -> None:
+    def pre_configure(self, *, root_dir: Path, build_dir: Path, build_type: str) -> None:
         """Run 'conan install' so the toolchain and config files exist.
 
         Args:
             root_dir: The project root containing conanfile.txt.
             build_dir: The build directory to install into.
+            build_type: The active CMake build type, passed straight to
+                Conan's own -s build_type= setting, so a Debug preset
+                installs Debug dependencies instead of always Release.
 
         Raises:
             ToolchainError: When conan is not on PATH.
@@ -99,7 +106,7 @@ class ConanAdapter(DependencyProvider):
             str(build_dir),
             "--build=missing",
             "-s",
-            f"build_type={_BUILD_TYPE}",
+            f"build_type={build_type}",
         ]
         print(f"[cmakeless] Running conan: {subprocess.list2cmdline(command)}")
         completed = subprocess.run(command, capture_output=True, text=True, check=False)
