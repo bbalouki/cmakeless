@@ -84,7 +84,9 @@ class ConanAdapter(DependencyProvider):
         toolchain = build_dir / "conan_toolchain.cmake"
         return (f"-DCMAKE_TOOLCHAIN_FILE={toolchain}", f"-DCMAKE_BUILD_TYPE={build_type}")
 
-    def pre_configure(self, *, root_dir: Path, build_dir: Path, build_type: str) -> None:
+    def pre_configure(
+        self, *, root_dir: Path, build_dir: Path, build_type: str, offline: bool = False
+    ) -> None:
         """Run 'conan install' so the toolchain and config files exist.
 
         Args:
@@ -93,18 +95,22 @@ class ConanAdapter(DependencyProvider):
             build_type: The active CMake build type, passed straight to
                 Conan's own -s build_type= setting, so a Debug preset
                 installs Debug dependencies instead of always Release.
+            offline: True to pass --build=never (use only what is already
+                in Conan's local cache, failing immediately otherwise)
+                instead of --build=missing (fetch/build anything missing).
 
         Raises:
             ToolchainError: When conan is not on PATH.
             DependencyError: When the install step fails.
         """
+        build_policy = "never" if offline else "missing"
         command = [
             _conan_executable(),
             "install",
             str(root_dir),
             "--output-folder",
             str(build_dir),
-            "--build=missing",
+            f"--build={build_policy}",
             "-s",
             f"build_type={build_type}",
         ]
