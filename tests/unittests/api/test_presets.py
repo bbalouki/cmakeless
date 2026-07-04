@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The Preset builder and its freeze-time validation."""
 
 from __future__ import annotations
@@ -68,4 +72,60 @@ def test_dangling_toolchain_reference_is_rejected(project: Project) -> None:
     """Dangling toolchain reference is rejected."""
     project.add_preset(Preset("cross", toolchain="rpi4"))
     with pytest.raises(ConfigurationError, match="rpi4"):
+        project.freeze()
+
+
+def test_preset_options_and_env_freeze_sorted(project: Project) -> None:
+    """Preset options and env freeze sorted."""
+    project.option("MYLIB_BUILD_GUI", default=True)
+    project.option("MYLIB_JOBS", default=4)
+    project.add_preset(
+        Preset(
+            "ci",
+            options={"MYLIB_JOBS": 8, "MYLIB_BUILD_GUI": False},
+            env={"CI": "1", "ANOTHER": "value"},
+        )
+    )
+    model = project.freeze()
+    preset = model.presets[0]
+    assert preset.options == (("MYLIB_BUILD_GUI", False), ("MYLIB_JOBS", 8))
+    assert preset.env == (("ANOTHER", "value"), ("CI", "1"))
+
+
+def test_preset_inherits_accepts_a_preset_object(project: Project) -> None:
+    """Preset inherits accepts a preset object."""
+    base = project.add_preset(Preset("base", optimize="release"))
+    project.add_preset(Preset("ci", inherits=base))
+    model = project.freeze()
+    ci = next(preset for preset in model.presets if preset.name == "ci")
+    assert ci.inherits == "base"
+
+
+def test_preset_option_referencing_unknown_option_rejected(project: Project) -> None:
+    """Preset option referencing unknown option rejected."""
+    project.add_preset(Preset("ci", options={"NEVER_DECLARED": True}))
+    with pytest.raises(ConfigurationError, match="never declared"):
+        project.freeze()
+
+
+def test_preset_option_type_mismatch_rejected(project: Project) -> None:
+    """Preset option type mismatch rejected."""
+    project.option("MYLIB_JOBS", default=4)
+    project.add_preset(Preset("ci", options={"MYLIB_JOBS": "eight"}))
+    with pytest.raises(ConfigurationError, match="declared as int"):
+        project.freeze()
+
+
+def test_preset_inherits_unknown_preset_rejected(project: Project) -> None:
+    """Preset inherits unknown preset rejected."""
+    project.add_preset(Preset("ci", inherits="nonexistent"))
+    with pytest.raises(ConfigurationError, match="nonexistent"):
+        project.freeze()
+
+
+def test_preset_inherit_cycle_rejected(project: Project) -> None:
+    """Preset inherit cycle rejected."""
+    project.add_preset(Preset("a", inherits="b"))
+    project.add_preset(Preset("b", inherits="a"))
+    with pytest.raises(ConfigurationError, match="cycle"):
         project.freeze()
