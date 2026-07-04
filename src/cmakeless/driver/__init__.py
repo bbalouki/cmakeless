@@ -7,8 +7,19 @@
 Only this layer needs CMake installed; everything above it is pure Python.
 """
 
-from cmakeless.driver.cmake_driver import CMakeDriver
-from cmakeless.driver.file_api import TargetInfo
+from cmakeless.driver.cmake_driver import CMakeDriver, resolve_tool
+from cmakeless.driver.file_api import CMakeInfo, CompilerInfo, TargetInfo
 from cmakeless.driver.generators import Generator, select_generator
+from cmakeless.driver.reflection import ModuleReflection, reflect
 
-__all__ = ["CMakeDriver", "Generator", "TargetInfo", "select_generator"]
+__all__ = [
+    "CMakeDriver",
+    "CMakeInfo",
+    "CompilerInfo",
+    "Generator",
+    "ModuleReflection",
+    "TargetInfo",
+    "reflect",
+    "resolve_tool",
+    "select_generator",
+]
