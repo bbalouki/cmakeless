@@ -36,19 +36,28 @@ _FUNCTION_TAG = "FUNCTION\t"
 _VARIABLE_TAG = "VARIABLE\t"
 _VALUE_TAG = "VALUE\t"
 
-# The script's own bookkeeping variables. get_cmake_property(... VARIABLES)
-# snapshots whatever is defined at the moment it runs, so a variable this
-# same script set on an earlier line (including an earlier snapshot's own
-# result variable) is indistinguishable from one the include() itself
-# defined; filtering these exact names back out in Python is simpler and
-# more robust than trying to order the script so no bookkeeping variable is
-# ever visible to a later snapshot.
+# Names that must never count as "newly defined by the include", regardless
+# of CMake version: our own script's bookkeeping variables (see below), plus
+# CMake's own automatic context variables that come and go around an
+# include() call rather than being defined by the included file itself.
+# get_cmake_property(... VARIABLES) snapshots whatever is defined at the
+# moment it runs, so a variable this same script set on an earlier line
+# (including an earlier snapshot's own result variable), or one CMake sets
+# while processing the included file, is indistinguishable from one the
+# include() itself defined unless filtered back out; doing that in Python is
+# simpler and more robust than trying to order the script so nothing else is
+# ever visible to a later snapshot, and it does not depend on which of these
+# automatic variables a given CMake version happens to set.
 _INTERNAL_VARIABLE_NAMES = frozenset(
     {
         "_cmakeless_before_functions",
         "_cmakeless_before_variables",
         "_cmakeless_after_functions",
         "_cmakeless_after_variables",
+        "CMAKE_PARENT_LIST_FILE",
+        "CMAKE_CURRENT_LIST_FILE",
+        "CMAKE_CURRENT_LIST_DIR",
+        "CMAKE_CURRENT_LIST_LINE",
     }
 )
 
@@ -127,6 +136,7 @@ def reflect(
         reference=reference,
         is_file=is_file,
         module_path=module_path,
+        cpp_std=cpp_std,
     )
     targets = _reflect_targets(
         cmake_executable,
@@ -180,6 +190,26 @@ def _probe_generator_args() -> tuple[str, ...]:
     return select_generator(None).cmake_args
 
 
+def _project_preamble(cpp_std: int | None) -> str:
+    """Render a throwaway project's cmake_minimum_required() and project().
+
+    Args:
+        cpp_std: The C++ standard to configure CXX with, or None for a
+            LANGUAGES NONE project (no compiler needed, but unable to
+            configure a real compiled target).
+
+    Returns:
+        The preamble text, ending in a newline.
+    """
+    languages = "CXX" if cpp_std is not None else "NONE"
+    standard = f"set(CMAKE_CXX_STANDARD {cpp_std})\n" if cpp_std is not None else ""
+    return (
+        "cmake_minimum_required(VERSION 3.25)\n"
+        f"project({_REFLECT_PROJECT_NAME} LANGUAGES {languages})\n"
+        f"{standard}"
+    )
+
+
 def _reflection_script(output_path: Path, include_statement: str) -> str:
     """Render the throwaway cmake -P script that diffs COMMANDS/VARIABLES.
 
@@ -231,24 +261,25 @@ def _run_script_mode(
 
 
 def _run_reflection_configure(
-    cmake_executable: str, work_dir: Path, script: str
+    cmake_executable: str, work_dir: Path, script: str, *, cpp_std: int | None
 ) -> tuple[list[str], subprocess.CompletedProcess[str]]:
     """Run the same reflection script inside a throwaway project's configure.
 
     Falls back to this when script mode rejects the include: some CMake
     commands (add_library(), add_executable(), ...) are "not scriptable"
-    and only work inside a real project. LANGUAGES NONE keeps this fast and
-    sidesteps compiler detection (a real MAX_PATH hazard on Windows under an
-    already-deep scratch path): the vast majority of non-scriptable-but-
-    reflectable includes (INTERFACE libraries, custom targets, install
-    rules) need no enabled language at all. An include that truly needs a
-    compiled target still gets its targets discovered separately, by
-    _reflect_targets's own LANGUAGES CXX probe.
+    and only work inside a real project. Tried first with cpp_std=None
+    (LANGUAGES NONE): fast, and sidesteps compiler detection (a real
+    MAX_PATH hazard on Windows under an already-deep scratch path), which
+    covers the common non-scriptable-but-compiler-free case (INTERFACE
+    libraries, custom targets, install rules). An include that declares a
+    real compiled target needs a second attempt with the real cpp_std.
 
     Args:
         cmake_executable: Absolute path to cmake.
         work_dir: Scratch directory for the throwaway project.
         script: The reflection script's complete text.
+        cpp_std: The C++ standard for a LANGUAGES CXX retry, or None to
+            configure with LANGUAGES NONE.
 
     Returns:
         The command run and its result.
@@ -256,10 +287,7 @@ def _run_reflection_configure(
     project_dir = work_dir / "fn"
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / "CMakeLists.txt").write_text(
-        f"cmake_minimum_required(VERSION 3.25)\n"
-        f"project({_REFLECT_PROJECT_NAME} LANGUAGES NONE)\n"
-        f"{script}",
-        encoding="utf-8",
+        _project_preamble(cpp_std) + script, encoding="utf-8"
     )
     build_dir = project_dir / "build"
     command = [
@@ -273,6 +301,36 @@ def _run_reflection_configure(
     return command, subprocess.run(command, capture_output=True, text=True, check=False)
 
 
+def _attempt_reflection(
+    cmake_executable: str, work_dir: Path, script: str, *, cpp_std: int
+) -> tuple[list[str], subprocess.CompletedProcess[str]]:
+    """Try script mode, then a LANGUAGES NONE configure, then LANGUAGES CXX.
+
+    Each attempt only runs if the previous one failed; see
+    _reflect_functions_and_variables for why each tier exists.
+
+    Args:
+        cmake_executable: Absolute path to cmake.
+        work_dir: Scratch directory for the throwaway script and project.
+        script: The reflection script's complete text.
+        cpp_std: The real project's C++ standard, for the last-resort
+            LANGUAGES CXX retry.
+
+    Returns:
+        The last attempted command and its result.
+    """
+    command, completed = _run_script_mode(cmake_executable, work_dir, script)
+    if completed.returncode != 0:
+        command, completed = _run_reflection_configure(
+            cmake_executable, work_dir, script, cpp_std=None
+        )
+    if completed.returncode != 0:
+        command, completed = _run_reflection_configure(
+            cmake_executable, work_dir, script, cpp_std=cpp_std
+        )
+    return command, completed
+
+
 def _reflect_functions_and_variables(
     cmake_executable: str,
     *,
@@ -280,14 +338,17 @@ def _reflect_functions_and_variables(
     reference: str,
     is_file: bool,
     module_path: Path | None,
+    cpp_std: int,
 ) -> tuple[tuple[str, ...], tuple[str, ...], dict[str, str]]:
     """Run the required reflection pass: functions and variables.
 
-    Tries CMake script mode first (fast, no compiler needed); some CMake
-    commands (add_library(), add_executable(), ...) are not scriptable and
-    only work inside a real project, so a script-mode failure falls back to
-    running the identical diffing logic inside a throwaway project's
-    configure before giving up.
+    Tries, in order: CMake script mode (fast, no compiler needed); a
+    throwaway LANGUAGES NONE configure, for commands script mode rejects as
+    "not scriptable" (add_library(), add_executable(), ...) but that need
+    no enabled language (INTERFACE libraries, custom targets, install
+    rules); a throwaway LANGUAGES CXX configure with the real project's
+    standard, for an include that declares an actual compiled target.
+    Raises only if all three fail.
 
     Args:
         cmake_executable: Absolute path to cmake.
@@ -295,15 +356,17 @@ def _reflect_functions_and_variables(
         reference: An absolute file path or a bare module name.
         is_file: True when reference is a file path.
         module_path: An absolute CMAKE_MODULE_PATH entry to add, or None.
+        cpp_std: The real project's C++ standard, for the last-resort
+            LANGUAGES CXX retry.
 
     Returns:
         The newly-defined function names, variable names, and each
         variable's resolved value.
 
     Raises:
-        CMakeError: When both the script-mode attempt and the configure
-            fallback fail: reference does not exist, is not valid CMake, or
-            (module case) is not found on the module path.
+        CMakeError: When every attempt fails: reference does not exist, is
+            not valid CMake, or (module case) is not found on the module
+            path.
     """
     work_dir.mkdir(parents=True, exist_ok=True)
     output_path = work_dir / _OUTPUT_NAME
@@ -311,9 +374,7 @@ def _reflect_functions_and_variables(
         reference=reference, is_file=is_file, module_path=module_path
     )
     script = _reflection_script(output_path, include_statement)
-    command, completed = _run_script_mode(cmake_executable, work_dir, script)
-    if completed.returncode != 0:
-        command, completed = _run_reflection_configure(cmake_executable, work_dir, script)
+    command, completed = _attempt_reflection(cmake_executable, work_dir, script, cpp_std=cpp_std)
     if completed.returncode != 0:
         raise CMakeError(
             f"Reflecting {reference!r} failed: cmake exited with code "
@@ -383,14 +444,8 @@ def _configure_target_probe(
     Returns:
         The configure attempt's result.
     """
-    languages = "CXX" if cpp_std is not None else "NONE"
-    standard = f"set(CMAKE_CXX_STANDARD {cpp_std})\n" if cpp_std is not None else ""
     (probe_dir / "CMakeLists.txt").write_text(
-        f"cmake_minimum_required(VERSION 3.25)\n"
-        f"project({_REFLECT_PROJECT_NAME} LANGUAGES {languages})\n"
-        f"{standard}"
-        f"{include_statement}\n",
-        encoding="utf-8",
+        _project_preamble(cpp_std) + include_statement + "\n", encoding="utf-8"
     )
     write_query(build_dir)
     command = [
