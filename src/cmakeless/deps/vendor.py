@@ -24,6 +24,12 @@ from cmakeless.errors import DependencyError
 
 _DOWNLOAD_TIMEOUT_SECONDS = 60.0
 
+# Vendoring only ever makes sense for a URL that would otherwise need a real
+# network fetch; rejecting anything else (file://, ftp://, ...) up front is
+# both the correct behavior and the standard mitigation for urlopen's
+# "audit url open for permitted schemes" warning (Bandit B310).
+_ALLOWED_SCHEMES = frozenset({"http", "https"})
+
 
 def vendor_packages(lock: LockData, *, directory: Path, root_dir: Path) -> int:
     """Download every fetchable locked package's archive into a vendor directory.
@@ -104,11 +110,19 @@ def _download_and_verify(name: str, url: str, sha256: str | None, dest: Path) ->
         dest: Where to write the downloaded archive.
 
     Raises:
-        DependencyError: When the download fails, or the downloaded bytes
-            do not match ``sha256``.
+        DependencyError: When ``url`` is not http(s), the download fails, or
+            the downloaded bytes do not match ``sha256``.
     """
+    if urlsplit(url).scheme not in _ALLOWED_SCHEMES:
+        raise DependencyError(
+            f"Refusing to vendor package {name!r} from {url!r}: only http(s) "
+            f"URLs can be vendored. Fix the URL in cmakeless.lock (run "
+            f"`cmakeless lock` to regenerate it)."
+        )
     try:
-        with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(  # nosec B310 - scheme checked above
+            url, timeout=_DOWNLOAD_TIMEOUT_SECONDS
+        ) as response:
             payload = response.read()
     except (urllib.error.URLError, OSError) as error:
         raise DependencyError(
