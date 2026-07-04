@@ -13,7 +13,13 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from cmakeless.driver.error_translation import extract_diagnostics
-from cmakeless.driver.file_api import TargetInfo, read_reply, write_query
+from cmakeless.driver.file_api import (
+    CMakeInfo,
+    TargetInfo,
+    read_cmake_info,
+    read_reply,
+    write_query,
+)
 from cmakeless.driver.generators import Generator, GeneratorFamily, select_generator
 from cmakeless.errors import CMakeError, ToolchainError
 from cmakeless.observer import Observer, StepFailed, StepFinished, StepStarted, publish
@@ -30,6 +36,34 @@ _CACHE_TOOLS = ("ccache", "sccache")
 _CACHE_LAUNCHER_FAMILIES: frozenset[GeneratorFamily] = frozenset(
     {GeneratorFamily.MAKEFILES, GeneratorFamily.NINJA, GeneratorFamily.NINJA_MULTI_CONFIG}
 )
+
+
+def resolve_tool(tool: str) -> str:
+    """Locate one of the CMake suite's executables on PATH.
+
+    A module-level function (not just a CMakeDriver method) so
+    project.include()/include_module() can resolve cmake for reflection
+    without needing a full driver bound to a build directory.
+
+    Args:
+        tool: "cmake", "ctest", or "cpack"; they ship together.
+
+    Returns:
+        The absolute path to the tool.
+
+    Raises:
+        ToolchainError: When the tool is not on PATH, with install guidance.
+    """
+    path = shutil.which(tool)
+    if path is None:
+        raise ToolchainError(
+            f"'{tool}' was not found on PATH, so this step cannot run. It "
+            f"ships with CMake: install CMake 3.25 or newer from "
+            f"https://cmake.org/download/ (or your package manager) and make "
+            f"sure '{tool} --version' works in this shell. Generating "
+            f"CMakeLists.txt with project.generate() works without CMake."
+        )
+    return path
 
 
 class CMakeDriver:
@@ -95,6 +129,18 @@ class CMakeDriver:
             has not been configured.
         """
         return read_reply(self._build_dir)
+
+    def cmake_info(self) -> CMakeInfo:
+        """Read the resolved generator, compilers, and cache from the File API reply.
+
+        Configure must have run first (it writes the query CMake answers).
+
+        Returns:
+            The CMakeInfo; options are raw (name, value) cache-entry
+            strings, which Project.cmake_info() filters to its own declared
+            options and coerces to their declared types.
+        """
+        return read_cmake_info(self._build_dir)
 
     def build(self) -> None:
         """Run the compile step through cmake --build.
@@ -206,16 +252,7 @@ class CMakeDriver:
             ToolchainError: When the tool is not on PATH, with install
                 guidance.
         """
-        path = shutil.which(tool)
-        if path is None:
-            raise ToolchainError(
-                f"'{tool}' was not found on PATH, so this step cannot run. It "
-                f"ships with CMake: install CMake 3.25 or newer from "
-                f"https://cmake.org/download/ (or your package manager) and make "
-                f"sure '{tool} --version' works in this shell. Generating "
-                f"CMakeLists.txt with project.generate() works without CMake."
-            )
-        return path
+        return resolve_tool(tool)
 
     def _run(self, command: list[str], *, step: str, cwd: Path | None = None) -> None:
         """Run one tool invocation, logging and translating failures.
