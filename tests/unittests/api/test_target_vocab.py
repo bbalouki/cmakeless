@@ -169,3 +169,37 @@ def test_header_only_library_rejects_unity(vocab_project: Project) -> None:
     headers.unity = True
     with pytest.raises(ConfigurationError, match="cannot use precompiled headers or unity builds"):
         vocab_project.freeze()
+
+
+def test_target_without_lint_call_freezes_to_none(vocab_project: Project) -> None:
+    """A target that never calls lint() freezes to None (inherit the project's)."""
+    vocab_project.add_executable("app", sources=["src/main.cpp"])
+    model = vocab_project.freeze()
+    assert model.executables[0].clang_tidy is None
+    assert model.executables[0].iwyu is None
+
+
+def test_target_lint_true_uses_the_tool_default(vocab_project: Project) -> None:
+    """target.lint(clang_tidy=True) freezes to the bare tool command."""
+    app = vocab_project.add_executable("app", sources=["src/main.cpp"])
+    app.lint(clang_tidy=True)
+    model = vocab_project.freeze()
+    assert model.executables[0].clang_tidy == ("clang-tidy",)
+    assert model.executables[0].iwyu == ()
+
+
+def test_target_lint_with_extra_arguments(vocab_project: Project) -> None:
+    """target.lint() accepts a command sequence with extra arguments."""
+    app = vocab_project.add_executable("app", sources=["src/main.cpp"])
+    app.lint(iwyu=["include-what-you-use", "-Xiwyu", "--verbose=3"])
+    model = vocab_project.freeze()
+    assert model.executables[0].iwyu == ("include-what-you-use", "-Xiwyu", "--verbose=3")
+
+
+def test_target_lint_false_explicitly_opts_out(vocab_project: Project) -> None:
+    """target.lint(clang_tidy=False) is a concrete empty tuple, not None."""
+    app = vocab_project.add_executable("app", sources=["src/main.cpp"])
+    app.lint(clang_tidy=False)
+    model = vocab_project.freeze()
+    assert model.executables[0].clang_tidy == ()
+    assert model.executables[0].clang_tidy is not None
