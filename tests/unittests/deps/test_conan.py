@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """The Conan 2 adapter: manifest generation and the install step."""
 
 from __future__ import annotations
@@ -62,12 +66,17 @@ def test_manifest_lists_requires_and_generators() -> None:
     )
 
 
-def test_pre_configure_runs_conan_install(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Pre configure runs conan install."""
+@pytest.mark.parametrize("build_type", ["Debug", "Release", "RelWithDebInfo"])
+def test_pre_configure_runs_conan_install(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, build_type: str
+) -> None:
+    """Pre configure runs conan install, passing through the active build type."""
     patch_conan(monkeypatch)
     fake_run = FakeRun()
     monkeypatch.setattr("cmakeless.deps.conan.subprocess.run", fake_run)
-    ConanAdapter().pre_configure(root_dir=tmp_path, build_dir=tmp_path / "build")
+    ConanAdapter().pre_configure(
+        root_dir=tmp_path, build_dir=tmp_path / "build", build_type=build_type
+    )
     assert fake_run.commands[0] == [
         "/usr/bin/conan",
         "install",
@@ -76,7 +85,7 @@ def test_pre_configure_runs_conan_install(monkeypatch: pytest.MonkeyPatch, tmp_p
         str(tmp_path / "build"),
         "--build=missing",
         "-s",
-        "build_type=Release",
+        f"build_type={build_type}",
     ]
 
 
@@ -86,7 +95,9 @@ def test_missing_conan_raises_toolchain_error(
     """Missing conan raises toolchain error."""
     patch_conan(monkeypatch, present=False)
     with pytest.raises(ToolchainError, match="pip install conan"):
-        ConanAdapter().pre_configure(root_dir=tmp_path, build_dir=tmp_path / "build")
+        ConanAdapter().pre_configure(
+            root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release"
+        )
 
 
 def test_install_failure_raises_dependency_error(
@@ -97,20 +108,23 @@ def test_install_failure_raises_dependency_error(
     fake_run = FakeRun(returncode=1, stderr="ERROR: package not found\n")
     monkeypatch.setattr("cmakeless.deps.conan.subprocess.run", fake_run)
     with pytest.raises(DependencyError) as excinfo:
-        ConanAdapter().pre_configure(root_dir=tmp_path, build_dir=tmp_path / "build")
+        ConanAdapter().pre_configure(
+            root_dir=tmp_path, build_dir=tmp_path / "build", build_type="Release"
+        )
     message = str(excinfo.value)
     assert "exit code 1" in message
     assert "package not found" in message
     assert "rerun" in message
 
 
-def test_toolchain_args_point_at_the_generated_toolchain(tmp_path: Path) -> None:
-    """Toolchain args point at the generated toolchain."""
+@pytest.mark.parametrize("build_type", ["Debug", "Release", "RelWithDebInfo"])
+def test_toolchain_args_point_at_the_generated_toolchain(tmp_path: Path, build_type: str) -> None:
+    """Toolchain args point at the generated toolchain, with the active build type."""
     build_dir = tmp_path / "build"
-    arguments = ConanAdapter().toolchain_args(build_dir)
+    arguments = ConanAdapter().toolchain_args(build_dir, build_type=build_type)
     assert arguments == (
         f"-DCMAKE_TOOLCHAIN_FILE={build_dir / 'conan_toolchain.cmake'}",
-        "-DCMAKE_BUILD_TYPE=Release",
+        f"-DCMAKE_BUILD_TYPE={build_type}",
     )
 
 
