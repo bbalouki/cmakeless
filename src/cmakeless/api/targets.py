@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from cmakeless._constants import MIN_PYTHON_VERSION
 from cmakeless.api.commands import Command
 from cmakeless.api.when import When
 from cmakeless.errors import ConfigurationError
@@ -533,6 +534,7 @@ class PythonModule(_Target):
         binding: PythonBindingName = "pybind11",
         stubs: bool = True,
         install: bool = True,
+        python_version: str | None = None,
         script: str,
         dependencies: Dependencies,
     ) -> None:
@@ -545,12 +547,18 @@ class PythonModule(_Target):
             stubs: True to generate a .pyi stub (nanobind only).
             install: True to copy the built module into the invoking
                 interpreter after build, so it imports immediately.
+            python_version: The minimum Python version find_package(Python
+                ...) requires, as "MAJOR.MINOR" (for example "3.12"), or
+                None (the default) to use CMakeless's own supported floor.
+                Independent of whichever interpreter happens to run
+                cmakeless, so the generated CMake stays deterministic.
             script: Display name of the owning build description, used in
                 error messages.
             dependencies: The owning project's dependency collection.
 
         Raises:
-            ConfigurationError: When ``binding`` is not a known backend.
+            ConfigurationError: When ``binding`` is not a known backend, or
+                ``python_version`` is not a well-formed "MAJOR.MINOR" string.
         """
         super().__init__(name, sources, script=script, dependencies=dependencies)
         if binding not in PYTHON_BINDING_BACKENDS:
@@ -562,6 +570,9 @@ class PythonModule(_Target):
         self._binding: str = binding
         self._stubs = stubs
         self._install = install
+        self._python_version = _resolve_python_version(
+            python_version, name=self._name, script=self._script
+        )
 
     @property
     def binding(self) -> str:
@@ -604,6 +615,7 @@ class PythonModule(_Target):
             binding=self._binding,
             stubs=self._stubs,
             install_to_environment=self._install,
+            python_version=self._python_version,
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
             link_options=tuple(self._link_options),
@@ -738,3 +750,30 @@ def _format_define_value(value: str | int | None) -> str | None:
     if value is None:
         return None
     return str(value)
+
+
+def _resolve_python_version(version: str | None, *, name: str, script: str) -> str:
+    """Validate a python_version= override, or fall back to the floor.
+
+    Args:
+        version: The user-supplied "MAJOR.MINOR" string, or None to use
+            CMakeless's own supported floor.
+        name: The owning Python module's name, for error messages.
+        script: Display name of the owning build description, for messages.
+
+    Returns:
+        The version unchanged, or MIN_PYTHON_VERSION when None.
+
+    Raises:
+        ConfigurationError: When ``version`` is not two dot-separated
+            non-negative integers.
+    """
+    if version is None:
+        return MIN_PYTHON_VERSION
+    parts = version.split(".")
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        raise ConfigurationError(
+            f"python_version={version!r} for Python module {name!r} in {script} "
+            f"is not a valid 'MAJOR.MINOR' version, for example \"3.12\"."
+        )
+    return version
