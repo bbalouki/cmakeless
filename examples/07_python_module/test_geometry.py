@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
 """Import the freshly built extension and exercise the C++ Vec2 type.
 
 Run 'python cmakelessfile.py' (or 'cmakeless build') first; the module lands in the
