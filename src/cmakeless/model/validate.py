@@ -28,6 +28,7 @@ from cmakeless.model.nodes import (
     DependencyModel,
     LibraryKind,
     LibraryModel,
+    ModuleKind,
     OptionModel,
     OptionType,
     PresetModel,
@@ -70,6 +71,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_when_option_references(model)
     _check_commands(model)
     _check_custom_targets(model)
+    _check_modules(model)
     _check_toolchains(model)
     _check_presets(model)
     _check_installs(model)
@@ -1098,6 +1100,56 @@ def _check_custom_targets(model: ProjectModel) -> None:
                 script=model.source_script,
                 fix="Move it under the root, or pass a path relative to it.",
             )
+
+
+def _check_modules(model: ProjectModel) -> None:
+    """Check project.include()/include_module() rules: valid, in-root paths.
+
+    Function-name validity for mod.call(...) is not re-checked here: it was
+    already validated immediately when mod.call() was invoked, since
+    reflection data is available synchronously in the API layer. This only
+    guards against a FILE include (or a NAMED include's module_path) having
+    been removed between project.include() and project.build().
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a FILE include's path is absolute, escapes
+            the root, or no longer exists; or a NAMED include's module_path
+            is absolute, escapes the root, or is not a directory.
+    """
+    for module in model.modules:
+        if module.kind is ModuleKind.FILE:
+            reference = Path(module.reference)
+            _check_relative_path(
+                reference,
+                what="project.include()",
+                script=model.source_script,
+                fix="Move the file under the root, or pass a path relative to it.",
+            )
+            resolved = model.root_dir / reference
+            if not resolved.is_file():
+                raise ConfigurationError(
+                    f"project.include() path '{reference.as_posix()}' in "
+                    f"{model.source_script} does not exist (looked for "
+                    f"{resolved}). Create the file, or fix the path."
+                )
+        if module.module_path is not None:
+            _check_relative_path(
+                module.module_path,
+                what="project.include_module() module_path",
+                script=model.source_script,
+                fix="Move the directory under the root, or pass a path relative to it.",
+            )
+            resolved_dir = model.root_dir / module.module_path
+            if not resolved_dir.is_dir():
+                raise ConfigurationError(
+                    f"project.include_module() module_path "
+                    f"'{module.module_path.as_posix()}' in {model.source_script} "
+                    f"does not exist (looked for {resolved_dir}). Create the "
+                    f"directory, or fix the path."
+                )
 
 
 def _check_subprojects(model: ProjectModel) -> None:

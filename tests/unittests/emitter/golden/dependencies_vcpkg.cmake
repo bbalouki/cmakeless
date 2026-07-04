@@ -9,6 +9,9 @@ project(demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 # boost 1.84.0: provided by vcpkg (see vcpkg.json).
 find_package(Boost CONFIG REQUIRED COMPONENTS asio beast)
 

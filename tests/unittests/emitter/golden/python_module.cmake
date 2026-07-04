@@ -9,6 +9,9 @@ project(mymath_demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 # find_package(Python ...) takes a minimum version, not an exact one:
 # this is the highest floor any add_python_module(python_version=...) requested.
 find_package(Python 3.13 COMPONENTS Interpreter Development.Module REQUIRED)

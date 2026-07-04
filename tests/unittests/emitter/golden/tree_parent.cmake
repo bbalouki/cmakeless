@@ -9,6 +9,9 @@ project(demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 add_subdirectory(tools/stamp)
 
 add_executable(app)

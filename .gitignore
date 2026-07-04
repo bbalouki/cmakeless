@@ -16,9 +16,13 @@ build/
 CMakeUserPresets.json
 
 # Generated output inside example projects; regenerated from cmakelessfile.py.
+# Only the specific generated artifacts inside cmake/ are ignored, not the
+# directory itself: project.include()'s examples commit real, hand-written
+# .cmake helper files there.
 examples/**/CMakeLists.txt
 examples/**/CMakePresets.json
-examples/**/cmake/
+examples/**/cmake/*Config.cmake.in
+examples/**/cmake/toolchains/
 examples/**/compile_commands.json
 IMPROVEMENTS.md
 SUGGESTIONS.md

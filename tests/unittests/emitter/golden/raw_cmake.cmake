@@ -9,6 +9,9 @@ project(raw_demo
     LANGUAGES CXX
 )
 
+set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
+set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
+
 # raw_cmake_file from cmakelessfile.py: cmake/extra.cmake
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/extra.cmake)
 

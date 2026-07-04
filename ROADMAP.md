@@ -13,11 +13,11 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 | 2 | v0.2 | Dependencies |
 | 3 | v0.3 | Quality of life: tests, presets, install |
 | 4 | v0.4 | Interop and parallelism |
-| 4.1–4.3 | v0.5 | The language unlock: options, conditions, custom build steps |
-| 5.1 | v0.5.1 | The interop unlock |
-| 5.2 | v0.5.2 | The portability release |
-| 5.3 | v0.5.3 | Documentation and quality debt |
-| 5.4 - 5.9 | v1.0 | Stability promise |
+| 5.0–5.2 | v0.5 | The language unlock: mechanical fixes, options and conditions, custom build steps |
+| 5.3 | v0.5.3 | The interop unlock |
+| 5.4 | v0.5.4 | The portability release |
+| 5.5 | v0.5.5 | Documentation and quality debt |
+| 5.6 | v1.0 | Stability promise |
 
 Scope is the fixed variable, order is the promise.
 
@@ -123,17 +123,21 @@ The `When` condition object and everything it powers, the highest-leverage addit
 
 ## Phase 5.3: The Interop Unlock, v0.5.3
 
-Not yet built; carried over from the "call `include()` and read variables from Python" idea:
+Carried over from the "call `include()` and read variables from Python" idea: the last gap the escape hatch never covered, reflecting what a `.cmake` file or built-in module actually defines through real CMake instead of guessing at it:
 
-- `project.include("cmake/CPM.cmake")` / `project.include_module(...)` with reflection: run real CMake (script mode or a throwaway trace-expand configure plus the File API) to discover a module's functions, variables, and targets, and validate `mod.call(...)` invocations before emission, never a hand-written CMake-language parser.
+- `project.include("cmake/print_build_summary.cmake")` / `project.include_module("CheckCXXCompilerFlag")` with reflection: run real CMake (script mode, falling back to a throwaway configure for the commands script mode rejects, plus the File API for a best-effort read of any targets declared) to discover a module's functions, variables, and targets, and validate `mod.call(...)`/`mod.variable(...)` invocations before emission, never a hand-written CMake-language parser.
 - `project.cmake_info()`: a post-configure read of the resolved generator, compiler ID/version, system name/processor, and the project's own options' final values, via the same File API pattern `targets_info()` already uses.
-- Growing the curated dependency registry from vcpkg/Conan metadata at scale (the registration mechanism from 4.1 is the seed, not the ceiling).
+- The curated dependency registry grew from ten packages to over forty, spanning general-purpose, gaming, and finance/engineering staples (the registration mechanism from Phase 5.0 was always the seed, not the ceiling).
+
+**Exit criterion:** a project reflects a local `.cmake` helper and a built-in CMake module, calls a function and reads a variable each discovered, and reads the resolved generator, compiler, and system after configure, all without a hand-written CMake-language parser anywhere in CMakeless.
+
+**Deferred from this phase:** target discovery for `include()`/`include_module()` is best-effort (an include that only works inside its real parent project reports no targets rather than failing the call), and `mod.variable(...)` reads one discovered variable's value at a time rather than bulk-exporting every variable an include defines.
 
 ## Phase 5.4: The Portability Release, v0.5.4
 
 Not yet built; the industries-readiness work (gaming, finance, engineering, aerospace):
 
-- A curated toolchain gallery: `Toolchain.arm_none_eabi()`, `Toolchain.emscripten()`, `Toolchain.android(ndk=..., abi=...)`, `Toolchain.ios()`, each validated with the project's signature helpful errors.
+- A curated toolchain gallery: `Toolchain.arm_none_eabi()`, `Toolchain.emscripten()`, `Toolchain.android(ndk=..., abi=...)`, `Toolchain.ios()` and many more, each validated with the project's signature helpful errors.
 - `cmakeless sbom` (CycloneDX/SPDX from `cmakeless.lock`'s already-complete dependency inventory), `--offline` (fail loudly rather than fetch) plus a mirror map, and a `cmakeless vendor` verb to download every locked dependency for zero-network builds.
 - `project.lint(clang_tidy=True, iwyu=False)` wiring `CMAKE_CXX_CLANG_TIDY`/IWYU per target.
 - A `cmakeless doctor` verb: one command that checks CMake version, generator, compilers, ccache, vcpkg/Conan, and network access, and prints exactly what a new machine is missing.

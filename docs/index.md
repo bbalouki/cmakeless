@@ -42,6 +42,8 @@ Interop and introspection are one call each too:
 project.add_python_module("mymath", sources=["src/mymath.cpp"], binding="pybind11")
 project.add_observer(my_observer)     # progress events for IDEs and CI
 targets = project.targets_info()      # the configured build as Python objects
+mod = project.include_module("CheckCXXCompilerFlag")  # reflected via real CMake
+info = project.cmake_info()           # resolved generator, compiler, and system
 ```
 
 Or write the five lines yourself:

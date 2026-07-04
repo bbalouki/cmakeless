@@ -18,6 +18,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
+from cmakeless._constants import CMAKELESS_SYSTEM_NAME_VAR, CMAKELESS_SYSTEM_PROCESSOR_VAR
 from cmakeless.emitter.presets_emitter import emit_presets
 from cmakeless.emitter.sanitizers import (
     MSVC_SUPPORTED_SANITIZERS,
@@ -41,6 +42,8 @@ from cmakeless.model.nodes import (
     LibraryKind,
     LibraryModel,
     LinkOptionsModel,
+    ModuleKind,
+    ModuleModel,
     OptionModel,
     OptionType,
     ProjectModel,
@@ -182,9 +185,11 @@ class _CMakeListsVisitor:
         sections = [
             self._header(),
             self._preamble(),
+            self._reflection_preamble(),
             *self._default_build_config(),
             *self._options_section(),
             *self._raw_cmake_file_includes(),
+            *self._module_sections(),
             *self._module_includes(),
         ]
         if _tree_has_tests(self._model):
@@ -376,6 +381,24 @@ class _CMakeListsVisitor:
             f")"
         )
 
+    def _reflection_preamble(self) -> str:
+        """Promote CMAKE_SYSTEM_NAME/PROCESSOR into cache entries cmake_info() reads.
+
+        The CMake File API's cache object does not reliably carry these two
+        variables for a native (non-cross) build, so cmake_info() cannot
+        read them the way it reads every other resolved value; promoting
+        them here keeps cmake_info() fully File-API-native, with no
+        --trace-expand and no text scraping.
+
+        Returns:
+            The two set(... CACHE INTERNAL ...) lines, always emitted.
+        """
+        return (
+            f'set({CMAKELESS_SYSTEM_NAME_VAR} "${{CMAKE_SYSTEM_NAME}}" CACHE INTERNAL "")\n'
+            f'set({CMAKELESS_SYSTEM_PROCESSOR_VAR} "${{CMAKE_SYSTEM_PROCESSOR}}" '
+            f'CACHE INTERNAL "")'
+        )
+
     def _default_build_config(self) -> list[str]:
         """Set the default build type and LTO for the plain (no-preset) build.
 
@@ -450,6 +473,43 @@ class _CMakeListsVisitor:
             f"include(${{CMAKE_CURRENT_SOURCE_DIR}}/{raw_file.as_posix()})"
             for raw_file in self._model.raw_cmake_files
         ]
+
+    def _module_sections(self) -> list[str]:
+        """Emit every project.include()/include_module() call, in declaration order.
+
+        Unlike commands and custom targets, these are never sorted: a
+        reflected include's calls can have order-dependent side effects,
+        and CMakeless cannot know which.
+
+        Returns:
+            One section per include, each followed immediately by its
+            validated calls; empty when none were added.
+        """
+        return [self._visit_module(module) for module in self._model.modules]
+
+    def _visit_module(self, module: ModuleModel) -> str:
+        """Emit one reflected include(), then its validated calls.
+
+        Args:
+            module: The include to emit.
+
+        Returns:
+            The include's complete section text.
+        """
+        script = self._model.source_script
+        verb = "include_module" if module.kind is ModuleKind.NAMED else "include"
+        lines = [f"# project.{verb}() from {script}: {module.reference}"]
+        if module.module_path is not None:
+            lines.append(
+                f"list(APPEND CMAKE_MODULE_PATH "
+                f'"${{CMAKE_CURRENT_SOURCE_DIR}}/{module.module_path.as_posix()}")'
+            )
+        if module.kind is ModuleKind.FILE:
+            lines.append(f"include(${{CMAKE_CURRENT_SOURCE_DIR}}/{module.reference})")
+        else:
+            lines.append(f"include({module.reference})")
+        lines.extend(f"{call.function}({' '.join(call.args)})" for call in module.calls)
+        return "\n".join(lines)
 
     def _visit_dependency(self, dependency: DependencyModel) -> str:
         """Emit one external dependency, dispatching on the package manager.

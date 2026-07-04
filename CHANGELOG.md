@@ -5,6 +5,59 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3]
+
+The interop unlock: reflect a `.cmake` file or a built-in CMake module through
+real CMake, call what it defines, and read the resolved toolchain back after
+configure — closing the last gap the `raw_cmake()` escape hatch never
+covered (see ROADMAP.md Phase 5.3).
+
+### Added
+
+- **`project.include(path)` / `project.include_module(name, module_path=...)`**:
+  reflected includes. Calling either runs real CMake immediately (script
+  mode first, falling back to a throwaway configure for the commands script
+  mode rejects, such as `add_library()`) to discover the include's
+  functions, macros, and variables, and a second, best-effort throwaway
+  configure to discover any targets it declares. This is the one exception
+  to "generating `CMakeLists.txt` never needs CMake": there is no honest way
+  to know what a `.cmake` file defines without running CMake on it, and
+  never a hand-written CMake-language parser.
+- **`CMakeModule.call(function, *args)`**: validates `function` against the
+  include's own discovered functions (case-insensitively, matching CMake)
+  before recording it, raising `ConfigurationError` immediately for an
+  unknown one; calls are emitted right after the `include()`, in the exact
+  order declared, since (unlike `add_command()`/`add_custom_target()`) a
+  CMake function call's side effects can be order-dependent.
+- **`CMakeModule.variable(name)`**: reads one discovered variable's resolved
+  value back into Python, the "read variables from Python" half of the
+  original idea this phase carries over from.
+- **`project.cmake_info()`**: a post-configure read of the resolved
+  generator, compiler ID/version per language, system name/processor, and
+  this project's own declared `project.option()`s' final values (after any
+  `-D` override or preset `options=` override), via the same CMake File API
+  pattern `targets_info()` already uses, no `--trace-expand` and no text
+  scraping.
+- **The curated dependency registry grew from ten packages to over forty**,
+  spanning general-purpose (Abseil, Protobuf, gRPC, OpenSSL, Eigen, ...),
+  gaming (SDL2, GLFW, Vulkan, Dear ImGui, ...), and finance/engineering
+  staples (QuantLib, OpenCV, Ceres, PROJ, ...); the registration mechanism
+  from Phase 5.0 was always the seed, not the ceiling.
+
+### Fixed
+
+- **`targets_info()` (and the new `include()`/`include_module()` target
+  discovery) now sees interface, alias, and imported targets.** CMake's
+  File API codemodel lists targets with no build rules under a separate
+  `abstractTargets` array; only compiled targets were being read before,
+  so an `INTERFACE` library or an imported target never appeared.
+
+### Docs
+
+- `FEATURES.md`, `README.md`, and `docs/index.md` updated for the new
+  surface; `examples/10_cmake_interop` demonstrates all three calls end to
+  end.
+
 ## [0.5.2]
 
 ### Changed

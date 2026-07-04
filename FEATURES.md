@@ -88,7 +88,7 @@ project.dependencies.lock()      # refresh the lockfile explicitly
 
 ### Extending the registry
 
-The ten built-in packages are a seed, not a ceiling. Teach CMakeless about your own packages, once, in either of two ways:
+The built-in registry has grown from ten packages to over forty, spanning general-purpose (Abseil, Protobuf, gRPC, OpenSSL, Eigen, glm, TBB, yaml-cpp, ...), gaming (SDL2, GLFW, Vulkan, Dear ImGui, EnTT, ...), and finance/engineering staples (QuantLib, OpenCV, Ceres, PROJ, ...), and it is still a seed, not a ceiling. Teach CMakeless about your own packages, once, in either of two ways:
 
 ```python
 import cmakeless
@@ -319,6 +319,36 @@ project.add_custom_target(
 **We handle:** `add_custom_command(OUTPUT ...)` and `add_custom_target(...)` wiring, always with `VERBATIM`, so commands are argument lists, never shell strings, portable across cmd/POSIX by construction and immune to injection. Passing a `Command` handle to `add_sources()` or to another command's/custom target's `depends=` keeps the dependency graph validated in Python: a command whose output nothing consumes is a freeze-time warning, not a silent gap.
 
 This is the answer to "does CMakeless support custom build steps": code generation, asset cooking, shader compilation, anything `add_custom_command`/`add_custom_target` would do by hand, now typed and validated.
+
+---
+
+## 11. CMake Reflection and Introspection
+
+**You write:**
+
+```python
+summary = project.include("cmake/print_build_summary.cmake")
+summary.call("print_build_summary", "mygame")           # validated against what the file defines
+version = summary.variable("PROJECT_HELPER_VERSION")    # read a value it defines back into Python
+
+checks = project.include_module("CheckCXXCompilerFlag")  # a real built-in CMake module
+checks.call("check_cxx_compiler_flag", "-Wall", "HAS_WALL")
+```
+
+**We handle:** running real CMake immediately, the moment `include()`/`include_module()` is called, to discover the file's or module's functions, macros, and variables (script mode first, falling back to a throwaway configure for the commands script mode rejects, such as `add_library()`), plus a second, best-effort throwaway configure to discover any targets it declares. `mod.call(...)` is validated against what was actually found, case-insensitively (matching CMake's own function-name rules), before anything is emitted, and its calls land right after the `include()` in the exact order you wrote them, since a CMake function call's side effects can be order-dependent. Never a hand-written CMake-language parser: CMakeless asks CMake, the same way `targets_info()` already does.
+
+This is the one exception to "generating `CMakeLists.txt` never needs CMake": there is no honest way to know what a `.cmake` file defines without running CMake on it, so CMake must be on `PATH` the moment `include()`/`include_module()` is called, not just at build time.
+
+### Reading back the resolved build
+
+```python
+info = project.cmake_info()
+print(info.generator, info.system_name, info.system_processor)
+for compiler in info.compilers:
+    print(compiler.language, compiler.compiler_id, compiler.compiler_version)
+```
+
+**We handle:** a post-configure read of the resolved generator, compiler ID/version per language, system name/processor, and this project's own declared `project.option()`s' final values (after any `-D` override or preset `options=` override has been applied by CMake itself), via the same CMake File API pattern `targets_info()` uses. No `--trace-expand`, no scraping `CMakeCache.txt` by hand.
 
 ---
 

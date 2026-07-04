@@ -25,6 +25,7 @@ from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies
+from cmakeless.api.modules import CMakeModule, check_file_reference, check_module_path
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
 from cmakeless.api.targets import (
@@ -46,12 +47,16 @@ from cmakeless.deps import (
     resolve_dependencies,
 )
 from cmakeless.driver import CMakeDriver, select_generator
-from cmakeless.driver.file_api import TargetInfo
+from cmakeless.driver.cmake_driver import resolve_tool
+from cmakeless.driver.file_api import CMakeInfo, TargetInfo
+from cmakeless.driver.reflection import reflect, reflect_work_dir
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
     BUILD_TYPE_BY_OPTIMIZE,
     InstallModel,
+    ModuleKind,
+    OptionType,
     PresetModel,
     ProjectModel,
     PythonModuleModel,
@@ -175,6 +180,7 @@ class Project:
         self._subprojects: list[tuple[Path, Project]] = []
         self._commands: list[Command] = []
         self._custom_targets: list[CustomTarget] = []
+        self._modules: list[CMakeModule] = []
 
     @property
     def name(self) -> str:
@@ -539,6 +545,106 @@ class Project:
         self._custom_targets.append(target)
         return target
 
+    def include(self, path: str | Path) -> CMakeModule:
+        """Include a local CMake file, reflected via real CMake immediately.
+
+        Discovers the file's functions, variables, and targets by running
+        real CMake (never a hand-written CMake-language parser), so
+        mod.call(...) can validate against what the file actually defines
+        before any CMakeLists.txt is emitted. This is the one exception to
+        "generating CMakeLists.txt never needs CMake": reflection needs the
+        real tool, so CMake must be on PATH when this is called (the same
+        way targets_info() already needs it, just earlier in the script).
+
+        Args:
+            path: The CMake file to include, relative to the project root,
+                for example "cmake/print_build_summary.cmake".
+
+        Returns:
+            The CMakeModule handle: read .functions/.variables/.targets,
+            call mod.call(...) to invoke a discovered function or macro, or
+            mod.variable(...) to read a discovered variable's value.
+
+        Raises:
+            ConfigurationError: When the path is not relative, escapes the
+                project root, or does not exist.
+            ToolchainError: When cmake is not on PATH.
+            CMakeError: When reflecting the file fails.
+        """
+        relative = Path(path)
+        check_file_reference(relative, root=self._root, script=self._source_script)
+        reflection = reflect(
+            resolve_tool("cmake"),
+            work_dir=self._reflect_work_dir(relative.as_posix()),
+            reference=str(self._root / relative),
+            is_file=True,
+            module_path=None,
+            cpp_std=self._cpp_std,
+        )
+        module = CMakeModule(
+            kind=ModuleKind.FILE,
+            reference=relative.as_posix(),
+            module_path=None,
+            reflection=reflection,
+            script=self._source_script,
+        )
+        self._modules.append(module)
+        return module
+
+    def include_module(self, name: str, *, module_path: str | Path | None = None) -> CMakeModule:
+        """Include a named CMake module, reflected via real CMake immediately.
+
+        Args:
+            name: The module name, for example "CheckCXXCompilerFlag" (a
+                built-in CMake module) or a project-supplied one findable
+                via module_path.
+            module_path: An extra directory to search for the module,
+                relative to the project root, or None to use only CMake's
+                own built-in modules.
+
+        Returns:
+            The CMakeModule handle, as project.include() returns.
+
+        Raises:
+            ConfigurationError: When module_path is set but not relative,
+                escapes the project root, or does not exist.
+            ToolchainError: When cmake is not on PATH.
+            CMakeError: When reflecting the module fails.
+        """
+        relative_module_path = Path(module_path) if module_path is not None else None
+        if relative_module_path is not None:
+            check_module_path(relative_module_path, root=self._root, script=self._source_script)
+        reflection = reflect(
+            resolve_tool("cmake"),
+            work_dir=self._reflect_work_dir(name),
+            reference=name,
+            is_file=False,
+            module_path=(self._root / relative_module_path)
+            if relative_module_path is not None
+            else None,
+            cpp_std=self._cpp_std,
+        )
+        module = CMakeModule(
+            kind=ModuleKind.NAMED,
+            reference=name,
+            module_path=relative_module_path,
+            reflection=reflection,
+            script=self._source_script,
+        )
+        self._modules.append(module)
+        return module
+
+    def _reflect_work_dir(self, key: str) -> Path:
+        """A unique scratch directory for one include()/include_module() reflection.
+
+        Args:
+            key: The reference being reflected (a path or a module name).
+
+        Returns:
+            A directory under build/, so project.clean() reclaims it too.
+        """
+        return reflect_work_dir(self._build_dir(), key)
+
     def freeze(self) -> ProjectModel:
         """Freeze the mutable description into the validated, immutable model.
 
@@ -599,6 +705,35 @@ class Project:
         driver = self._prepare().driver
         driver.configure()
         return driver.targets_info()
+
+    def cmake_info(self) -> CMakeInfo:
+        """Configure the build and read the resolved generator, compilers, and options.
+
+        Uses the same CMake File API pattern targets_info() does: no
+        --trace-expand, no scraping.
+
+        Returns:
+            The resolved generator, compiler ID/version per language,
+            system name/processor, and this project's own declared
+            options' final values (after any -D override or preset
+            options= override has been applied by CMake itself).
+
+        Raises:
+            ConfigurationError: When the description is invalid.
+            DependencyError: When a package cannot be resolved.
+            ToolchainError: When cmake or the package manager is missing.
+            CMakeError: When the configure step fails.
+        """
+        prepared = self._prepare()
+        prepared.driver.configure()
+        raw = prepared.driver.cmake_info()
+        declared = {option.name: option.value_type for option in prepared.model.options}
+        coerced = tuple(
+            (name, _coerce_option_value(value, declared[name]))
+            for name, value in raw.options
+            if name in declared and isinstance(value, str)
+        )
+        return dataclasses.replace(raw, options=coerced)
 
     def configure_presets(self) -> None:
         """Configure every registered preset, concurrently where it pays.
@@ -895,6 +1030,7 @@ class Project:
             options=tuple(option._freeze() for option in self._options),
             commands=tuple(command._freeze() for command in self._commands),
             custom_targets=tuple(target._freeze() for target in self._custom_targets),
+            modules=tuple(module._freeze() for module in self._modules),
             toolchains=tuple(toolchain._freeze() for toolchain in self._toolchains),
             installs=tuple(
                 InstallModel(target=name, headers=headers) for name, headers in self._installs
@@ -1046,6 +1182,26 @@ def _find_built_module(build_dir: Path, name: str) -> Path | None:
         if candidate.is_file() and candidate.suffix in _MODULE_SUFFIXES:
             return candidate
     return None
+
+
+def _coerce_option_value(value: str, value_type: OptionType) -> bool | int | str:
+    """Coerce a raw CMake cache-entry string into project.option()'s declared type.
+
+    Args:
+        value: The cache entry's value, as CMake's File API reported it (a
+            plain string, matching CMakeCache.txt's own storage format).
+        value_type: The option's declared type.
+
+    Returns:
+        A bool for BOOL options (CMake's ON/TRUE/Y/YES/1-style truthy
+        strings, case-insensitively), an int for INT options, or the raw
+        string for STRING options.
+    """
+    if value_type is OptionType.BOOL:
+        return value.strip().upper() in {"ON", "TRUE", "Y", "YES", "1"}
+    if value_type is OptionType.INT:
+        return int(value)
+    return value
 
 
 def _implicit_sanitize_preset_name(sanitizers: tuple[str, ...]) -> str:

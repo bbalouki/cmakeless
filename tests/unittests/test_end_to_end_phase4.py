@@ -2,11 +2,11 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-"""End-to-end Phase 4 flows against the real CMake engine.
+"""End-to-end File API flows against the real CMake engine.
 
-targets_info() only needs CMake; the Python-module build additionally fetches
-a binding backend, so it is double-gated behind CMAKELESS_NETWORK_TESTS=1 the
-same way the dependency end-to-end tests are.
+targets_info() and cmake_info() only need CMake; the Python-module build
+additionally fetches a binding backend, so it is double-gated behind
+CMAKELESS_NETWORK_TESTS=1 the same way the dependency end-to-end tests are.
 """
 
 from __future__ import annotations
@@ -53,6 +53,36 @@ def test_targets_info_returns_configured_targets(tmp_path: Path) -> None:
     hello = next(info for info in infos if info.name == "hello")
     assert hello.type == "EXECUTABLE"
     assert any(source.name == "main.cpp" for source in hello.sources)
+
+
+@requires_cmake
+def test_cmake_info_reports_the_resolved_generator_and_compiler(tmp_path: Path) -> None:
+    """Cmake info reports the resolved generator and compiler."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.cpp").write_text(
+        "auto main() -> int { return 0; }\n", encoding="utf-8"
+    )
+    project = Project("hello", version="1.0.0", cpp_std=20, root=tmp_path)
+    project.add_executable("hello", sources=["src/main.cpp"])
+    info = project.cmake_info()
+    assert info.generator
+    assert info.system_name
+    assert info.system_processor
+    assert any(compiler.language == "CXX" for compiler in info.compilers)
+
+
+@requires_cmake
+def test_cmake_info_reports_an_options_final_resolved_value(tmp_path: Path) -> None:
+    """Cmake info reports a declared option's final resolved value, coerced to its type."""
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "main.cpp").write_text(
+        "auto main() -> int { return 0; }\n", encoding="utf-8"
+    )
+    project = Project("hello", version="1.0.0", cpp_std=20, root=tmp_path)
+    project.add_executable("hello", sources=["src/main.cpp"])
+    project.option("HELLO_BUILD_EXTRAS", default=False)
+    info = project.cmake_info()
+    assert ("HELLO_BUILD_EXTRAS", False) in info.options
 
 
 @requires_cmake_and_network

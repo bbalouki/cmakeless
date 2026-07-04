@@ -15,16 +15,28 @@ from cmakeless.deps.provider import (
     ResolutionContext,
     collect_tree_dependencies,
 )
+from cmakeless.deps.registry import (
+    PLUGIN_ENTRY_POINT_GROUP,
+    RegistryEntry,
+    known_packages,
+    registry_entry,
+)
+from cmakeless.deps.registry import register as register_dependency
 from cmakeless.deps.resolver import provider_for, resolve_dependencies
 
 __all__ = [
     "LOCKFILE_NAME",
+    "PLUGIN_ENTRY_POINT_GROUP",
     "DependencyProvider",
     "LockData",
     "LockedPackage",
+    "RegistryEntry",
     "ResolutionContext",
     "collect_tree_dependencies",
+    "known_packages",
     "provider_for",
     "read_lockfile",
+    "register_dependency",
+    "registry_entry",
     "resolve_dependencies",
 ]

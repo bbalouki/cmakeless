@@ -14,6 +14,7 @@ so `from cmakeless.api import ...` reaches the whole layer-1 surface.
 
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies, Dependency
+from cmakeless.api.modules import CMakeModule
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
 from cmakeless.api.project import Project
@@ -31,6 +32,7 @@ from cmakeless.observer import (
 
 __all__ = [
     "BuildEvent",
+    "CMakeModule",
     "Command",
     "ConsoleObserver",
     "CustomTarget",

@@ -4,7 +4,7 @@
 
 cmake_minimum_required(VERSION 3.25)
 
-project(demo
+project(cmake_interop_demo
     VERSION 1.0.0
     LANGUAGES CXX
 )
@@ -12,10 +12,17 @@ project(demo
 set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
 set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
 
-add_executable(tool)
+# project.include() from cmakelessfile.py: cmake/print_summary.cmake
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/print_summary.cmake)
+print_summary(hello)
 
-target_sources(tool PRIVATE
-    main.cpp
+# project.include_module() from cmakelessfile.py: CheckCXXCompilerFlag
+include(CheckCXXCompilerFlag)
+
+add_executable(app)
+
+target_sources(app PRIVATE
+    src/main.cpp
 )
 
-target_compile_features(tool PRIVATE cxx_std_20)
+target_compile_features(app PRIVATE cxx_std_17)

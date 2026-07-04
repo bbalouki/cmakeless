@@ -44,7 +44,7 @@ jobs:
 
   pypi-publish:
     name: Publish to PyPI
-    needs: build
+    needs: [build]
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -63,7 +63,7 @@ jobs:
 
   github-release:
     name: Create the GitHub Release
-    needs: build
+    needs: [pypi-publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
