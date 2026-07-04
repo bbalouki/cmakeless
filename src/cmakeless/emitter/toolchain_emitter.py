@@ -4,9 +4,14 @@
 
 """Generated toolchain files for the simple cross-compilation cases.
 
-Wrapped toolchain files (Toolchain.from_file) are referenced in place and
-never rewritten; only toolchains described by fields (compiler, system name)
-get a file generated here, under cmake/toolchains/.
+A toolchain with no ``file`` and no ``variables`` is described entirely by
+fields (compiler, system name) and generated here, under cmake/toolchains/. A
+wrapped toolchain file (Toolchain.from_file) with no ``variables`` is
+referenced in place and never rewritten. A wrapped file *with* variables (the
+curated gallery's android()/emscripten(), which need cache variables like
+ANDROID_ABI seeded before the SDK's own toolchain file runs) still gets a
+small generated wrapper here: the variables, then an include() of the
+original file.
 """
 
 from __future__ import annotations
@@ -15,10 +20,11 @@ from cmakeless.model.nodes import ToolchainModel
 
 
 def emit_toolchain(toolchain: ToolchainModel, *, tool_version: str, source_script: str) -> str:
-    """Generate one simple toolchain file.
+    """Generate one toolchain file: fields, variables, and/or a wrapped include.
 
     Args:
-        toolchain: The generated toolchain to emit; its ``file`` is None.
+        toolchain: The toolchain to emit; only reached when it has no
+            ``file`` or has ``variables`` (see emit_tree()'s wiring).
         tool_version: The cmakeless version stamped into the header.
         source_script: The build description named in the header.
 
@@ -34,6 +40,7 @@ def emit_toolchain(toolchain: ToolchainModel, *, tool_version: str, source_scrip
         lines.append(f"set(CMAKE_SYSTEM_NAME {toolchain.system_name})")
     if toolchain.system_processor is not None:
         lines.append(f"set(CMAKE_SYSTEM_PROCESSOR {toolchain.system_processor})")
+    lines.extend(f'set({name} "{value}")' for name, value in toolchain.variables)
     if toolchain.compiler is not None:
         lines.append(f"set(CMAKE_CXX_COMPILER {toolchain.compiler})")
     if toolchain.system_name is not None:
@@ -47,4 +54,11 @@ def emit_toolchain(toolchain: ToolchainModel, *, tool_version: str, source_scrip
                 "set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)",
             )
         )
+    if toolchain.file is not None:
+        include_path = (
+            toolchain.file.as_posix()
+            if toolchain.file.is_absolute()
+            else f"${{CMAKE_CURRENT_SOURCE_DIR}}/{toolchain.file.as_posix()}"
+        )
+        lines.append(f'include("{include_path}")')
     return "\n".join(lines) + "\n"
