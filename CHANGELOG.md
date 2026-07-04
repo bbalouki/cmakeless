@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [0.5.0]
+
+The language unlock: options, typed conditions, and custom build steps —
+the last things standing between "a nicer way to write the easy 90% of
+CMake" and the full power of CMake, in Python, with types and a debugger.
+
 ### Changed
 
 - **Breaking: the default build description filename is now `cmakelessfile.py`**
@@ -17,6 +23,69 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
   way `Dockerfile`/`Jenkinsfile` do, with no such collision. Since the
   project has not published a stable release yet, there is no migration
   path: rename `build.py` to `cmakelessfile.py` in existing projects.
+- **Breaking: the Python floor is now 3.12** (was 3.13). IMPROVEMENTS.md
+  originally suggested 3.10 for the widest possible reach, but the codebase
+  already uses PEP 695 syntax (`type X = ...` aliases, `def f[T](...)`
+  generics) introduced in 3.12; keeping the floor at 3.12 avoids rewriting
+  that syntax while still covering most current LTS/CI base images. CI now
+  tests 3.12 and 3.13 across all three OSes.
+- **Breaking: `target.compile_options(..., when=...)` now accepts a `When`
+  condition** (see Added, below), or the pre-existing `"gcc|clang"`-style
+  compiler string, kept as sugar. The underlying model field is
+  `when: WhenModel | None`, replacing `compilers: tuple[str, ...]`.
+- **Breaking: `DependencyProvider.pre_configure()`/`.toolchain_args()` now
+  require a `build_type` argument.** Fixes the Conan adapter silently
+  installing Release dependencies under a Debug preset (IMPROVEMENTS §2.2):
+  the active preset's (or `project.optimize`'s) build type now flows all the
+  way through to `conan install -s build_type=...`.
+- ccache/sccache are now wired for Unix Makefiles and Ninja Multi-Config too,
+  not just Ninja (IMPROVEMENTS §2.6); new generator shorthands `"ninja-multi"`,
+  `"make"`, and `"xcode"` join `"ninja"` and `"vs"`.
+- `find_package(Python ...)` now requests the interpreter actually running
+  CMakeless, not a hard-coded `3.13` (IMPROVEMENTS §2.5).
+
+### Added
+
+- **`When` conditions** (SUGGESTIONS §2.2): `When.platform(...)`,
+  `When.compiler(...)`, `When.config(...)`, and `When.option(...)`,
+  composable with `&`/`|`/`~`, rendered as CMake generator expressions.
+  Wired into `define()`, `compile_options()`, and the new `link_options()`.
+- **Project options** (IMPROVEMENTS §2.3, SUGGESTIONS §2.1):
+  `project.option(name, default=..., help=..., type=...)` declares a typed
+  CMake cache variable, discoverable with the new `cmakeless options` verb
+  (lists every declared option without building anything) and usable in
+  `When.option(...)`.
+- **Expanded presets**: `Preset(options={...}, env={...}, inherits="base")`
+  so a preset can set cache-variable overrides, an environment block, and
+  inherit from another preset (IMPROVEMENTS §2.3), validated the same way
+  toolchain references already are.
+- **Custom build steps** (SUGGESTIONS §1): `project.add_command(output=[...],
+  command=[...], depends=[...], comment=...)` for code-generation and
+  asset-cooking steps, and `project.add_custom_target(name, command=[...],
+  depends=[...])` for always-run targets (lint, docs). A command's output
+  feeds a target's `add_sources()` directly; an output nothing consumes is a
+  soft freeze-time warning, not a build error.
+- **Target vocabulary completion** (IMPROVEMENTS §2.4): `target.include_dirs(...)`
+  (private include directories on any target kind, closing the gap next to
+  `Library(public_headers=...)`), `target.link_options(...)` (mirrors
+  `compile_options()`), a per-target `cpp_std` override, and
+  `target.pch = [...]`/`target.unity = True` for precompiled headers and
+  unity builds — retiring the `raw_cmake()` workaround the escape hatch's
+  own docstring used to demonstrate.
+- **An extensible dependency registry** (IMPROVEMENTS §2.1):
+  `cmakeless.register_dependency(name, RegistryEntry(...))` registers or
+  overrides one package, and installed plugin distributions can contribute
+  entries via the `"cmakeless.registry"` entry-point group. The curated list
+  itself stays the same eleven packages for now; growing it from vcpkg/Conan
+  metadata at scale is future work (see ROADMAP.md sub-phase 4.4).
+
+### Docs
+
+- `ROADMAP.md`'s Phase 4 is now followed by sub-phases 4.1–4.3 (this
+  release) and 4.4–4.6 (planned: the interop unlock, the portability
+  release, and documentation/quality debt — see ROADMAP.md for what each
+  covers).
+- `FEATURES.md` and `README.md` updated throughout for the new surface.
 
 ## [0.4.1]
 
@@ -40,7 +109,7 @@ makes the interop and quality-of-life work land in a real project.
   `target.raw_cmake("...")` emits a verbatim CMake snippet after the target is
   defined, and `project.raw_cmake_file("cmake/extra.cmake")` includes an existing
   CMake file near the top of the generated `CMakeLists.txt`. Both are fenced with
-  a comment naming their `build.py` origin; `raw_cmake_file` paths are validated
+  a comment naming their `cmakelessfile.py` origin; `raw_cmake_file` paths are validated
   to exist inside the project root at freeze time.
 - **Project-level `optimize` and `lto`** (FEATURES section 3): `project.optimize =
   "release"` and `project.lto = True` set the default (no-preset) build type and
@@ -57,7 +126,7 @@ makes the interop and quality-of-life work land in a real project.
   a concrete end-to-end workflow, a feature tour, and an ecosystem comparison.
 - Reworked `examples/07_python_module` into a real pybind11 module (a `Vec2`
   type with operators, properties, and C++-to-Python exception translation),
-  and added `examples/08_capstone`: one `build.py` shipping a library as a CLI,
+  and added `examples/08_capstone`: one `cmakelessfile.py` shipping a library as a CLI,
   a GoogleTest suite, and a pybind11 module, with presets, install/export, CPack,
   and a live Observer.
 - Corrected the project URLs to `github.com/bbalouki/cmakeless`.
@@ -101,7 +170,7 @@ concurrently.
 
 Quality of life: everything that turns "it builds" into "it ships". A
 library author can build, test (sanitized), install, and package a release
-on CI using only `build.py`.
+on CI using only `cmakelessfile.py`.
 
 ### Added
 
@@ -196,7 +265,7 @@ hand-written CMake.
 - **Glob sources**: patterns like `src/*.cpp` are expanded and validated in
   Python; a pattern matching zero files is a `ConfigurationError`.
 - **Subprojects**: `project.add_subproject(path)` composes self-contained
-  child projects (their own `build.py`); every generated file is standalone.
+  child projects (their own `cmakelessfile.py`); every generated file is standalone.
 - **Driver**: generator selection ("ninja", "vs", or any raw CMake `-G`
   name) and error translation that parses CMake, GCC/Clang, MSVC, and linker
   failures into structured diagnostics on `CMakeError`.
@@ -218,7 +287,7 @@ Phase 0: the walking skeleton through all four layers.
   emits `CMakeLists.txt`, and drives CMake configure + build.
 - Freeze-time validation: missing source files are reported as
   `ConfigurationError` before CMake ever runs.
-- `cmakeless build` CLI and `python -m cmakeless`; `python build.py` works as
+- `cmakeless build` CLI and `python -m cmakeless`; `python cmakelessfile.py` works as
   a first-class entry point.
 - Exception hierarchy: `CmakelessError` with `ConfigurationError`,
   `DependencyError`, `ToolchainError`, and `CMakeError`.
