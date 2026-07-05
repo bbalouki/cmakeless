@@ -3,14 +3,14 @@
 [![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
 [![codecov](https://codecov.io/github/bbalouki/cmakeless/graph/badge.svg?token=BZ4416XX4I)](https://codecov.io/github/bbalouki/cmakeless)
+[![PyPI Downloads](https://static.pepy.tech/badge/cmakeless)](https://pepy.tech/projects/cmakeless)
 [![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/)
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
-[![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
-[![C++20](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/std/the-standard)
 [![CMake](https://img.shields.io/badge/CMake-3.25+-blue.svg)](https://cmake.org/)
+[![C++20](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/std/the-standard)
+[![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
+[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-grey?logo=Linkedin&logoColor=white)](https://www.linkedin.com/in/bertin-balouki-s-15b17a1a6)
-<!-- [![PyPI Downloads](https://static.pepy.tech/badge/cmakeless)](https://pepy.tech/projects/cmakeless) -->
 
 
 **CMakeless is a pure-Python frontend for CMake: a modern CMake alternative that lets you describe C++ builds in real Python instead of the CMake language, then generates clean, human-readable `CMakeLists.txt` and drives CMake for you.**
