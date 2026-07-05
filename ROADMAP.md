@@ -6,18 +6,18 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 
 ## Timeline at a Glance
 
-| Phase | Release | Theme |
-|---|---|---|
-| 0 | none | Walking skeleton | 
-| 1 | v0.1 | MVP: real projects build |
-| 2 | v0.2 | Dependencies |
-| 3 | v0.3 | Quality of life: tests, presets, install |
-| 4 | v0.4 | Interop and parallelism |
-| 5.0–5.2 | v0.5 | The language unlock: mechanical fixes, options and conditions, custom build steps |
-| 5.3 | v0.5.3 | The interop unlock |
-| 5.4 | v0.5.4 | The portability release |
-| 5.5 | v0.5.5 | Documentation and quality debt |
-| 5.6 | v1.0 | Stability promise |
+| Phase | Release | Theme                                                                             |
+| ----- | ------- | --------------------------------------------------------------------------------- |
+| 0     | none    | Walking skeleton                                                                  |
+| 1     | v0.1    | MVP: real projects build                                                          |
+| 2     | v0.2    | Dependencies                                                                      |
+| 3     | v0.3    | Quality of life: tests, presets, install                                          |
+| 4     | v0.4    | Interop and parallelism                                                           |
+| 5–5.2 | v0.5    | The language unlock: mechanical fixes, options and conditions, custom build steps |
+| 5.3   | v0.5.3  | The interop unlock                                                                |
+| 5.4   | v0.5.4  | The portability release                                                           |
+| 5.5   | v0.5.5  | Documentation and quality debt                                                    |
+| 5.6   | v1.0    | Stability promise                                                                 |
 
 Scope is the fixed variable, order is the promise.
 
@@ -35,7 +35,7 @@ The thinnest possible slice through all four layers, proving the architecture be
 
 **Exit criterion:** a newcomer clones the repo, writes a 5-line `cmakelessfile.py`, and gets a running binary on all three OSes.
 
-## Phase 1: MVP, v0.1 
+## Phase 1: MVP, v0.1
 
 The features without which nothing is real. After this phase, a small self-contained project (no external deps) uses CMakeless instead of hand-written CMake.
 
@@ -50,7 +50,7 @@ The features without which nothing is real. After this phase, a small self-conta
 
 **Exit criterion:** the CMakeless examples and at least one real third-party hobby project build with zero raw CMake written.
 
-## Phase 2: Dependencies, v0.2 
+## Phase 2: Dependencies, v0.2
 
 The phase that decides adoption, sequenced by backend difficulty:
 
@@ -63,7 +63,7 @@ The phase that decides adoption, sequenced by backend difficulty:
 
 **Exit criterion:** `app.depends("fmt/10.2.1")` works on all three OSes through at least three of the four backends, and resolution is reproducible from the lockfile alone.
 
-## Phase 3: Quality of Life, v0.3 
+## Phase 3: Quality of Life, v0.3
 
 Everything that turns "it builds" into "it ships":
 
@@ -76,7 +76,7 @@ Everything that turns "it builds" into "it ships":
 
 **Exit criterion:** a library author can build, test (sanitized), install, and package a release on CI using only `cmakelessfile.py`.
 
-## Phase 4: Interop and Parallelism, v0.4 
+## Phase 4: Interop and Parallelism, v0.4
 
 The differentiators:
 
@@ -146,7 +146,7 @@ The industries-readiness work (gaming, finance, engineering, aerospace):
 
 **Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial — vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
 
-## Phase 5.5: Documentation and Quality Debt, v0.5.5
+## Phase 5.5: Documentation and Quality Debt, v0.5.5 (beta)
 
 Not yet built; the adoption-friction work that a growing user base will start to feel:
 
@@ -155,7 +155,7 @@ Not yet built; the adoption-friction work that a growing user base will start to
 - An error-message golden-file test suite, so a regression in diagnostic quality fails CI the same way a regression in emitted CMake does.
 - Real, CI-sourced benchmark numbers on all three OSes, free-threaded rows included (today's benchmark table was taken on one machine).
 
-## Phase 5.6: v1.0, the Stability Promise, v1.0.0
+## Phase 5.6: v1.0, the Stability Promise, v1.0.0 (Production/Stable)
 
 v1.0 is a social contract, not a feature list. Declaring it requires:
 
@@ -167,7 +167,7 @@ v1.0 is a social contract, not a feature list. Declaring it requires:
 
 ## Beyond 1.0 (unscheduled, honestly)
 
-Ideas we are deliberately *not* promising dates for: a `cmake-to-cmakeless` importer for existing CMakeLists, workspace/monorepo support, a public emitter API for alternative outputs, remote build integration.
+Ideas we are deliberately _not_ promising dates for: a `cmake-to-cmakeless` importer for existing CMakeLists, workspace/monorepo support, a public emitter API for alternative outputs, remote build integration.
 
 ## Non-Goals, Permanently
 

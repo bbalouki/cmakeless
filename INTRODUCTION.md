@@ -1,6 +1,6 @@
 # CMakeless: Write Your C++ Builds in Python. Keep CMake. Lose the Pain.
 
-> *"CMake gets the job done. Nobody said you have to enjoy it."*
+> _"CMake gets the job done. Nobody said you have to enjoy it."_
 > Every C++ developer, at some point, silently.
 
 ## The 11 PM Ritual
@@ -19,9 +19,9 @@ That fear, the learned helplessness in front of your own build script, is not a 
 
 Let us be honest and precise, because CMake deserves both.
 
-The CMake *engine* is a marvel. It configures builds for every compiler, every platform, every IDE that matters. It is the de facto standard of the C++ world, the thing vcpkg, Conan, CLion, Visual Studio, and thousands of libraries all agree on. Nobody sane wants to rebuild that.
+The CMake _engine_ is a marvel. It configures builds for every compiler, every platform, every IDE that matters. It is the de facto standard of the C++ world, the thing vcpkg, Conan, CLion, Visual Studio, and thousands of libraries all agree on. Nobody sane wants to rebuild that.
 
-The CMake *language* is another story. It is the single most criticized part of the C++ toolchain, and the complaints have been remarkably consistent for over a decade:
+The CMake _language_ is another story. It is the single most criticized part of the C++ toolchain, and the complaints have been remarkably consistent for over a decade:
 
 **Everything is a string.** There are no integers, no booleans, no real lists. A "list" is a string with semicolons in it, which means `"a b c"` and `a b c` are entirely different things when passed to a function, and you discover the difference at configure time, or worse, at link time. The community has produced [entire articles just about when to quote a variable](https://crascit.com/2022/01/25/quoting-in-cmake/), and the [official documentation itself warns about legacy quoting behavior](https://cmake.org/cmake/help/latest/manual/cmake-language.7.html) that exists only for backward compatibility.
 
@@ -45,7 +45,7 @@ CMakeless takes the opposite bet:
 
 **CMake is not the enemy. Writing CMake is.**
 
-CMakeless is a pure Python frontend for CMake. You describe your build in real Python, a language with real types, real scoping, real functions, a real debugger, and a real IDE experience. CMakeless validates your description, generates clean, modern, human-readable CMake from it, and drives the CMake engine for you. Every generator, every toolchain, every IDE, and every library that works with CMake keeps working, because underneath, it *is* CMake.
+CMakeless is a pure Python frontend for CMake. You describe your build in real Python, a language with real types, real scoping, real functions, a real debugger, and a real IDE experience. CMakeless validates your description, generates clean, modern, human-readable CMake from it, and drives the CMake engine for you. Every generator, every toolchain, every IDE, and every library that works with CMake keeps working, because underneath, it _is_ CMake.
 
 The name is the promise. Like serverless, where the servers never went away, CMakeless still has CMake at its core. You just never write it again.
 
@@ -87,7 +87,7 @@ Because C++ and Python are already best friends, and have been for years.
 - **Real tooling, for free.** Autocomplete on every function. Type checking on every argument. `breakpoint()` inside your build script. Unit tests for your build logic. Things the CMake language will never have, Python gives you on day one.
 - **It is built for the free-threaded future.** Python's free-threaded interpreter ([PEP 703](https://docs.python.org/3/howto/free-threading-python.html)) is no longer experimental as of Python 3.14. CMakeless is designed for it from the start: dependency resolution, multi-configuration generation, and build orchestration all run in parallel threads, with no GIL in the way, and degrade gracefully on standard builds.
 
-And to be clear about what CMakeless is *not*: tools like scikit-build-core and meson-python solve the reverse problem, using CMake to build Python packages. CMakeless is for C++ projects, full stop. Python is the pen, not the product.
+And to be clear about what CMakeless is _not_: tools like scikit-build-core and meson-python solve the reverse problem, using CMake to build Python packages. CMakeless is for C++ projects, full stop. Python is the pen, not the product.
 
 ## Who This Is For
 

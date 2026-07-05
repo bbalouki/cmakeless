@@ -16,7 +16,7 @@ Here is the thing about this project: **your suffering is your resume.**
 
 Have you ever stared at a CMake error at midnight? Then you know exactly what a good error message would have said, and our error messages need you. Have you ever spent a day integrating a dependency? Then you know what `depends()` must feel like to be worth it. Have you ever taught CMake to a junior and watched the light in their eyes dim? Then you know precisely which cliff our documentation must build stairs over.
 
-There is no gatekeeping here about build-system expertise. The expertise this project runs on is *pain, accurately remembered.* Bring yours.
+There is no gatekeeping here about build-system expertise. The expertise this project runs on is _pain, accurately remembered._ Bring yours.
 
 ## The Contribution Ladder
 
@@ -34,7 +34,7 @@ Start wherever your energy is, every rung matters:
 
 When reviews disagree, these principles win, in this order:
 
-1. **The user's `cmakelessfile.py` is sacred ground.** Every public class, method, and argument must justify its existence against the question: *does this make the common case simpler?* We would rather lack a feature than grow a confusing one. Deleting from the public API is the most prestigious kind of contribution.
+1. **The user's `cmakelessfile.py` is sacred ground.** Every public class, method, and argument must justify its existence against the question: _does this make the common case simpler?_ We would rather lack a feature than grow a confusing one. Deleting from the public API is the most prestigious kind of contribution.
 2. **Errors are a feature, not an apology.** We compete with CMake primarily on how it feels to fail. Any change that makes failure less clear is a regression, even if it makes success faster.
 3. **Generated CMake is our face.** It must read like an expert wrote it by hand. If you would be embarrassed to commit the output to your own repository, it is not done.
 4. **Delegate, never reimplement.** If CMake can do it, we drive CMake to do it. Cleverness that duplicates the engine is complexity we will pay interest on forever.
@@ -59,13 +59,13 @@ You need Python 3.13+ (3.14 free-threaded to exercise the parallel paths) and CM
 - Type hints on everything; the package ships `py.typed` and CI runs mypy strict.
 - Formatting and linting via ruff; CI enforces, so run it locally and forget about style debates forever.
 - Tests live in `tests/unittests/`, mirroring `src/`. Use real implementations; mock only true externals (network, subprocess). Emitter changes come with golden-file tests; deterministic inputs only.
-- Comments explain the *why*, as complete sentences. Well-named code covers the *what*.
+- Comments explain the _why_, as complete sentences. Well-named code covers the _what_.
 - Public API changes require a matching documentation change and a `CHANGELOG.md` entry in the same PR.
 
 **PR flow:**
 
 1. Open or claim an issue first for anything larger than a typo, so nobody duplicates work.
-2. Branch, commit in reviewable slices, and write commit messages that explain *why*.
+2. Branch, commit in reviewable slices, and write commit messages that explain _why_.
 3. CI must be green on Windows, Linux, and macOS. The build tool for a cross-platform language does not get to have a favorite platform.
 4. One approving review merges it. Reviews here critique code, never people.
 

@@ -3,6 +3,7 @@
 [![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
 [![codecov](https://codecov.io/github/bbalouki/cmakeless/graph/badge.svg?token=BZ4416XX4I)](https://codecov.io/github/bbalouki/cmakeless)
+[![PyPI - Status](https://img.shields.io/pypi/status/cmakeless)](https://pypi.org/project/cmakeless/)
 [![PyPI Downloads](https://static.pepy.tech/badge/cmakeless)](https://pepy.tech/projects/cmakeless)
 [![PyPI version](https://img.shields.io/pypi/v/cmakeless.svg)](https://pypi.org/project/cmakeless/)
 [![Python versions](https://img.shields.io/pypi/pyversions/cmakeless.svg)](https://pypi.org/project/cmakeless/)
@@ -11,7 +12,6 @@
 [![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
 [![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-grey?logo=Linkedin&logoColor=white)](https://www.linkedin.com/in/bertin-balouki-s-15b17a1a6)
-
 
 **CMakeless is a pure-Python frontend for CMake: a modern CMake alternative that lets you describe C++ builds in real Python instead of the CMake language, then generates clean, human-readable `CMakeLists.txt` and drives CMake for you.**
 
@@ -27,7 +27,7 @@ project.build()
 ```
 
 ```console
-$ python cmakelessfile.py   # or: cmakeless build
+$ cmakeless build    # or: python cmakelessfile.py
 ```
 
 That is a complete, cross-platform C++ build. No `cmake_minimum_required`, no `PARENT_SCOPE`, no semicolon-lists, no guessing whether a variable needs quotes. If you make a mistake, you get a Python exception with a real message, at author time, not a cryptic configure-time failure three modules deep.
@@ -78,7 +78,7 @@ CMakeless takes the opposite bet:
 
 > **CMake is not the enemy. Writing CMake is.**
 
-Like *serverless*, where the servers never went away, *CMakeless* still has CMake at its core. You just never write it again. Four principles hold the line:
+Like _serverless_, where the servers never went away, _CMakeless_ still has CMake at its core. You just never write it again. Four principles hold the line:
 
 1. **A tiny API you can hold in your head.** A handful of classes: `Project`, `Executable`, `Library`, `Test`, `PythonModule`, `Preset`, `Toolchain`. If you need the documentation open in a permanent tab, we have failed.
 2. **Fail early, fail in Python.** Every error that can be caught before CMake runs is caught before CMake runs, and reported as a normal Python exception with a helpful message.
@@ -94,7 +94,7 @@ Because C++ and Python have been best friends for years.
 - **Real tooling, for free.** Autocomplete on every function. Type checking on every argument. `breakpoint()` inside your build script. Unit tests for your build logic. Things the CMake language will never have.
 - **Built for the free-threaded future.** On a free-threaded interpreter, dependency resolution and multi-preset configuration run in parallel threads with no GIL in the way, and degrade gracefully everywhere else.
 
-To be clear about what CMakeless is *not*: scikit-build-core and meson-python solve the reverse problem, using CMake to build Python packages. CMakeless is for C++ projects, full stop. Python is the pen, not the product.
+To be clear about what CMakeless is _not_: scikit-build-core and meson-python solve the reverse problem, using CMake to build Python packages. CMakeless is for C++ projects, full stop. Python is the pen, not the product.
 
 ---
 
@@ -216,26 +216,26 @@ project.lto = True
 
 ## Feature tour
 
-| You write (Python) | We handle (the CMake ritual you skip) |
-|---|---|
-| `project.add_library(..., kind="shared")` | `add_library`, PIC, `__declspec(dllexport)` export headers, visibility |
-| `app.link(engine)` / `lib.link(dep, public=True)` | the correct `PUBLIC`/`PRIVATE`/`INTERFACE` keyword, every time |
-| `app.depends("fmt/10.2.1")` | `find_package`-then-`FetchContent` fallback, pinned hashes, `cmakeless.lock`, vcpkg/Conan manifests |
-| `project.warnings = "strict"` | `/W4 /permissive-` on MSVC, `-Wall -Wextra -Wconversion ...` on GCC/Clang |
-| `target.sanitize = ["address"]` | sanitizer flags on **both** compile and link, per-compiler, rejected loudly where unsupported |
-| `project.add_test(...)` | GoogleTest/Catch2/doctest fetch, `enable_testing()`, per-case CTest discovery, Windows DLL paths |
-| `project.add_python_module(...)` | pybind11/nanobind fetch, `find_package(Python)`, `<backend>_add_module`, stubs, env install |
-| `project.add_preset(Preset(..., options=, env=, inherits=))` | `CMakePresets.json`, per-preset out-of-source build trees, multi-config support |
-| `app.link_options(...)` / `When.compiler(...)` | `target_link_options`, generator-expression guards, no manual `$<...>` syntax |
-| `project.option(...)` / `cmakeless options` | `option()`/`set(... CACHE ...)`, discoverable without reading the script |
-| `project.add_command(...)` / `add_custom_target(...)` | `add_custom_command(OUTPUT ...)`/`add_custom_target` wiring, argv-safe (`VERBATIM`) |
-| `project.install(...)` / `project.package(...)` | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack |
-| `project.include(...)` / `project.include_module(...)` | reflecting a `.cmake` file or module through real CMake, never a hand-written parser |
-| `Toolchain.arm_none_eabi()` / `.ios()` / `.android(ndk=...)` / `.emscripten()` | a curated cross-compilation toolchain gallery, each validated with a helpful error |
-| `project.lint(clang_tidy=True)` / `target.lint(...)` | `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE`, project-wide with a per-target override |
-| `cmakeless sbom` / `cmakeless vendor` / `--offline` | a CycloneDX/SPDX bill of materials, dependency vendoring, and zero-network builds |
-| `cmakeless doctor` | one command checking cmake/generator/ccache/vcpkg/Conan/network, no project needed |
-| `target.raw_cmake("...")` / `project.raw_cmake_file("...")` | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin |
+| You write (Python)                                                             | We handle (the CMake ritual you skip)                                                               |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `project.add_library(..., kind="shared")`                                      | `add_library`, PIC, `__declspec(dllexport)` export headers, visibility                              |
+| `app.link(engine)` / `lib.link(dep, public=True)`                              | the correct `PUBLIC`/`PRIVATE`/`INTERFACE` keyword, every time                                      |
+| `app.depends("fmt/10.2.1")`                                                    | `find_package`-then-`FetchContent` fallback, pinned hashes, `cmakeless.lock`, vcpkg/Conan manifests |
+| `project.warnings = "strict"`                                                  | `/W4 /permissive-` on MSVC, `-Wall -Wextra -Wconversion ...` on GCC/Clang                           |
+| `target.sanitize = ["address"]`                                                | sanitizer flags on **both** compile and link, per-compiler, rejected loudly where unsupported       |
+| `project.add_test(...)`                                                        | GoogleTest/Catch2/doctest fetch, `enable_testing()`, per-case CTest discovery, Windows DLL paths    |
+| `project.add_python_module(...)`                                               | pybind11/nanobind fetch, `find_package(Python)`, `<backend>_add_module`, stubs, env install         |
+| `project.add_preset(Preset(..., options=, env=, inherits=))`                   | `CMakePresets.json`, per-preset out-of-source build trees, multi-config support                     |
+| `app.link_options(...)` / `When.compiler(...)`                                 | `target_link_options`, generator-expression guards, no manual `$<...>` syntax                       |
+| `project.option(...)` / `cmakeless options`                                    | `option()`/`set(... CACHE ...)`, discoverable without reading the script                            |
+| `project.add_command(...)` / `add_custom_target(...)`                          | `add_custom_command(OUTPUT ...)`/`add_custom_target` wiring, argv-safe (`VERBATIM`)                 |
+| `project.install(...)` / `project.package(...)`                                | `install(TARGETS ...)`, export sets, `Config.cmake`, version files, CPack                           |
+| `project.include(...)` / `project.include_module(...)`                         | reflecting a `.cmake` file or module through real CMake, never a hand-written parser                |
+| `Toolchain.arm_none_eabi()` / `.ios()` / `.android(ndk=...)` / `.emscripten()` | a curated cross-compilation toolchain gallery, each validated with a helpful error                  |
+| `project.lint(clang_tidy=True)` / `target.lint(...)`                           | `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE`, project-wide with a per-target override                |
+| `cmakeless sbom` / `cmakeless vendor` / `--offline`                            | a CycloneDX/SPDX bill of materials, dependency vendoring, and zero-network builds                   |
+| `cmakeless doctor`                                                             | one command checking cmake/generator/ccache/vcpkg/Conan/network, no project needed                  |
+| `target.raw_cmake("...")` / `project.raw_cmake_file("...")`                    | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin                         |
 
 Watch progress through the Observer API, and read the configured build as Python objects via the CMake File API:
 
@@ -258,19 +258,19 @@ info = project.cmake_info()                  # the resolved generator, compiler,
 print(info.generator, info.system_name, [c.compiler_id for c in info.compilers])
 ```
 
-The full before/after catalog lives in [FEATURES.md](FEATURES.md).
+The full before/after catalog lives in [FEATURES](FEATURES.md).
 
 ## Where CMakeless fits in the C++ build ecosystem
 
-| Tool | Approach | You keep the CMake ecosystem? |
-|---|---|---|
-| **CMakeless** | Python frontend that generates CMake | **Yes, entirely** |
-| Raw CMake | Write the CMake language by hand | Yes |
-| Meson / xmake / premake | Replace CMake with a new build system | No |
-| Bazel | Replace with a hermetic build system | No |
-| scikit-build-core / meson-python | Use CMake/Meson to build *Python* packages | Reverse problem |
+| Tool                             | Approach                                   | You keep the CMake ecosystem? |
+| -------------------------------- | ------------------------------------------ | ----------------------------- |
+| **CMakeless**                    | Python frontend that generates CMake       | **Yes, entirely**             |
+| Raw CMake                        | Write the CMake language by hand           | Yes                           |
+| Meson / xmake / premake          | Replace CMake with a new build system      | No                            |
+| Bazel                            | Replace with a hermetic build system       | No                            |
+| scikit-build-core / meson-python | Use CMake/Meson to build _Python_ packages | Reverse problem               |
 
-CMakeless is the only one of these that keeps 100% of the CMake ecosystem while removing the CMake language. If a tool understands CMake, it understands your CMakeless project, because the output *is* CMake.
+CMakeless is the only one of these that keeps 100% of the CMake ecosystem while removing the CMake language. If a tool understands CMake, it understands your CMakeless project, because the output _is_ CMake.
 
 ## What CMakeless will not do
 
@@ -295,7 +295,7 @@ CMake's generator selection is untouched. CMakeless drives whichever generator C
 You can, but the point is you should not have to. It regenerates from your `cmakelessfile.py` on every build, so hand edits get silently overwritten. Use `target.raw_cmake(...)` or `project.raw_cmake_file(...)` for anything the API does not model yet.
 
 **How is this different from scikit-build-core or meson-python?**
-Those solve the reverse problem: using CMake or Meson to build a *Python package* that happens to contain C++. CMakeless is for C++ projects, full stop; Python is the authoring language, not the packaging target.
+Those solve the reverse problem: using CMake or Meson to build a _Python package_ that happens to contain C++. CMakeless is for C++ projects, full stop; Python is the authoring language, not the packaging target.
 
 **Do I need CMake installed?**
 To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all — with one exception: `project.include(...)`/`project.include_module(...)` reflect a `.cmake` file or module by running real CMake the moment they are called, since there is no other honest way to know what it defines. A script that never calls either still generates without CMake.
@@ -310,13 +310,13 @@ Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake 
 
 ## Learn more
 
-- [INTRODUCTION.md](INTRODUCTION.md): the full story of why CMakeless exists.
-- [FEATURES.md](FEATURES.md): everything it does for you, with before/after comparisons against raw CMake.
-- [ARCHITECTURE.md](ARCHITECTURE.md): how it is designed, layer by layer.
-- [ROADMAP.md](ROADMAP.md): where it is going.
-- [docs/benchmarks.md](docs/benchmarks.md): measured free-threaded parallelism wins, with the method.
-- [CONTRIBUTING.md](CONTRIBUTING.md): why your scars from CMake make you exactly the contributor we need.
-- Runnable [examples/](examples/), smallest first, up to a full real-world capstone.
+- [INTRODUCTION](INTRODUCTION.md): The full story of why CMakeless exists.
+- [FEATURES](FEATURES.md): Everything it does for you, with before/after comparisons against raw CMake.
+- [ARCHITECTURE](ARCHITECTURE.md): How it is designed, layer by layer.
+- [ROADMAP](ROADMAP.md): Where it is going.
+- [benchmarks](docs/benchmarks.md): Measured free-threaded parallelism wins, with the method.
+- [CONTRIBUTING](CONTRIBUTING.md): Why your scars from CMake make you exactly the contributor we need.
+- [Examples](examples/): Smallest first, up to a full real-world capstone.
 
 Your build script should be the most boring file in your repository. Let us make it boring together.
 
