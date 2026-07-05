@@ -30,7 +30,7 @@ app.link(engine)
 
 **We handle:** `cmake_minimum_required` and version policy selection, `project()` declaration, `add_library`/`add_executable`, `target_compile_features(... cxx_std_23)`, `target_include_directories` with correct `PUBLIC`/`PRIVATE`/`INTERFACE` visibility and build/install interface generator expressions, position-independent code for shared libraries, and export macros on Windows (`__declspec(dllexport)` header generation).
 
-Glob patterns are expanded *by CMakeless in Python* and validated: a pattern that matches zero files is a `ConfigurationError` at freeze time, not a silent empty target.
+Glob patterns are expanded _by CMakeless in Python_ and validated: a pattern that matches zero files is a `ConfigurationError` at freeze time, not a silent empty target.
 
 ### Linking with intent, not keywords
 
@@ -210,7 +210,7 @@ bindings = project.add_python_module(
 bindings.link(engine)
 ```
 
-**We handle:** locating the Python development headers of the *invoking* interpreter, fetching pybind11 or nanobind (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `pybind11_add_module`/`nanobind_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
+**We handle:** locating the Python development headers of the _invoking_ interpreter, fetching pybind11 or nanobind (pinned in `cmakeless.lock` like any dependency), the module target boilerplate through the backend's own `pybind11_add_module`/`nanobind_add_module`, correct extension suffixes per platform, `.pyi` stub generation (nanobind), and, since CMakeless itself is Python, the module lands importable in your current environment after `project.build()`.
 
 This is the flagship of the whole idea: the tool that builds your C++ is already inside the interpreter that will import it.
 
@@ -268,7 +268,7 @@ project.install(engine, headers=True)
 project.package(formats=["zip", "deb"])    # CPack, when you want it
 ```
 
-**We handle:** `install(TARGETS ...)` with GNUInstallDirs-correct destinations, header set installation, export sets and `Config.cmake` generation so *other* CMake users can `find_package(mygame)` your library, version-compatibility files, and CPack configuration for the requested formats. This paragraph of Python replaces the single most copy-pasted hundred lines in the CMake ecosystem.
+**We handle:** `install(TARGETS ...)` with GNUInstallDirs-correct destinations, header set installation, export sets and `Config.cmake` generation so _other_ CMake users can `find_package(mygame)` your library, version-compatibility files, and CPack configuration for the requested formats. This paragraph of Python replaces the single most copy-pasted hundred lines in the CMake ecosystem.
 
 ---
 
@@ -386,7 +386,7 @@ $ cmakeless vendor                       # download every locked archive
 $ cmakeless build --offline              # resolve from the vendored copies, no network
 ```
 
-**We handle:** `cmakeless sbom` reads `cmakeless.lock`'s already-complete inventory and writes a CycloneDX 1.5 or SPDX 2.3 document, no re-resolution or network needed. `cmakeless vendor` downloads and hash-verifies every fetchable locked package, then records the local copy in `cmakeless.mirror.json`. `--offline` refuses to fetch anything not already available: the default backend resolves from the lockfile, the mirror map, or a registry-curated hash (a clear `DependencyError` names `cmakeless vendor` as the fix otherwise); the vcpkg backend checks its `vcpkg_installed` output is already populated before letting configure run; the Conan backend passes `--build=never` so Conan itself refuses anything not already cached. The mirror substitution only ever changes what a *build* fetches from — `cmakeless.lock` keeps recording the canonical upstream URL, so it stays portable and committable.
+**We handle:** `cmakeless sbom` reads `cmakeless.lock`'s already-complete inventory and writes a CycloneDX 1.5 or SPDX 2.3 document, no re-resolution or network needed. `cmakeless vendor` downloads and hash-verifies every fetchable locked package, then records the local copy in `cmakeless.mirror.json`. `--offline` refuses to fetch anything not already available: the default backend resolves from the lockfile, the mirror map, or a registry-curated hash (a clear `DependencyError` names `cmakeless vendor` as the fix otherwise); the vcpkg backend checks its `vcpkg_installed` output is already populated before letting configure run; the Conan backend passes `--build=never` so Conan itself refuses anything not already cached. The mirror substitution only ever changes what a _build_ fetches from — `cmakeless.lock` keeps recording the canonical upstream URL, so it stays portable and committable.
 
 ### Static analysis, wired in
 

@@ -34,9 +34,9 @@ speedup.
   so the number is reproducible.
 - **`bench_presets.py`** times configuring N presets, each into its own build
   tree, over one shared frozen model. With CMake on `PATH` it runs real
-  configures; without it, it prints a clearly labelled *simulated* run so the
+  configures; without it, it prints a clearly labelled _simulated_ run so the
   harness works anywhere. Build trees are reset before each phase so serial and
   parallel do identical cold work.
 
 Published numbers, with methodology and the interpreter/OS they were taken on,
-live in [docs/benchmarks.md](../docs/benchmarks.md).
+live in [docs/benchmarks](../docs/benchmarks.md).

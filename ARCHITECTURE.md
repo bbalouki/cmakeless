@@ -60,14 +60,14 @@ The separation between **emitter** and **driver** means generation never require
 
 The entire user-facing surface is intentionally small. This is the complete class list, and the intent is that it stays close to this size forever:
 
-| Class | Role |
-|---|---|
-| `Project` | The root object and facade. Owns targets, settings, and the `build()` / `configure()` / `test()` / `install()` verbs. |
-| `Executable` | A runnable target. Created via `project.add_executable(...)`. |
-| `Library` | A static, shared, or header-only library. Created via `project.add_library(...)`. |
-| `Dependency` | An external package requirement, usually created implicitly by `target.depends("fmt/10.2.1")`. |
-| `Toolchain` | A compiler/platform description for cross or pinned builds. |
-| `Preset` | A named bundle of configuration (build type, flags, toolchain) mapped onto CMake presets. |
+| Class        | Role                                                                                                                  |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| `Project`    | The root object and facade. Owns targets, settings, and the `build()` / `configure()` / `test()` / `install()` verbs. |
+| `Executable` | A runnable target. Created via `project.add_executable(...)`.                                                         |
+| `Library`    | A static, shared, or header-only library. Created via `project.add_library(...)`.                                     |
+| `Dependency` | An external package requirement, usually created implicitly by `target.depends("fmt/10.2.1")`.                        |
+| `Toolchain`  | A compiler/platform description for cross or pinned builds.                                                           |
+| `Preset`     | A named bundle of configuration (build type, flags, toolchain) mapped onto CMake presets.                             |
 
 Users never import from `cmakeless.model`, `cmakeless.emitter`, or `cmakeless.driver`. Those are implementation details, and the package layout enforces it: only names re-exported in `cmakeless/__init__.py` are public, and the package ships `py.typed` so every signature is checked by the user's IDE and type checker.
 
@@ -77,7 +77,7 @@ A deliberate non-feature: there is no CMakeless DSL, no YAML dialect, no magic g
 
 The user's build description lives in **`cmakelessfile.py`** at the project root. This is a convention, not a requirement, chosen deliberately over a single-module design ("just one `cmakeless.py` file") for three reasons:
 
-1. `cmakelessfile.py` names the user's *intent* (this file builds the project), the way `conanfile.py` and `noxfile.py` do, while `cmakeless.py` would name our library and shadow the actual `cmakeless` package on the import path, a classic Python footgun.
+1. `cmakelessfile.py` names the user's _intent_ (this file builds the project), the way `conanfile.py` and `noxfile.py` do, while `cmakeless.py` would name our library and shadow the actual `cmakeless` package on the import path, a classic Python footgun.
 2. The library itself must be a package, not a module, because the four layers above need separate, privately importable subpackages to grow without breaking users.
 3. A predictable filename lets the CLI find the build description with zero configuration.
 
@@ -142,7 +142,7 @@ CMakeless uses classic, institutional patterns deliberately, so that any contrib
 
 ## Error Handling: Errors Are a Feature
 
-The single biggest quality-of-life difference over raw CMake is *when* and *how* things fail. The rules:
+The single biggest quality-of-life difference over raw CMake is _when_ and _how_ things fail. The rules:
 
 1. **Validate at freeze time.** Unknown source files, dependency cycles, linking a test-only target into a release binary, a typo in a C++ standard: all reported before CMake is ever invoked, with the offending `cmakelessfile.py` line in the traceback.
 2. **Translate at run time.** When CMake or the compiler does fail, the driver parses the output and raises a structured exception instead of dumping a wall of text.
@@ -171,7 +171,7 @@ Parallelism is applied only where wall-clock time actually lives:
 
 On a standard GIL build everything still works; the executor degrades to interleaved I/O concurrency, which is where most of the benefit is anyway. Detection is a single startup check (`sys._is_gil_enabled()`), never a fork in the codebase.
 
-The compile itself is *not* our parallelism: that belongs to Ninja and the compiler, and per goal 4 we delegate it.
+The compile itself is _not_ our parallelism: that belongs to Ninja and the compiler, and per goal 4 we delegate it.
 
 ## What the Emitter Must Guarantee
 

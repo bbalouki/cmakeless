@@ -25,11 +25,11 @@ Taken on Windows 11, CMake 3.x with the Ninja generator. The free-threaded
 rows are left for CI to fill on a `3.14t` interpreter; the standard-build rows
 already show that most of the win is I/O overlap the GIL does not block.
 
-| Benchmark | Interpreter | GIL | Serial | Parallel | Speedup |
-|---|---|---|---|---|---|
-| Resolution (16 pkgs) | CPython 3.13 | on | 0.807s | 0.064s | 12.53x |
-| Resolution (16 pkgs) | CPython 3.14t | off | _to fill_ | _to fill_ | _to fill_ |
-| Multi-preset configure (6) | CPython 3.13 | on | 15.645s | 5.439s | 2.88x |
+| Benchmark                  | Interpreter   | GIL | Serial    | Parallel  | Speedup   |
+| -------------------------- | ------------- | --- | --------- | --------- | --------- |
+| Resolution (16 pkgs)       | CPython 3.13  | on  | 0.807s    | 0.064s    | 12.53x    |
+| Resolution (16 pkgs)       | CPython 3.14t | off | _to fill_ | _to fill_ | _to fill_ |
+| Multi-preset configure (6) | CPython 3.13  | on  | 15.645s   | 5.439s    | 2.88x     |
 | Multi-preset configure (6) | CPython 3.14t | off | _to fill_ | _to fill_ | _to fill_ |
 
 ## Reading the numbers

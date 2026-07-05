@@ -16,7 +16,7 @@ one-command environment check (see ROADMAP.md Phase 5.4).
 
 - **A curated `Toolchain` gallery**: `Toolchain.arm_none_eabi(cpu=...)` (bare-metal
   ARM), `Toolchain.ios(platform=..., deployment_target=...)`, `Toolchain.android(ndk=...,
-  abi=..., platform=...)`, and `Toolchain.emscripten(emsdk=...)`, each building on the
+abi=..., platform=...)`, and `Toolchain.emscripten(emsdk=...)`, each building on the
   existing `Toolchain` primitives (a compiler/system-name description, or a
   wrapped SDK toolchain file) with the project's signature helpful errors:
   `abi`/`platform` enum typos are rejected immediately, at the call site;
@@ -185,9 +185,9 @@ CMake" and the full power of CMake, in Python, with types and a debugger.
   inherit from another preset (IMPROVEMENTS §2.3), validated the same way
   toolchain references already are.
 - **Custom build steps** (SUGGESTIONS §1): `project.add_command(output=[...],
-  command=[...], depends=[...], comment=...)` for code-generation and
+command=[...], depends=[...], comment=...)` for code-generation and
   asset-cooking steps, and `project.add_custom_target(name, command=[...],
-  depends=[...])` for always-run targets (lint, docs). A command's output
+depends=[...])` for always-run targets (lint, docs). A command's output
   feeds a target's `add_sources()` directly; an output nothing consumes is a
   soft freeze-time warning, not a build error.
 - **Target vocabulary completion** (IMPROVEMENTS §2.4): `target.include_dirs(...)`
@@ -237,7 +237,7 @@ makes the interop and quality-of-life work land in a real project.
   a comment naming their `cmakelessfile.py` origin; `raw_cmake_file` paths are validated
   to exist inside the project root at freeze time.
 - **Project-level `optimize` and `lto`** (FEATURES section 3): `project.optimize =
-  "release"` and `project.lto = True` set the default (no-preset) build type and
+"release"` and `project.lto = True` set the default (no-preset) build type and
   interprocedural optimization. Both are emitted behind CMake guards, so an active
   preset always wins.
 - **A tag-driven release workflow** (`.github/workflows/release.yml`): pushing a
@@ -265,7 +265,7 @@ concurrently.
 ### Added
 
 - **Python and C++ interop**: `project.add_python_module(name, sources,
-  binding="nanobind")` builds a C++ extension with nanobind or pybind11. The
+binding="nanobind")` builds a C++ extension with nanobind or pybind11. The
   binding backend is acquired like any dependency (pinned in `cmakeless.lock`),
   the module is built against the invoking interpreter's development headers,
   `.pyi` stubs are generated for nanobind, and after `cmakeless build` the
@@ -284,7 +284,7 @@ concurrently.
   configures every preset concurrently, each into its own build tree, over one
   lock-free frozen model. A reproducible `benchmarks/` harness and published
   numbers for parallel dependency resolution and multi-preset configure live in
-  [docs/benchmarks.md](docs/benchmarks.md).
+  [docs/benchmarks](docs/benchmarks.md).
 - `PythonModule`, `Observer`, `BuildEvent`, `StepStarted`, `StepFinished`,
   `StepFailed`, `ConsoleObserver`, and `TargetInfo` join the public API;
   `cmakeless.api` now re-exports the full layer-1 surface. Registry entries for
@@ -306,12 +306,12 @@ on CI using only `cmakelessfile.py`.
   on Windows without PATH rituals. `cmakeless test` builds and runs the
   suite; `framework="none"` registers a plain pass/fail executable.
 - **Sanitizers**: `target.sanitize = ["address", "undefined"]` applied to
-  compile *and* link (the half-applied-sanitizer bug is not reproducible
+  compile _and_ link (the half-applied-sanitizer bug is not reproducible
   through this API), translated per compiler, and rejected loudly where
   unsupported. `cmakeless test --sanitize=address` runs the suite under a
   sanitizer in its own build tree.
 - **`Preset` API**: `project.add_preset(Preset("release",
-  optimize="release", lto=True))` generates `CMakePresets.json` (with
+optimize="release", lto=True))` generates `CMakePresets.json` (with
   build and test presets), so CLion, Visual Studio, and VS Code pick the
   configurations up natively. Every preset gets its own out-of-source
   build tree under `build/<name>`; `--preset` works on build, configure,
@@ -325,11 +325,11 @@ on CI using only `cmakelessfile.py`.
   `Config.cmake`/`ConfigVersion.cmake` generation so other CMake users can
   `find_package()` the result; `project.package(formats=["zip", "deb"])`
   configures CPack. New `cmakeless install --prefix ...` and `cmakeless
-  package` verbs.
+package` verbs.
 - **Tooling by default**: `compile_commands.json` is always exported and
   copied to the project root; ccache/sccache are auto-detected and wired
   as the compiler launcher on Ninja builds (opt out with `project.cache =
-  False`).
+False`).
 - `Preset`, `Toolchain`, and `Test` join the public API. Curated registry
   pins for the default test framework versions (catch2 3.5.4, googletest
   1.14.0, doctest 2.4.11), so test projects resolve without network.
@@ -370,7 +370,7 @@ resolution is reproducible from the lockfile alone.
 - `Dependency` joins the public API; `DependencyError` is now raised.
 - A fourth runnable project, `examples/04_dependencies`.
 
-## [0.1.0] 
+## [0.1.0]
 
 The MVP: a small self-contained C++ project can use CMakeless instead of
 hand-written CMake.
@@ -401,7 +401,7 @@ hand-written CMake.
 - Three runnable projects under `examples/`, smallest first, and a seeded
   `docs/` landing page.
 
-## [0.0.1] 
+## [0.0.1]
 
 Phase 0: the walking skeleton through all four layers.
 
