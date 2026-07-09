@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 ## [0.5.4]
 
 The portability release: the industries-readiness work (gaming, finance,
-engineering, aerospace) — a curated cross-compilation toolchain gallery,
+engineering, aerospace), a curated cross-compilation toolchain gallery,
 supply-chain tooling for zero-network builds, static-analysis wiring, and a
 one-command environment check (see ROADMAP.md Phase 5.4).
 
@@ -68,7 +68,7 @@ abi=..., platform=...)`, and `Toolchain.emscripten(emsdk=...)`, each building on
 
 The interop unlock: reflect a `.cmake` file or a built-in CMake module through
 real CMake, call what it defines, and read the resolved toolchain back after
-configure — closing the last gap the `raw_cmake()` escape hatch never
+configure, closing the last gap the `raw_cmake()` escape hatch never
 covered (see ROADMAP.md Phase 5.3).
 
 ### Added
