@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from cmakeless import ConfigurationError, Executable, Preset, Project
+from cmakeless import ConfigurationError, Executable, Preset, Project, Toolchain
 from cmakeless.api import _context
 
 
@@ -180,3 +180,51 @@ def test_conan_debug_preset_installs_debug_dependencies(
 
     (command,) = fake_run.commands
     assert "build_type=Debug" in command
+
+
+def test_cmake_globals_caches_per_toolchain(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second cmake_globals() call with the same toolchain reuses the probe."""
+    calls: list[object] = []
+
+    def _fake_probe(*_args: object, **_kwargs: object) -> dict[str, str]:
+        """Record the call and return a fixed result."""
+        calls.append(None)
+        return {"CMAKELESS_MARKER": "1"}
+
+    monkeypatch.setattr("cmakeless.api.project.resolve_tool", lambda _tool: "cmake")
+    monkeypatch.setattr("cmakeless.api.project.probe_globals", _fake_probe)
+    project = Project("demo", root=project_dir)
+    first = project.cmake_globals()
+    second = project.cmake_globals()
+    assert first is second
+    assert len(calls) == 1
+    assert first.CMAKELESS_MARKER == "1"
+
+
+def test_cmake_globals_hasattr_is_false_for_unset_variable(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """hasattr() on the result mirrors CMake's if(DEFINED ...)."""
+    monkeypatch.setattr("cmakeless.api.project.resolve_tool", lambda _tool: "cmake")
+    monkeypatch.setattr("cmakeless.api.project.probe_globals", lambda *_a, **_kw: {})
+    project = Project("demo", root=project_dir)
+    result = project.cmake_globals()
+    assert not hasattr(result, "ANDROID")
+
+
+def test_cmake_globals_missing_toolchain_file_fails_eagerly(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A toolchain wrapping a missing file fails before CMake ever runs."""
+
+    def _fail_if_called(*_args: object, **_kwargs: object) -> dict[str, str]:
+        """Fail the test if reached: the eager check must short-circuit first."""
+        raise AssertionError("probe_globals must not run when the toolchain file is missing")
+
+    monkeypatch.setattr("cmakeless.api.project.probe_globals", _fail_if_called)
+    project = Project("demo", root=project_dir)
+    toolchain = Toolchain.from_file("cmake/missing.toolchain.cmake")
+    with pytest.raises(ConfigurationError, match="does not exist"):
+        project.cmake_globals(toolchain=toolchain)
