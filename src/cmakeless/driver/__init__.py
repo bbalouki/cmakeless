@@ -11,6 +11,7 @@ from cmakeless.driver.cmake_driver import CMakeDriver, resolve_tool
 from cmakeless.driver.doctor import DoctorCheck, run_diagnostics
 from cmakeless.driver.file_api import CMakeInfo, CompilerInfo, TargetInfo
 from cmakeless.driver.generators import Generator, select_generator
+from cmakeless.driver.globals import probe_globals
 from cmakeless.driver.reflection import ModuleReflection, reflect
 
 __all__ = [
@@ -21,6 +22,7 @@ __all__ = [
     "Generator",
     "ModuleReflection",
     "TargetInfo",
+    "probe_globals",
     "reflect",
     "resolve_tool",
     "run_diagnostics",
