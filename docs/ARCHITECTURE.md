@@ -58,16 +58,25 @@ The separation between **emitter** and **driver** means generation never require
 
 ## The Public API
 
-The entire user-facing surface is intentionally small. This is the complete class list, and the intent is that it stays close to this size forever:
+The user-facing surface is intentionally small, and the intent is that the classes you actually construct in a `cmakelessfile.py` stay close to this size forever:
 
-| Class        | Role                                                                                                                  |
-| ------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `Project`    | The root object and facade. Owns targets, settings, and the `build()` / `configure()` / `test()` / `install()` verbs. |
-| `Executable` | A runnable target. Created via `project.add_executable(...)`.                                                         |
-| `Library`    | A static, shared, or header-only library. Created via `project.add_library(...)`.                                     |
-| `Dependency` | An external package requirement, usually created implicitly by `target.depends("fmt/10.2.1")`.                        |
-| `Toolchain`  | A compiler/platform description for cross or pinned builds.                                                           |
-| `Preset`     | A named bundle of configuration (build type, flags, toolchain) mapped onto CMake presets.                             |
+| Class                       | Role                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Project`                    | The root object and facade. Owns targets, settings, and the `build()`/`configure()`/`test()`/`install()` verbs. |
+| `Executable`                  | A runnable target. Created via `project.add_executable(...)`.                                                |
+| `Library`                     | A static, shared, or header-only library. Created via `project.add_library(...)`.                            |
+| `Test`                        | A test executable registered with CTest. Created via `project.add_test(...)`.                                |
+| `PythonModule`                | A pybind11/nanobind extension module. Created via `project.add_python_module(...)`.                          |
+| `Dependency`                  | An external package requirement, usually created implicitly by `target.depends("fmt/10.2.1")`.               |
+| `Toolchain`                   | A compiler/platform description for cross or pinned builds.                                                  |
+| `Preset`                      | A named bundle of configuration (build type, flags, toolchain) mapped onto CMake presets.                    |
+| `Option`                      | A typed CMake cache variable. Created via `project.option(...)`.                                             |
+| `When`                        | A composable build-time condition (`&`/`\|`/`~`), for `define()`, `compile_options()`, and friends.           |
+| `Command` / `CustomTarget`    | A custom build step or always-run target. Created via `project.add_command(...)`/`add_custom_target(...)`.  |
+| `CMakeModule`                 | A reflected `include()`/`include_module()`, with validated `.call()`/`.variable()` access.                   |
+| `CMakeGlobals`                | Every CMake variable a real configure defined, as attributes. Created via `project.cmake_globals()`.         |
+
+Alongside these builders, the public surface also re-exports read-only result types (`CMakeInfo`, `CompilerInfo`, `TargetInfo`, `RegistryEntry`), the `Observer` event types (`StepStarted`, `StepFinished`, `StepFailed`, `BuildEvent`), and the error hierarchy (see below): data and diagnostics you read, not classes you construct. `cmakeless.__all__` is the authoritative, current list.
 
 Users never import from `cmakeless.model`, `cmakeless.emitter`, or `cmakeless.driver`. Those are implementation details, and the package layout enforces it: only names re-exported in `cmakeless/__init__.py` are public, and the package ships `py.typed` so every signature is checked by the user's IDE and type checker.
 
@@ -102,10 +111,6 @@ Standard src-layout, so the installed package is what gets tested, not the worki
 cmakeless/
 ├── pyproject.toml            # PEP 621 metadata; zero runtime dependencies
 ├── README.md
-├── INTRODUCTION.md
-├── ARCHITECTURE.md           # this file
-├── FEATURES.md
-├── ROADMAP.md
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
 ├── src/
@@ -123,6 +128,15 @@ cmakeless/
 │   └── unittests/            # mirrors src/ structure; pytest
 ├── examples/                 # runnable example projects, smallest first
 └── docs/
+    ├── index.md              # documentation site entry point
+    ├── INTRODUCTION.md       # the why: problem, idea, and why Python
+    ├── ARCHITECTURE.md       # this file
+    ├── FEATURES.md           # the before/after feature catalog
+    ├── ROADMAP.md            # phase-by-phase plan
+    ├── tutorial.md           # a ten-minute, linear first project
+    ├── cookbook.md           # task-oriented recipes
+    ├── migration.md          # introducing CMakeless into raw CMake
+    └── benchmarks.md         # measured parallelism wins
 ```
 
 `pyproject.toml` declares **zero runtime dependencies**. A tool whose reason to exist is reducing build friction cannot itself bring a dependency tree. The standard library is enough: `dataclasses` for the model, `subprocess` for the driver, `json` for the File API, `argparse` for the CLI.
@@ -161,7 +175,7 @@ Every message must say three things: what went wrong, where (file and target), a
 
 ## Free-Threaded Python: Parallelism Where It Pays
 
-CMakeless targets Python 3.13+ and is designed for the free-threaded interpreter (PEP 703, supported non-experimentally since 3.14). The immutable model layer is what makes this safe and cheap: frozen dataclasses can be shared across threads with no locks and no copies.
+CMakeless targets Python 3.12+ (CI also runs 3.13) and is designed for the free-threaded interpreter (PEP 703, supported non-experimentally since 3.14). The immutable model layer is what makes this safe and cheap: frozen dataclasses can be shared across threads with no locks and no copies.
 
 Parallelism is applied only where wall-clock time actually lives:
 
@@ -186,4 +200,4 @@ Because the generated `CMakeLists.txt` is our public face to the rest of the eco
 
 - [FEATURES](FEATURES.md): The complete feature surface built on this architecture.
 - [ROADMAP](ROADMAP.md): The order in which these layers get built.
-- [CONTRIBUTING](CONTRIBUTING.md): How to help build them.
+- [CONTRIBUTING](../CONTRIBUTING.md): How to help build them.
