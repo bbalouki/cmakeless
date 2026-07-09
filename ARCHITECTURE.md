@@ -129,7 +129,7 @@ cmakeless/
 
 ## Design Patterns, Named
 
-CMakeless uses classic, institutional patterns deliberately, so that any contributor can locate responsibility by name:
+CMakeless uses classic, [design patterns](https://github.com/bbalouki/DesignPatterns) deliberately, so that any contributor can locate responsibility by name:
 
 - **Facade.** `Project` is a facade over the entire pipeline. `project.build()` hides freeze, validate, emit, configure, and compile behind one verb. The library as a whole is a facade over CMake.
 - **Builder.** The API layer is a builder for the model layer: users incrementally describe (`add_library`, `link`, `depends`), then `freeze()` produces the immutable product.
