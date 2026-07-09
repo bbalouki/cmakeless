@@ -228,3 +228,20 @@ def test_cmake_globals_missing_toolchain_file_fails_eagerly(
     toolchain = Toolchain.from_file("cmake/missing.toolchain.cmake")
     with pytest.raises(ConfigurationError, match="does not exist"):
         project.cmake_globals(toolchain=toolchain)
+
+
+def test_cmake_globals_with_a_valid_toolchain_probes_successfully(
+    project_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A toolchain that passes the eager file check reaches the real probe."""
+    seen: list[object] = []
+    monkeypatch.setattr("cmakeless.api.project.resolve_tool", lambda _tool: "cmake")
+    monkeypatch.setattr(
+        "cmakeless.api.project.probe_globals",
+        lambda *_a, toolchain=None, **_kw: seen.append(toolchain) or {"ANDROID": "1"},
+    )
+    project = Project("demo", root=project_dir)
+    toolchain = Toolchain("android-arm64", compiler="clang++")
+    result = project.cmake_globals(toolchain=toolchain)
+    assert result.ANDROID == "1"
+    assert seen[0] is not None and seen[0].name == "android-arm64"
