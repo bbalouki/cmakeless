@@ -179,7 +179,7 @@ $ python -c "import mygame_core; print(mygame_core.__doc__)"
 
 CMakeless locates the invoking interpreter's development headers, fetches pybind11 (or nanobind, with `binding="nanobind"`, which also gets `.pyi` stubs), builds the extension, and copies it into your current environment, so `import` just works. **This is the flagship of the whole idea.**
 
-The generated `find_package(Python ...)` floor defaults to CMakeless's own supported Python version, not whichever interpreter happens to run `cmakeless` — so the same `cmakelessfile.py` always emits the same `CMakeLists.txt`, on any machine. Pass `python_version="3.13"` to `add_python_module(...)` to raise it.
+The generated `find_package(Python ...)` floor defaults to CMakeless's own supported Python version, not whichever interpreter happens to run `cmakeless`, so the same `cmakelessfile.py` always emits the same `CMakeLists.txt`, on any machine. Pass `python_version="3.13"` to `add_python_module(...)` to raise it.
 
 ### 5. Configurations, install, and package
 
@@ -298,7 +298,7 @@ You can, but the point is you should not have to. It regenerates from your `cmak
 Those solve the reverse problem: using CMake or Meson to build a _Python package_ that happens to contain C++. CMakeless is for C++ projects, full stop; Python is the authoring language, not the packaging target.
 
 **Do I need CMake installed?**
-To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all — with one exception: `project.include(...)`/`project.include_module(...)` reflect a `.cmake` file or module by running real CMake the moment they are called, since there is no other honest way to know what it defines. A script that never calls either still generates without CMake.
+To build, yes: CMake 3.25+ on `PATH`, same as any CMake project. Generating `CMakeLists.txt` from a `cmakelessfile.py` works without CMake present at all, with one exception: `project.include(...)`/`project.include_module(...)` reflect a `.cmake` file or module by running real CMake the moment they are called, since there is no other honest way to know what it defines. A script that never calls either still generates without CMake.
 
 **What happens if I stop using CMakeless later?**
 Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake with no CMakeless runtime dependency. Commit it and walk away.
