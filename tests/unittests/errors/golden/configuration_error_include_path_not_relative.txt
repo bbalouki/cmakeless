@@ -1,0 +1,1 @@
+project.include() path '/etc/evil.cmake' in cmakelessfile.py must be a relative path inside the project root. Move the file under the root, or pass a path relative to it.
