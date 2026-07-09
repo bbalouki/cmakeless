@@ -144,12 +144,13 @@ The industries-readiness work (gaming, finance, engineering, aerospace):
 
 **Exit criterion:** a project registers a bare-metal ARM toolchain and an iOS toolchain without installing either SDK, generates a CycloneDX and an SPDX bill of materials from `cmakeless.lock`, vendors its one dependency and rebuilds with `--offline` using only the local copy, wires `clang-tidy` into its default build, and `cmakeless doctor` reports the local machine's CMake/generator/cache/network status with no project present at all.
 
-**Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial — vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
+**Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial, vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
 
 ## Phase 5.5: Documentation and Quality Debt, v0.5.5 (beta)
 
 Not yet built; the adoption-friction work that a growing user base will start to feel:
 
+- Get any CMake global variable: A CMake object that can be use to query any CMake variable (for example, we can write something like ``if hasattr(cmake, ANDROID): target.link(...)``) that will allow us to check any condition, whether it is the compiler, the architecture, or any info that CMake can provide to us. 
 - A ten-minute tutorial and a task-oriented cookbook ("add an include dir", "cross-compile for ARM", "use a private dependency mirror").
 - A migration guide from raw CMake.
 - An error-message golden-file test suite, so a regression in diagnostic quality fails CI the same way a regression in emitted CMake does.
