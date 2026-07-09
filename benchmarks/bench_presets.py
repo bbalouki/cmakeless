@@ -25,6 +25,8 @@ from pathlib import Path
 
 from cmakeless import Preset, Project
 from cmakeless._parallel import gil_enabled, parallel_map
+from cmakeless.deps import DependencyProvider
+from cmakeless.model.nodes import ProjectModel
 
 _PRESET_COUNT = 6
 _SIMULATED_LATENCY_SECONDS = 0.4
@@ -50,14 +52,18 @@ def _write_project(root: Path) -> tuple[Project, list[str]]:
     return project, names
 
 
-def _real_configure(project: Project, name: str) -> None:
+def _real_configure(
+    project: Project, model: ProjectModel, provider: DependencyProvider | None, name: str
+) -> None:
     """Run one real CMake configure for a preset into its own build tree.
 
     Args:
         project: The project whose preset to configure.
+        model: The already-resolved project model, presets included.
+        provider: The dependency backend, or None for a dep-free tree.
         name: The preset name.
     """
-    project._configure_one(None, name)
+    project._configure_one(model, provider, name)
 
 
 def _simulated_configure(name: str) -> None:
@@ -117,10 +123,12 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         project, names = _write_project(root)
-        project._write_outputs(project._resolved_model())
+        model = project._resolved_model()
+        project._write_outputs(model)
+        provider = project._provider(model)
         print(f"Real CMake configure of {len(names)} presets:")
         _run(
-            lambda name: _real_configure(project, name),
+            lambda name: _real_configure(project, model, provider, name),
             names,
             reset=lambda: shutil.rmtree(root / "build", ignore_errors=True),
         )
