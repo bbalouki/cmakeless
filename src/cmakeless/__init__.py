@@ -12,6 +12,7 @@ private machinery.
 from cmakeless._version import __version__
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies, Dependency
+from cmakeless.api.globals import CMakeGlobals
 from cmakeless.api.modules import CMakeModule
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
@@ -42,6 +43,7 @@ from cmakeless.observer import (
 __all__ = [
     "BuildEvent",
     "CMakeError",
+    "CMakeGlobals",
     "CMakeInfo",
     "CMakeModule",
     "CmakelessError",
