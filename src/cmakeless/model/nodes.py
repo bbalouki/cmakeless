@@ -224,7 +224,7 @@ class DependencyModel:
             until resolved.
         link_targets: The imported targets consumers link, for example
             ("fmt::fmt",); empty until known.
-        url: Source archive URL for FetchContent, or None when the backend
+        url: Source archive URL for `FetchContent`, or None when the backend
             does not fetch sources.
         sha256: SHA256 pin of the source archive, or None when unpinned.
     """
