@@ -5,10 +5,80 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5]
+
+The beta release: documentation and quality debt closed out before v1.0's
+stability promise (see ROADMAP.md Phase 5.5). CMakeless moves from alpha to
+beta with this release.
+
+### Added
+
+- **`project.cmake_globals(toolchain=...)`**: a `CMakeGlobals` object exposing
+  every CMake variable a real, throwaway configure defined, as attributes, so
+  `if hasattr(cmake, "ANDROID"): app.link(...)` can check the compiler, the
+  architecture, or anything else CMake itself knows, before a single line of
+  `CMakeLists.txt` is emitted. `hasattr(...)` mirrors CMake's
+  `if(DEFINED ...)`, not `if(...)`: `WIN32`/`APPLE`/`ANDROID` and friends are
+  only ever set, never defined-and-false. The probe runs a single throwaway
+  `project()` configure (platform/compiler variables need a real configure,
+  unlike `include()`'s reflection, which can often stay in script mode), and
+  an optional `toolchain=` argument answers the question under a specific
+  cross-compilation target, generated through the same `emit_toolchain()`
+  the real build uses; results are cached per toolchain. New
+  `src/cmakeless/driver/globals.py` (the probe) and
+  `src/cmakeless/api/globals.py` (the `CMakeGlobals` wrapper), both re-exported
+  from the top-level `cmakeless` package.
+- **An error-message golden-file test suite** (`tests/unittests/errors/`):
+  one representative case per error class (`ConfigurationError`,
+  `DependencyError`, `ToolchainError`, `CMakeError`), snapshotting the
+  highest-value multi-line and dynamic-listing messages, so a diagnostic
+  regression fails CI the same way a regression in emitted CMake already
+  does.
+- **`.github/workflows/benchmarks.yml`**: a `workflow_dispatch` job matrixed
+  across Windows/Linux/macOS and CPython 3.13/3.14t (free-threaded), so
+  future benchmark refreshes are a button press, not a manual re-run.
+
+### Fixed
+
+- `benchmarks/bench_presets.py` called `Project._configure_one()` with the
+  wrong argument count after that method gained a `provider` parameter;
+  the script now resolves the model and provider once and passes both
+  through, matching the real pipeline.
+
+### Docs
+
+- `INTRODUCTION.md`, `FEATURES.md`, `ARCHITECTURE.md`, and `ROADMAP.md` moved
+  from the repository root into `docs/`; every cross-reference across the
+  repository (`README.md`, `CONTRIBUTING.md`, `docs/index.md`,
+  `benchmarks/README.md`, and the moved files' own cross-links) was updated
+  to match.
+- `README.md` rewritten: a distinct voice from `INTRODUCTION.md` rather than
+  a summary of it, an explicit "CMakeless is not a build system" callout
+  near the top, every workflow example led by `cmakeless build` rather than
+  `python cmakelessfile.py`, the license section corrected from a stale
+  "MIT" to the actual MPL-2.0, and the FAQ's alpha-software line updated for
+  beta status.
+- New `docs/tutorial.md` (a ten-minute, linear first project),
+  `docs/cookbook.md` (task-oriented recipes, including the private
+  dependency mirror and ARM cross-compilation examples named in the
+  roadmap), and `docs/migration.md` (an idiom mapping table and a worked
+  conversion example for existing raw-CMake projects); all three linked
+  from `docs/index.md`.
+- `docs/FEATURES.md` gained a "Querying any CMake variable" subsection;
+  `docs/ARCHITECTURE.md`'s public API table and repository layout diagram
+  were reconciled against the current `cmakeless.__all__` and `docs/`
+  layout; a stale "targets Python 3.13+" line was corrected to match the
+  project's actual 3.12+ floor.
+- `docs/benchmarks.md`'s Windows/CPython 3.13 numbers were refreshed by a
+  real local run; Linux, macOS, and free-threaded rows are sourced from the
+  new `benchmarks.yml` workflow going forward.
+- New `examples/12_cmake_globals` demonstrates `project.cmake_globals()`;
+  `examples/README.md` updated to match.
+
 ## [0.5.4]
 
 The portability release: the industries-readiness work (gaming, finance,
-engineering, aerospace) — a curated cross-compilation toolchain gallery,
+engineering, aerospace), a curated cross-compilation toolchain gallery,
 supply-chain tooling for zero-network builds, static-analysis wiring, and a
 one-command environment check (see ROADMAP.md Phase 5.4).
 
@@ -68,7 +138,7 @@ abi=..., platform=...)`, and `Toolchain.emscripten(emsdk=...)`, each building on
 
 The interop unlock: reflect a `.cmake` file or a built-in CMake module through
 real CMake, call what it defines, and read the resolved toolchain back after
-configure — closing the last gap the `raw_cmake()` escape hatch never
+configure, closing the last gap the `raw_cmake()` escape hatch never
 covered (see ROADMAP.md Phase 5.3).
 
 ### Added

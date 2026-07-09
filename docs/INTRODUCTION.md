@@ -73,7 +73,7 @@ project.build()
 Then:
 
 ```console
-$ python cmakelessfile.py
+$ cmakeless build
 ```
 
 That is the whole thing. No `PARENT_SCOPE`. No semicolons pretending to be lists. No guessing whether a variable needs quotes. If you make a mistake, you get a Python exception with a real message and a real stack trace, at the moment you make it, not a cryptic configure-time failure three layers deep in someone else's module.
@@ -110,7 +110,7 @@ Your build script should be the most boring file in your repository. Let us make
 
 ## Read Next
 
-- [ARCHITECTURE](ARCHITECTURE.md): how CMakeless is designed, layer by layer.
-- [FEATURES](FEATURES.md): everything the library does for you, with before/after comparisons.
-- [ROADMAP](ROADMAP.md): where we are going and when.
-- [CONTRIBUTING](CONTRIBUTING.md): why your scars from CMake make you exactly the contributor we need.
+- [ARCHITECTURE](ARCHITECTURE.md): How CMakeless is designed, layer by layer.
+- [FEATURES](FEATURES.md): Everything the library does for you, with before/after comparisons.
+- [ROADMAP](ROADMAP.md): Where we are going and when.
+- [CONTRIBUTING](../CONTRIBUTING.md): Why your scars from CMake make you exactly the contributor we need.

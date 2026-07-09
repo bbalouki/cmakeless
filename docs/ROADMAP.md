@@ -144,16 +144,21 @@ The industries-readiness work (gaming, finance, engineering, aerospace):
 
 **Exit criterion:** a project registers a bare-metal ARM toolchain and an iOS toolchain without installing either SDK, generates a CycloneDX and an SPDX bill of materials from `cmakeless.lock`, vendors its one dependency and rebuilds with `--offline` using only the local copy, wires `clang-tidy` into its default build, and `cmakeless doctor` reports the local machine's CMake/generator/cache/network status with no project present at all.
 
-**Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial — vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
+**Deferred from this phase:** full `--offline` support for the vcpkg and Conan backends is real but partial, vcpkg is checked against its own `vcpkg_installed` output directory (no fetch is attempted if that manifest is already satisfied) and Conan is asked for `--build=never` instead of `--build=missing`, but neither backend's own network access is intercepted by CMakeless directly, since both fetch through external tooling outside CMakeless's Python (vcpkg's toolchain-triggered install runs inside CMake's own configure step; Conan's install step is a real subprocess CMakeless only supervises).
 
 ## Phase 5.5: Documentation and Quality Debt, v0.5.5 (beta)
 
-Not yet built; the adoption-friction work that a growing user base will start to feel:
+The adoption-friction work a growing user base starts to feel, closed out before v1.0's stability promise:
 
-- A ten-minute tutorial and a task-oriented cookbook ("add an include dir", "cross-compile for ARM", "use a private dependency mirror").
-- A migration guide from raw CMake.
-- An error-message golden-file test suite, so a regression in diagnostic quality fails CI the same way a regression in emitted CMake does.
-- Real, CI-sourced benchmark numbers on all three OSes, free-threaded rows included (today's benchmark table was taken on one machine).
+- **`project.cmake_globals(toolchain=...)`**: a `CMakeGlobals` object exposing every CMake variable a real (throwaway) configure defined, as attributes, so `if hasattr(cmake, "ANDROID"): app.link(...)` can check the compiler, the architecture, or anything else CMake itself knows, before a single line of `CMakeLists.txt` is emitted. `hasattr(...)` mirrors CMake's `if(DEFINED ...)`, not `if(...)`: a platform variable like `ANDROID`/`IOS`/`WIN32` is only ever set, never defined-and-false. Since a bare `Project` has no single "active toolchain" outside of what presets reference, an explicit `toolchain=` argument answers the question under a specific cross-compilation target; the default reflects the host build.
+- A ten-minute [tutorial](tutorial.md) and a task-oriented [cookbook](cookbook.md) ("add an include dir", "cross-compile for ARM", "use a private dependency mirror", and more).
+- A [migration guide](migration.md) from raw CMake: an idiom mapping table, a worked conversion example, and an honest list of what still needs `raw_cmake_file()`.
+- An error-message golden-file test suite (`tests/unittests/errors/`), covering one representative case per error class, so a regression in diagnostic quality fails CI the same way a regression in emitted CMake already does.
+- A refreshed, real benchmark table and a `benchmarks.yml` GitHub Actions workflow (`workflow_dispatch`) to source Linux/macOS/free-threaded numbers going forward.
+
+**Exit criterion:** a project queries `project.cmake_globals()` to branch on the host platform and, separately, under an explicit cross-compilation toolchain; a newcomer can go from `pip install` to a tested, linked, dependency-using project using only the tutorial; the cookbook and migration guide are real, runnable documents, not stubs; and an error-message regression fails the test suite the same way an emitted-CMake regression does.
+
+**Deferred from this phase:** the benchmark table's Linux, macOS, and free-threaded (`3.14t`) rows remain `_to fill_`, sourced by triggering the new `benchmarks.yml` workflow by hand; only the Windows/CPython 3.13 row was re-measured directly during this phase.
 
 ## Phase 5.6: v1.0, the Stability Promise, v1.0.0 (Production/Stable)
 

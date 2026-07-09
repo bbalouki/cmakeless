@@ -350,6 +350,32 @@ for compiler in info.compilers:
 
 **We handle:** a post-configure read of the resolved generator, compiler ID/version per language, system name/processor, and this project's own declared `project.option()`s' final values (after any `-D` override or preset `options=` override has been applied by CMake itself), via the same CMake File API pattern `targets_info()` uses. No `--trace-expand`, no scraping `CMakeCache.txt` by hand.
 
+### Querying any CMake variable
+
+```python
+cmake = project.cmake_globals()
+
+if hasattr(cmake, "ANDROID"):
+    app.link(android_only_dep)
+elif hasattr(cmake, "APPLE"):
+    app.link(apple_only_dep)
+
+print(cmake.CMAKE_CXX_COMPILER_ID)
+```
+
+**We handle:** a throwaway CMake configure, run immediately when `cmake_globals()` is called, that dumps every variable CMake itself defined, name to value, and hands them back as attributes. Unlike `cmake_info()`, which reads a fixed set of fields after your real project has configured, `cmake_globals()` answers "any CMake variable," including the platform-detection ones (`WIN32`, `UNIX`, `APPLE`, `ANDROID`, `IOS`, `MSVC`, ...) that only exist as a side effect of a real `project()` call.
+
+The one rule worth internalizing: `hasattr(cmake, name)` mirrors CMake's `if(DEFINED name)`, never `if(name)`. `WIN32`/`APPLE`/`ANDROID` and friends are only ever *set*, by CMake itself, on the matching platform or toolchain; they are never defined-and-false anywhere else. That is exactly why `hasattr()` is the right question: it runs at description time, before a line of `CMakeLists.txt` is written, so its answer can steer `target.link(...)`, `target.define(...)`, or any other Python-level decision in the rest of your script.
+
+Pass a registered toolchain to see the platform it targets, since a bare `Project` has no single "active toolchain" outside of what individual presets reference:
+
+```python
+cmake = project.cmake_globals(toolchain=Toolchain.android(ndk="/opt/android-ndk", abi="arm64-v8a"))
+assert hasattr(cmake, "ANDROID")
+```
+
+Results are cached per toolchain, so calling `cmake_globals()` again with the same argument reuses the first probe instead of reconfiguring.
+
 ---
 
 ## 12. Portability: Toolchains, Supply Chain, and Diagnostics
@@ -386,7 +412,7 @@ $ cmakeless vendor                       # download every locked archive
 $ cmakeless build --offline              # resolve from the vendored copies, no network
 ```
 
-**We handle:** `cmakeless sbom` reads `cmakeless.lock`'s already-complete inventory and writes a CycloneDX 1.5 or SPDX 2.3 document, no re-resolution or network needed. `cmakeless vendor` downloads and hash-verifies every fetchable locked package, then records the local copy in `cmakeless.mirror.json`. `--offline` refuses to fetch anything not already available: the default backend resolves from the lockfile, the mirror map, or a registry-curated hash (a clear `DependencyError` names `cmakeless vendor` as the fix otherwise); the vcpkg backend checks its `vcpkg_installed` output is already populated before letting configure run; the Conan backend passes `--build=never` so Conan itself refuses anything not already cached. The mirror substitution only ever changes what a _build_ fetches from — `cmakeless.lock` keeps recording the canonical upstream URL, so it stays portable and committable.
+**We handle:** `cmakeless sbom` reads `cmakeless.lock`'s already-complete inventory and writes a CycloneDX 1.5 or SPDX 2.3 document, no re-resolution or network needed. `cmakeless vendor` downloads and hash-verifies every fetchable locked package, then records the local copy in `cmakeless.mirror.json`. `--offline` refuses to fetch anything not already available: the default backend resolves from the lockfile, the mirror map, or a registry-curated hash (a clear `DependencyError` names `cmakeless vendor` as the fix otherwise); the vcpkg backend checks its `vcpkg_installed` output is already populated before letting configure run; the Conan backend passes `--build=never` so Conan itself refuses anything not already cached. The mirror substitution only ever changes what a _build_ fetches from, `cmakeless.lock` keeps recording the canonical upstream URL, so it stays portable and committable.
 
 ### Static analysis, wired in
 

@@ -25,6 +25,7 @@ from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies
+from cmakeless.api.globals import CMakeGlobals
 from cmakeless.api.modules import CMakeModule, check_file_reference, check_module_path
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
@@ -49,6 +50,7 @@ from cmakeless.deps import (
 from cmakeless.driver import CMakeDriver, select_generator
 from cmakeless.driver.cmake_driver import resolve_tool
 from cmakeless.driver.file_api import CMakeInfo, TargetInfo
+from cmakeless.driver.globals import probe_globals
 from cmakeless.driver.reflection import reflect, reflect_work_dir
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
@@ -61,6 +63,7 @@ from cmakeless.model.nodes import (
     ProjectModel,
     PythonModuleModel,
     SubprojectModel,
+    ToolchainModel,
 )
 from cmakeless.model.validate import validate_project
 from cmakeless.observer import ConsoleObserver, Observer
@@ -183,6 +186,7 @@ class Project:
         self._commands: list[Command] = []
         self._custom_targets: list[CustomTarget] = []
         self._modules: list[CMakeModule] = []
+        self._cmake_globals_cache: dict[str | None, CMakeGlobals] = {}
 
     @property
     def name(self) -> str:
@@ -657,6 +661,79 @@ class Project:
         )
         self._modules.append(module)
         return module
+
+    def cmake_globals(self, *, toolchain: Toolchain | None = None) -> CMakeGlobals:
+        """Query every CMake variable a real configure defines, right now.
+
+        Runs a throwaway CMake configure immediately (never a hand-written
+        CMake-language parser), so a branch like
+        ``if hasattr(project.cmake_globals(), "ANDROID"): app.link(...)``
+        can steer the rest of this description before anything is emitted.
+        With no toolchain given this reflects the host build; platform
+        variables such as ANDROID or IOS are only ever defined when the
+        matching toolchain is passed here, since Project has no single
+        "active toolchain" outside of what individual presets reference.
+
+        Args:
+            toolchain: A toolchain to probe under, or None (the default) for
+                the host toolchain.
+
+        Returns:
+            The CMakeGlobals handle: ``hasattr(result, name)`` mirrors
+            CMake's ``if(DEFINED name)``, and ``result.NAME`` (or
+            ``result.get("NAME")``) reads a discovered variable's resolved
+            value. Cached per toolchain, so a second call with the same
+            argument reuses the first probe rather than reconfiguring.
+
+        Raises:
+            ConfigurationError: When ``toolchain`` wraps a file that does
+                not exist.
+            ToolchainError: When cmake is not on PATH.
+            CMakeError: When the throwaway configure fails.
+        """
+        key = toolchain.name if toolchain is not None else None
+        if key not in self._cmake_globals_cache:
+            toolchain_model = self._checked_toolchain_model(toolchain)
+            values = probe_globals(
+                resolve_tool("cmake"),
+                work_dir=self._reflect_work_dir(f"__globals__:{key}" if key else "__globals__"),
+                cpp_std=self._cpp_std,
+                toolchain=toolchain_model,
+            )
+            self._cmake_globals_cache[key] = CMakeGlobals(values)
+        return self._cmake_globals_cache[key]
+
+    def _checked_toolchain_model(self, toolchain: Toolchain | None) -> ToolchainModel | None:
+        """Freeze and eagerly validate a toolchain for cmake_globals().
+
+        Mirrors the freeze-time file-existence check every other toolchain
+        reference gets (model/validate.py's _check_toolchain_shape),
+        since cmake_globals() runs before freeze() when a toolchain
+        argument is given.
+
+        Args:
+            toolchain: The toolchain to probe under, or None.
+
+        Returns:
+            The frozen ToolchainModel, or None.
+
+        Raises:
+            ConfigurationError: When the toolchain wraps a file that does
+                not exist.
+        """
+        if toolchain is None:
+            return None
+        model = toolchain._freeze()
+        if model.file is not None:
+            resolved = model.file if model.file.is_absolute() else self._root / model.file
+            if not resolved.is_file():
+                raise ConfigurationError(
+                    f"project.cmake_globals(toolchain={model.name!r}) in "
+                    f"{self._source_script} wraps '{model.file.as_posix()}', "
+                    f"which does not exist (looked for {resolved}). Check "
+                    f"the path is correct."
+                )
+        return model
 
     def _reflect_work_dir(self, key: str) -> Path:
         """A unique scratch directory for one include()/include_module() reflection.

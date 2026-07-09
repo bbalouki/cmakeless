@@ -139,12 +139,7 @@ _REGISTRY: dict[str, RegistryEntry] = {
         vcpkg_name="boost",
         conan_name="boost",
     ),
-    # Growing the curated list from vcpkg/Conan metadata at scale (ROADMAP.md
-    # Phase 5.3): general-purpose, gaming, and finance/engineering/aerospace
-    # staples. None of these pin url_template/sha256_by_version, matching
-    # zlib/boost above: they resolve through find_package or a package
-    # manager backend by default, and an explicit depends(url=..., sha256=...)
-    # override opts a project into "auto" mode's FetchContent fallback.
+    # Growing the curated list from vcpkg/Conan metadata at scale:
     "abseil": RegistryEntry(
         cmake_name="absl",
         targets=(),

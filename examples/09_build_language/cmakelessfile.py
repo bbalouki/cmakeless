@@ -11,7 +11,7 @@ the target platform, and the compiler, a precompiled header and a unity
 build, and a release/ci preset pair that overrides an option and sets an
 environment variable.
 
-    $ python cmakelessfile.py        # default (no-preset) build
+    $ cmakeless build                # default (no-preset) build
     $ cmakeless build --preset ci    # BUILD_LANGUAGE_VERBOSE forced on, CI=1
 """
 

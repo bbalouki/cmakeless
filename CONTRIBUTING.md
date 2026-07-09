@@ -8,7 +8,7 @@ That is the deal we all inherited: every generation of programmers builds the to
 
 In C++, one tax remains stubbornly unpaid. Every C++ developer alive has lost hours, days, honest weeks of their one finite life to build scripts. Not to hard problems, not to interesting problems: to quoting rules, to scope leaks, to a language nobody chose and everybody endures. Multiply those hours by millions of developers and you are looking at one of the largest silent losses of creative energy in software.
 
-CMakeless is an attempt to end that tax, not by conquering CMake but by making peace with it: keep the engine the whole world already agreed on, retire the language everyone already resents (the full argument is in [INTRODUCTION](INTRODUCTION.md)). It is a small idea with enormous leverage. And leverage is the point: an hour you invest here is not an hour of work, it is an hour multiplied by every developer who never again has to learn what `PARENT_SCOPE` means.
+CMakeless is an attempt to end that tax, not by conquering CMake but by making peace with it: keep the engine the whole world already agreed on, retire the language everyone already resents (the full argument is in [INTRODUCTION](docs/INTRODUCTION.md)). It is a small idea with enormous leverage. And leverage is the point: an hour you invest here is not an hour of work, it is an hour multiplied by every developer who never again has to learn what `PARENT_SCOPE` means.
 
 ## You Already Qualify
 
@@ -26,9 +26,9 @@ Start wherever your energy is, every rung matters:
 2. **Try it and complain.** Build something small with CMakeless and report every moment of friction. A confused new user's honest transcript is worth more than a patch.
 3. **Write an example.** Add a project under `examples/` (a game, a CLI tool, a library with bindings). Examples are how future users learn and how we catch API awkwardness early.
 4. **Improve an error message.** Find an exception that fails our rule (every message must say what went wrong, where, and what to try next) and fix it. Small diff, outsized kindness.
-5. **Teach the emitter a trick.** Pick a CMake construct we generate suboptimally and make the output more idiomatic. The Visitor structure ([ARCHITECTURE](ARCHITECTURE.md#design-patterns-named)) keeps these changes local.
+5. **Teach the emitter a trick.** Pick a CMake construct we generate suboptimally and make the output more idiomatic. The Visitor structure ([ARCHITECTURE](docs/ARCHITECTURE.md#design-patterns-named)) keeps these changes local.
 6. **Build an adapter.** A dependency provider (vcpkg, Conan), a test framework integration, a toolchain helper. The Strategy interfaces are designed to make this a contained, satisfying project.
-7. **Take a roadmap item.** Phase items in [ROADMAP](ROADMAP.md) are deliberately scoped to be ownable by one motivated person.
+7. **Take a roadmap item.** Phase items in [ROADMAP](docs/ROADMAP.md) are deliberately scoped to be ownable by one motivated person.
 
 ## The Values That Decide Arguments
 

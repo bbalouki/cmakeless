@@ -1,0 +1,1 @@
+'cmake' was not found on PATH, so this step cannot run. It ships with CMake: install CMake 3.25 or newer from https://cmake.org/download/ (or your package manager) and make sure 'cmake --version' works in this shell. Generating CMakeLists.txt with project.generate() works without CMake.

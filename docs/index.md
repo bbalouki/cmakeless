@@ -2,17 +2,24 @@
 
 Write your C++ builds in Python. Keep CMake. Lose the pain.
 
-The documentation currently lives in five documents; this site is seeded from them and will grow a `tutorial`, `cookbook`, 
-`migration` guide from raw CMake and `API reference` as the project approaches v1.0 (see the [roadmap](../ROADMAP.md)).
+The documentation lives in the pages below: the narrative docs (introduction, features,
+architecture, roadmap), a tutorial and cookbook for hands-on tasks, and a migration guide for
+existing CMake projects. A generated API reference is the one piece still ahead, tracked for
+v1.0 (see the [roadmap](ROADMAP.md)).
 
 ## Start here
 
-- [Introduction](../INTRODUCTION.md): The problem, the idea, and why Python.
-- [Features](../FEATURES.md): Everything CMakeless does for you, with
+- [Introduction](INTRODUCTION.md): The problem, the idea, and why Python.
+- [Features](FEATURES.md): Everything CMakeless does for you, with
   before/after comparisons against raw CMake.
-- [Architecture](../ARCHITECTURE.md): The four layers (API, model, emitter,
+- [Architecture](ARCHITECTURE.md): The four layers (API, model, emitter,
   driver) and the design patterns behind them.
-- [Roadmap](../ROADMAP.md): Where the project is going, phase by phase.
+- [Roadmap](ROADMAP.md): Where the project is going, phase by phase.
+- [Tutorial](tutorial.md): A ten-minute, linear walkthrough for a first project.
+- [Cookbook](cookbook.md): Task-oriented recipes ("add an include dir",
+  "cross-compile for ARM", "use a private dependency mirror").
+- [Migration guide](migration.md): Introducing CMakeless into an existing,
+  hand-written CMake project.
 - [Benchmarks](benchmarks.md): Measured parallelism wins, with the method
   behind them.
 - [Contributing](../CONTRIBUTING.md): How to help, starting from your own
@@ -46,6 +53,7 @@ project.add_observer(my_observer)     # progress events for IDEs and CI
 targets = project.targets_info()      # the configured build as Python objects
 mod = project.include_module("CheckCXXCompilerFlag")  # reflected via real CMake
 info = project.cmake_info()           # resolved generator, compiler, and system
+cmake = project.cmake_globals()       # any CMake variable, hasattr(cmake, "ANDROID")
 ```
 
 Or write the five lines yourself:

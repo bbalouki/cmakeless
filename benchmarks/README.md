@@ -1,7 +1,7 @@
 # CMakeless Benchmarks
 
 Reproducible harnesses for the two places CMakeless applies parallelism, per
-[ARCHITECTURE](../ARCHITECTURE.md#free-threaded-python-parallelism-where-it-pays):
+[ARCHITECTURE](../docs/ARCHITECTURE.md#free-threaded-python-parallelism-where-it-pays):
 **dependency resolution** and **multi-preset configuration**. Both are safe to
 parallelize because the model layer is immutable, so threads share it without
 locks or copies.

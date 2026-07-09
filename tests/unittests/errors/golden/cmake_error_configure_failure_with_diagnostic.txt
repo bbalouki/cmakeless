@@ -1,0 +1,1 @@
+CMake configure failed with exit code 1 for '<SOURCE_DIR>'. First error: CMakeLists.txt:12: Cannot find source file:. The full output was saved to <LOG_PATH>. Fix the first error, or rerun the exact command by hand: cmake -S <SOURCE_DIR> -B <BUILD_DIR> -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
