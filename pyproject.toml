@@ -71,6 +71,10 @@ dev = [
     "mypy>=1.14",
     "ruff>=0.9",
 ]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
 
 [tool.hatch.version]
 path = "src/cmakeless/_version.py"
@@ -105,4 +109,12 @@ select = [
     "SIM", # flake8-simplify
     "PTH", # flake8-use-pathlib
     "RUF", # ruff-specific
+    "D100", # undocumented public module
+    "D101", # undocumented public class
+    "D102", # undocumented public method
+    "D103", # undocumented public function
+    "D104", # undocumented public package
+    "D105", # undocumented magic method
+    "D106", # undocumented public nested class
+    "D107", # undocumented __init__
 ]

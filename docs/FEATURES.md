@@ -292,7 +292,7 @@ engine.raw_cmake('set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_job
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 
-Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `cmakelessfile.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](CONTRIBUTING.md)). Precompiled headers and unity builds used to be the flagship example here (section 3 now models them directly); this is the up-to-date version of "still genuinely unmodeled."
+Raw snippets are emitted verbatim into the generated file, clearly fenced with comments naming their `cmakelessfile.py` origin. The escape hatch is deliberately a little ugly: if you find yourself using it often, that is a feature request we want to hear about (see [CONTRIBUTING](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md)). Precompiled headers and unity builds used to be the flagship example here (section 3 now models them directly); this is the up-to-date version of "still genuinely unmodeled."
 
 ---
 

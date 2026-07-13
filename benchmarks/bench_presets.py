@@ -16,6 +16,8 @@ harness still runs anywhere.
 
 from __future__ import annotations
 
+import argparse
+import json
 import shutil
 import sys
 import tempfile
@@ -97,7 +99,7 @@ def _run(
     configure: Callable[[str], None],
     names: Sequence[str],
     reset: Callable[[], None] = lambda: None,
-) -> None:
+) -> tuple[float, float]:
     """Time serial then parallel configuration over the preset names.
 
     Args:
@@ -105,21 +107,48 @@ def _run(
         names: The preset names to configure.
         reset: Cleanup run before each phase so both do the full work from
             a cold build tree (real configures cache aggressively).
+
+    Returns:
+        The serial and parallel wall-clock seconds.
     """
     reset()
     serial = _time("serial", lambda: [configure(name) for name in names])
     reset()
     parallel = _time("parallel", lambda: parallel_map(configure, list(names)))
     print(f"  speedup    {serial / parallel:6.2f}x")
+    return serial, parallel
 
 
-def main() -> None:
-    """Detect CMake and benchmark real or simulated multi-preset configure."""
-    print(f"Python {'.'.join(map(str, sys.version_info[:3]))}, GIL enabled: {gil_enabled()}")
-    if shutil.which("cmake") is None:
-        print(f"CMake not found; simulated configure, {_SIMULATED_LATENCY_SECONDS}s each:")
-        _run(_simulated_configure, [f"cfg{index}" for index in range(_PRESET_COUNT)])
-        return
+def write_result(json_path: Path, version: str, mode: str, serial: float, parallel: float) -> None:
+    """Write a machine-readable benchmark result as JSON.
+
+    Args:
+        json_path: Where to write the result.
+        version: The interpreter version string.
+        mode: Either "real" (an actual CMake configure) or "simulated".
+        serial: Serial wall-clock seconds.
+        parallel: Parallel wall-clock seconds.
+    """
+    result = {
+        "python_version": version,
+        "gil_enabled": gil_enabled(),
+        "mode": mode,
+        "serial_seconds": serial,
+        "parallel_seconds": parallel,
+        "speedup": serial / parallel,
+    }
+    json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+
+def _run_simulated() -> tuple[float, float]:
+    """Run the simulated-configure benchmark and print its heading."""
+    print(f"CMake not found; simulated configure, {_SIMULATED_LATENCY_SECONDS}s each:")
+    names = [f"cfg{index}" for index in range(_PRESET_COUNT)]
+    return _run(_simulated_configure, names)
+
+
+def _run_real() -> tuple[float, float]:
+    """Run the real-CMake-configure benchmark and print its heading."""
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         project, names = _write_project(root)
@@ -127,12 +156,34 @@ def main() -> None:
         project._write_outputs(model)
         provider = project._provider(model)
         print(f"Real CMake configure of {len(names)} presets:")
-        _run(
+        return _run(
             lambda name: _real_configure(project, model, provider, name),
             names,
             reset=lambda: shutil.rmtree(root / "build", ignore_errors=True),
         )
 
 
+def main(json_path: Path | None = None) -> None:
+    """Detect CMake and benchmark real or simulated multi-preset configure.
+
+    Args:
+        json_path: If given, also write a machine-readable result there.
+    """
+    version = ".".join(map(str, sys.version_info[:3]))
+    print(f"Python {version}, GIL enabled: {gil_enabled()}")
+    if shutil.which("cmake") is None:
+        serial, parallel = _run_simulated()
+        mode = "simulated"
+    else:
+        serial, parallel = _run_real()
+        mode = "real"
+    if json_path is not None:
+        write_result(json_path, version, mode, serial, parallel)
+
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--json", type=Path, default=None, help="Write a machine-readable result to this path."
+    )
+    main(json_path=parser.parse_args().json)

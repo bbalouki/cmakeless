@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Tell us where it hurts
+    url: https://github.com/bbalouki/cmakeless/discussions
+    about: "Have a real CMake scenario that burned you but isn't a specific bug or feature? Start a discussion, see CONTRIBUTING.md's contribution ladder, rung 1."
+  - name: Contributing guide
+    url: https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md
+    about: How to contribute, from filing an issue to submitting a PR.

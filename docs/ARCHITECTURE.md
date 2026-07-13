@@ -200,4 +200,4 @@ Because the generated `CMakeLists.txt` is our public face to the rest of the eco
 
 - [FEATURES](FEATURES.md): The complete feature surface built on this architecture.
 - [ROADMAP](ROADMAP.md): The order in which these layers get built.
-- [CONTRIBUTING](../CONTRIBUTING.md): How to help build them.
+- [CONTRIBUTING](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md): How to help build them.

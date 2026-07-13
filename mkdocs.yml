@@ -1,0 +1,44 @@
+site_name: CMakeless
+site_description: Write C++ builds in Python, get clean CMakeLists.txt.
+site_url: https://bbalouki.github.io/cmakeless/
+repo_url: https://github.com/bbalouki/cmakeless
+repo_name: bbalouki/cmakeless
+edit_uri: edit/main/docs/
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+    - search.suggest
+
+nav:
+  - Home: index.md
+  - Introduction: INTRODUCTION.md
+  - Architecture: ARCHITECTURE.md
+  - Tutorial: tutorial.md
+  - Cookbook: cookbook.md
+  - Features: FEATURES.md
+  - Migration Guide: migration.md
+  - Roadmap: ROADMAP.md
+  - Benchmarks: benchmarks.md
+
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - toc:
+      permalink: true

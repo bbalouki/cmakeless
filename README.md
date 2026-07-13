@@ -1,6 +1,8 @@
 # CMakeless
 
-[![CI](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/ci.yml)
+[![Lint](https://github.com/bbalouki/cmakeless/actions/workflows/lint.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/lint.yml)
+[![Tests](https://github.com/bbalouki/cmakeless/actions/workflows/tests.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/tests.yml)
+[![Docs](https://github.com/bbalouki/cmakeless/actions/workflows/docs.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/docs.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
 [![codecov](https://codecov.io/github/bbalouki/cmakeless/graph/badge.svg?token=BZ4416XX4I)](https://codecov.io/github/bbalouki/cmakeless)
 [![PyPI - Status](https://img.shields.io/pypi/status/cmakeless)](https://pypi.org/project/cmakeless/)

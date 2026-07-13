@@ -22,7 +22,7 @@ v1.0 (see the [roadmap](ROADMAP.md)).
   hand-written CMake project.
 - [Benchmarks](benchmarks.md): Measured parallelism wins, with the method
   behind them.
-- [Contributing](../CONTRIBUTING.md): How to help, starting from your own
+- [Contributing](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md): How to help, starting from your own
   CMake scars.
 
 ## Quick start

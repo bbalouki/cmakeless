@@ -5,6 +5,47 @@ All notable changes to CMakeless are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Repository governance scaffolding: issue forms
+  (`.github/ISSUE_TEMPLATE/{bug_report,feature_request,documentation}.yml`
+  plus `config.yml`), `.github/PULL_REQUEST_TEMPLATE.md`,
+  `.github/dependabot.yml` (uv + GitHub Actions, weekly), and
+  `.github/CODEOWNERS`.
+- `CODE_OF_CONDUCT.md` (Contributor Covenant v2.1) and `SECURITY.md` at the
+  repository root.
+- A documentation site: `docs/*.md` is now built with MkDocs (Material
+  theme, `mkdocs.yml` at the repo root, new `docs` optional-dependency
+  group) and deployed to GitHub Pages via `.github/workflows/docs.yml` on
+  every push to `main`; pull requests get a build-only `mkdocs build
+  --strict` gate.
+- `benchmarks.yml` now writes machine-readable JSON results per matrix cell
+  and a new `publish-results` job opens a pull request filling in
+  `docs/benchmarks.md`'s `_to fill_` cells automatically, instead of
+  requiring a manual copy-paste. `benchmarks/update_benchmarks_table.py` is
+  the new script that does the table rewrite.
+
+### Changed
+
+- `.github/workflows/ci.yml` split into `.github/workflows/lint.yml`
+  (ruff + mypy, single OS/Python) and `.github/workflows/tests.yml` (the
+  existing 3-OS x 2-Python pytest matrix + Codecov upload), giving
+  independently badgeable Lint/Tests/Docs status checks in `README.md`.
+- `pyproject.toml`'s `[tool.ruff.lint] select` now includes the `D1xx`
+  missing-docstring codes (`D100`-`D107`), enforcing at the linter level a
+  rule the codebase already satisfied via `tests/unittests/
+  test_code_standards.py`.
+
+### Fixed
+
+- `CONTRIBUTING.md`'s clone command referenced the wrong repository
+  (`cmakeless/cmakeless` instead of `bbalouki/cmakeless`).
+- Broken relative links to `CONTRIBUTING.md` in `docs/FEATURES.md` and
+  `docs/ROADMAP.md` (missing `../`), which would otherwise fail the new
+  `mkdocs build --strict` docs gate.
+
 ## [0.5.5]
 
 The beta release: documentation and quality debt closed out before v1.0's
