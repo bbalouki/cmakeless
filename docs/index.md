@@ -3,9 +3,9 @@
 Write your C++ builds in Python. Keep CMake. Lose the pain.
 
 The documentation lives in the pages below: the narrative docs (introduction, features,
-architecture, roadmap), a tutorial and cookbook for hands-on tasks, and a migration guide for
-existing CMake projects. A generated API reference is the one piece still ahead, tracked for
-v1.0 (see the [roadmap](ROADMAP.md)).
+architecture, roadmap), a tutorial and cookbook for hands-on tasks, a migration guide for
+existing CMake projects, and an [API reference](reference/cmakeless/index.md) generated straight from
+the docstrings on `cmakeless` and everything it re-exports.
 
 ## Start here
 
@@ -22,7 +22,9 @@ v1.0 (see the [roadmap](ROADMAP.md)).
   hand-written CMake project.
 - [Benchmarks](benchmarks.md): Measured parallelism wins, with the method
   behind them.
-- [Contributing](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md): How to help, starting from your own
+- [API Reference](reference/cmakeless/index.md): Every public class and function,
+  generated from source.
+- [Contributing](contributing.md): How to help, starting from your own
   CMake scars.
 
 ## Quick start
