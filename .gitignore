@@ -15,6 +15,9 @@ uv.lock
 build/
 CMakeUserPresets.json
 
+# MkDocs build output (mkdocs build / mkdocs.yml)
+site/
+
 # Generated output inside example projects; regenerated from cmakelessfile.py.
 # Only the specific generated artifacts inside cmake/ are ignored, not the
 # directory itself: project.include()'s examples commit real, hand-written
