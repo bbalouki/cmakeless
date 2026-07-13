@@ -17,9 +17,12 @@ Run it under both interpreters to compare:
 
 from __future__ import annotations
 
+import argparse
+import json
 import sys
 import time
 from collections.abc import Sequence
+from pathlib import Path
 
 from cmakeless._parallel import gil_enabled, parallel_map
 
@@ -59,11 +62,34 @@ def time_it(label: str, run: object) -> float:
     return elapsed
 
 
-def main(specs: Sequence[str] | None = None) -> None:
-    """Time serial and parallel resolution and print the speedup.
+def write_result(
+    json_path: Path, version: str, serial: float, parallel: float, speedup: float
+) -> None:
+    """Write a machine-readable benchmark result as JSON.
+
+    Args:
+        json_path: Where to write the result.
+        version: The interpreter version string.
+        serial: Serial wall-clock seconds.
+        parallel: Parallel wall-clock seconds.
+        speedup: The serial-to-parallel ratio.
+    """
+    result = {
+        "python_version": version,
+        "gil_enabled": gil_enabled(),
+        "serial_seconds": serial,
+        "parallel_seconds": parallel,
+        "speedup": speedup,
+    }
+    json_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+
+
+def main(specs: Sequence[str] | None = None, json_path: Path | None = None) -> None:
+    """Time serial and parallel resolution, print the speedup, and optionally write JSON.
 
     Args:
         specs: The package specs to resolve; None uses a generated set.
+        json_path: If given, also write a machine-readable result there.
     """
     generated = [f"pkg{n}/1.0.{n}" for n in range(_PACKAGE_COUNT)]
     packages = list(specs) if specs is not None else generated
@@ -72,8 +98,15 @@ def main(specs: Sequence[str] | None = None) -> None:
     print(f"Resolving {len(packages)} packages, {_LATENCY_SECONDS}s simulated latency each:")
     serial = time_it("serial", lambda: [resolve_one(spec) for spec in packages])
     parallel = time_it("parallel", lambda: parallel_map(resolve_one, packages))
-    print(f"  speedup    {serial / parallel:6.2f}x")
+    speedup = serial / parallel
+    print(f"  speedup    {speedup:6.2f}x")
+    if json_path is not None:
+        write_result(json_path, version, serial, parallel, speedup)
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--json", type=Path, default=None, help="Write a machine-readable result to this path."
+    )
+    main(json_path=parser.parse_args().json)
