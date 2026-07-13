@@ -20,10 +20,20 @@ theme:
         name: Switch to light mode
   features:
     - navigation.instant
+    - navigation.instant.progress
     - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
     - navigation.top
-    - content.code.copy
+    - navigation.footer
+    - toc.follow
     - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
 
 nav:
   - Home: index.md
@@ -35,6 +45,40 @@ nav:
   - Migration Guide: migration.md
   - Roadmap: ROADMAP.md
   - Benchmarks: benchmarks.md
+  - API Reference: reference/
+  - Contributing: contributing.md
+  - Code of Conduct: code_of_conduct.md
+  - Security: security.md
+  - Changelog: changelog.md
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - scripts/gen_ref_pages.py
+        - scripts/gen_community_pages.py
+  - literate-nav:
+      nav_file: SUMMARY.md
+  - section-index
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          inventories:
+            - https://docs.python.org/3/objects.inv
+          options:
+            docstring_style: google
+            docstring_section_style: table
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            separate_signature: true
+            show_signature_annotations: true
+            signature_crossrefs: true
+            merge_init_into_class: true
+            members_order: source
 
 markdown_extensions:
   - admonition
