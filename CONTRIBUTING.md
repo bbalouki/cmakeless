@@ -45,7 +45,7 @@ When reviews disagree, these principles win, in this order:
 **Setup:**
 
 ```console
-$ git clone https://github.com/cmakeless/cmakeless
+$ git clone https://github.com/bbalouki/cmakeless
 $ cd cmakeless
 $ python -m venv .venv && .venv/Scripts/activate    # or bin/activate on POSIX
 $ pip install -e ".[dev]"
