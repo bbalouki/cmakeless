@@ -1,0 +1,37 @@
+name: Documentation
+description: A gap, error, or confusing spot in the docs (tutorial, cookbook, migration guide, architecture, etc).
+title: "[Docs]: "
+labels: ["documentation", "triage"]
+body:
+  - type: dropdown
+    id: page
+    attributes:
+      label: Which page?
+      options:
+        - README.md
+        - docs/INTRODUCTION.md
+        - docs/FEATURES.md
+        - docs/ARCHITECTURE.md
+        - docs/tutorial.md
+        - docs/cookbook.md
+        - docs/migration.md
+        - docs/ROADMAP.md
+        - docs/benchmarks.md
+        - CONTRIBUTING.md
+        - Other / not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's wrong or missing?
+      description: Quote the confusing sentence, missing step, or broken example if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested fix
+      description: Optional, even a rough idea of what it should say instead helps.
