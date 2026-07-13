@@ -34,13 +34,13 @@ I/O overlap the GIL does not block.
 | Benchmark                   | OS      | Interpreter   | GIL | Serial    | Parallel  | Speedup   |
 | --------------------------- | ------- | ------------- | --- | --------- | --------- | --------- |
 | Resolution (16 pkgs)       | Windows | CPython 3.13  | on  | 0.806s    | 0.056s    | 14.37x    |
-| Resolution (16 pkgs)       | Linux   | CPython 3.13  | on  | _to fill_ | _to fill_ | _to fill_ |
-| Resolution (16 pkgs)       | macOS   | CPython 3.13  | on  | _to fill_ | _to fill_ | _to fill_ |
-| Resolution (16 pkgs)       | any     | CPython 3.14t | off | _to fill_ | _to fill_ | _to fill_ |
+| Resolution (16 pkgs)       | Linux   | CPython 3.13  | on  | 0.802s | 0.053s | 15.00x |
+| Resolution (16 pkgs)       | macOS   | CPython 3.13  | on  | 2.114s | 0.107s | 19.83x |
+| Resolution (16 pkgs)       | any     | CPython 3.14t | off | 0.802s | 0.057s | 14.04x |
 | Multi-preset configure (6) | Windows | CPython 3.13  | on  | 12.999s   | 4.149s    | 3.13x     |
-| Multi-preset configure (6) | Linux   | CPython 3.13  | on  | _to fill_ | _to fill_ | _to fill_ |
-| Multi-preset configure (6) | macOS   | CPython 3.13  | on  | _to fill_ | _to fill_ | _to fill_ |
-| Multi-preset configure (6) | any     | CPython 3.14t | off | _to fill_ | _to fill_ | _to fill_ |
+| Multi-preset configure (6) | Linux   | CPython 3.13  | on  | 1.761s | 0.360s | 4.89x |
+| Multi-preset configure (6) | macOS   | CPython 3.13  | on  | 4.506s | 0.936s | 4.81x |
+| Multi-preset configure (6) | any     | CPython 3.14t | off | 2.120s | 0.358s | 5.92x |
 
 ## Reading the numbers
 
