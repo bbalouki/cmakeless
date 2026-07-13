@@ -74,6 +74,23 @@ dev = [
 docs = [
     "mkdocs>=1.6",
     "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=1.0.6",
+    # Pinned to the newest release verified clean on PyPI as of 2026-07-13.
+    # mkdocstrings-python>=2.0.3 depends on `griffelib`, a package that
+    # replaces the real `griffe` under a new name.
+    "mkdocstrings-python==2.0.2",
+    # Pinned because griffe>=2.0 stops shipping its own implementation and
+    # instead depends on `griffelib` and `griffecli`. 1.15.0 is the newest
+    # release verified clean (colorama-only) on PyPI as of 2026-07-13.
+    "griffe==1.15.0",
+    # Pinned to the newest releases verified clean on PyPI as of 2026-07-13.
+    # mkdocs-gen-files>=0.6.1, mkdocs-literate-nav>=0.6.3, and
+    # mkdocs-section-index>=0.3.11 all depend on `properdocs`, a package
+    # that hijacks the `mkdocs` import namespace via a sys.meta_path hook.
+    # Do not lift these three pins without re-auditing the newer releases.
+    "mkdocs-gen-files==0.6.0",
+    "mkdocs-literate-nav==0.6.2",
+    "mkdocs-section-index==0.3.10",
 ]
 
 [tool.hatch.version]
