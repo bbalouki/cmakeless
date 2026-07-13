@@ -3,15 +3,15 @@
 ## Supported Versions
 
 CMakeless is pre-1.0 (currently in the `0.5.x` beta line, see
-[ROADMAP.md](docs/ROADMAP.md)). Per the versioning policy already stated in
-[CONTRIBUTING.md](CONTRIBUTING.md), backward compatibility is not guaranteed
+[ROADMAP](docs/ROADMAP.md)). Per the versioning policy already stated in
+[CONTRIBUTING](CONTRIBUTING.md), backward compatibility is not guaranteed
 before 1.0, and there is no long-term-support window for any pre-1.0 minor
 line: only the latest released version receives security fixes.
 
-| Version   | Supported                   |
-| --------- | ---------------------------- |
-| 0.5.x     | :white_check_mark: (latest)  |
-| < 0.5.0   | :x:                           |
+| Version | Supported                   |
+| ------- | --------------------------- |
+| 0.5.x   | :white_check_mark: (latest) |
+| < 0.5.0 | :x:                         |
 
 Once CMakeless reaches 1.0, this table will be revised to reflect a real
 support window across minor releases, per Semantic Versioning.

@@ -8,7 +8,7 @@ body:
       value: |
         CMakeless's first rule is that every public API surface must earn
         its place: "does this make the common case simpler?" (see
-        [CONTRIBUTING.md](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md)).
+        [CONTRIBUTING](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md)).
         Framing your request around the CMake pain it removes helps a lot.
 
   - type: textarea
