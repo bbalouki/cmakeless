@@ -183,4 +183,4 @@ Repeated here because roadmaps grow by accretion and this one must not:
 - **Not a new language.** `cmakelessfile.py` is plain Python. Any proposal that adds CMakeless-only semantics to Python syntax is rejected on arrival.
 - **Not a package repository.** We adapt to vcpkg/Conan/upstream sources; we never host packages.
 
-Want to bend the timeline? The fastest way is to grab a phase item: see [CONTRIBUTING](CONTRIBUTING.md).
+Want to bend the timeline? The fastest way is to grab a phase item: see [CONTRIBUTING](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md).
