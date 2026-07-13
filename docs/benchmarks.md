@@ -24,11 +24,12 @@ publishes measured numbers and the method behind them. The harnesses are in
 The Windows/CPython 3.13 row was last refreshed by a real local run on
 2026-07-09, against CMake with the Ninja generator (Clang as the compiler).
 Linux, macOS, and the free-threaded (`3.14t`) rows are sourced from
-the [`benchmarks.yml`](../.github/workflows/benchmarks.yml) GitHub Actions
-workflow (`workflow_dispatch`, run manually): trigger it, then copy each
-job's summary numbers into the table below. They are left as `_to fill_`
-here because no run has been recorded yet; the standard-build rows already
-show that most of the win is I/O overlap the GIL does not block.
+the [`benchmarks.yml`](https://github.com/bbalouki/cmakeless/blob/main/.github/workflows/benchmarks.yml) GitHub Actions
+workflow (`workflow_dispatch`, run manually): triggering it runs the matrix
+and opens a pull request with any `_to fill_` cells it can resolve, ready to
+review and merge. They are left as `_to fill_` here because no run has been
+recorded yet; the standard-build rows already show that most of the win is
+I/O overlap the GIL does not block.
 
 | Benchmark                   | OS      | Interpreter   | GIL | Serial    | Parallel  | Speedup   |
 | --------------------------- | ------- | ------------- | --- | --------- | --------- | --------- |
