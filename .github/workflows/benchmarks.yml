@@ -1,12 +1,20 @@
 name: Benchmarks
 
-# Manual, not a per-PR gate: these numbers are published in
-# docs/benchmarks.md, not enforced as a pass/fail check. Run this after a
-# change to the parallel paths (dependency resolution, multi-preset
-# configure). The publish-results job opens a PR with any `_to fill_` cells
-# it can resolve from this run's matrix results; review and merge it.
+# Not a per-PR gate: these numbers are published in docs/benchmarks.md, not
+# enforced as a pass/fail check. Runs automatically on main when the parallel
+# paths themselves change (dependency resolution, multi-preset configure),
+# and can also be triggered manually at any time. The publish-results job
+# opens a PR with any `_to fill_` cells it can resolve from this run's
+# matrix results; review and merge it.
 on:
   workflow_dispatch: {}
+  push:
+    branches: [main]
+    paths:
+      - "src/cmakeless/_parallel.py"
+      - "src/cmakeless/api/project.py"
+      - "benchmarks/bench_resolution.py"
+      - "benchmarks/bench_presets.py"
 
 jobs:
   bench:
