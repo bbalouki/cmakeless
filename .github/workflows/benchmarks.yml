@@ -3,7 +3,8 @@ name: Benchmarks
 # Manual, not a per-PR gate: these numbers are published in
 # docs/benchmarks.md, not enforced as a pass/fail check. Run this after a
 # change to the parallel paths (dependency resolution, multi-preset
-# configure) and copy the job summary's numbers into docs/benchmarks.md.
+# configure). The publish-results job opens a PR with any `_to fill_` cells
+# it can resolve from this run's matrix results; review and merge it.
 on:
   workflow_dispatch: {}
 
@@ -43,7 +44,7 @@ jobs:
         run: |
           echo '### Resolution: ${{ matrix.os }} / py${{ matrix.python-version }}' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          uv run python benchmarks/bench_resolution.py >> "$GITHUB_STEP_SUMMARY"
+          uv run python benchmarks/bench_resolution.py --json "resolution__${{ matrix.os }}__${{ matrix.python-version }}.json" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run multi-preset configure benchmark
@@ -51,5 +52,43 @@ jobs:
         run: |
           echo '### Multi-preset configure: ${{ matrix.os }} / py${{ matrix.python-version }}' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          uv run python benchmarks/bench_presets.py >> "$GITHUB_STEP_SUMMARY"
+          uv run python benchmarks/bench_presets.py --json "presets__${{ matrix.os }}__${{ matrix.python-version }}.json" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: "*.json"
+
+  publish-results:
+    name: Refresh docs/benchmarks.md
+    needs: bench
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bench-results-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Update benchmark table
+        run: uv run python benchmarks/update_benchmarks_table.py artifacts/
+
+      - name: Open PR with refreshed numbers
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "docs: refresh benchmark numbers"
+          title: "docs: refresh benchmark numbers"
+          branch: bench-results-update
+          add-paths: docs/benchmarks.md
