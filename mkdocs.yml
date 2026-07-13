@@ -36,15 +36,16 @@ theme:
     - content.action.edit
 
 nav:
-  - Home: index.md
-  - Introduction: INTRODUCTION.md
-  - Architecture: ARCHITECTURE.md
-  - Tutorial: tutorial.md
-  - Cookbook: cookbook.md
-  - Features: FEATURES.md
-  - Migration Guide: migration.md
-  - Roadmap: ROADMAP.md
-  - Benchmarks: benchmarks.md
+  - Home:
+      - index.md
+      - Introduction: INTRODUCTION.md
+      - Architecture: ARCHITECTURE.md
+      - Tutorial: tutorial.md
+      - Cookbook: cookbook.md
+      - Features: FEATURES.md
+      - Migration Guide: migration.md
+      - Roadmap: ROADMAP.md
+      - Benchmarks: benchmarks.md
   - API Reference: reference/
   - Contributing: contributing.md
   - Code of Conduct: code_of_conduct.md
