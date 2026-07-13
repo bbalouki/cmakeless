@@ -1,0 +1,84 @@
+name: Bug Report
+description: Something in CMakeless is broken or behaves unexpectedly.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more precise the
+        repro, the faster this gets fixed, a minimal `cmakelessfile.py`
+        beats a paragraph every time.
+
+  - type: input
+    id: cmakeless-version
+    attributes:
+      label: CMakeless version
+      description: Output of `cmakeless --version` or `pip show cmakeless`.
+      placeholder: "0.5.5"
+    validations:
+      required: true
+
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.12.4"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux
+        - Windows
+        - macOS
+        - Other (specify below)
+    validations:
+      required: true
+
+  - type: input
+    id: cmake-version
+    attributes:
+      label: CMake version
+      description: Output of `cmake --version`, if the bug involves the driver layer (configure/build/test). Leave blank if it is purely emitter/model output.
+      placeholder: "3.28.3"
+
+  - type: textarea
+    id: cmakelessfile
+    attributes:
+      label: Minimal cmakelessfile.py
+      description: The smallest `cmakelessfile.py` that reproduces the problem.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include the full error message and traceback, if any.
+    validations:
+      required: true
+
+  - type: textarea
+    id: generated-cmake
+    attributes:
+      label: Generated CMake output (if relevant)
+      description: The relevant section of the generated `CMakeLists.txt`, if the bug is about incorrect or non-idiomatic emitted CMake rather than an exception.
+      render: cmake
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Logs, screenshots, links to a minimal reproduction repo, etc.
