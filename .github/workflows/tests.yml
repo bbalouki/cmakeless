@@ -44,6 +44,6 @@ jobs:
           CMAKELESS_NETWORK_TESTS: "1"
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
