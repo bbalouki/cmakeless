@@ -78,6 +78,23 @@ app.depends("boost/1.84.0", components=["asio", "beast"])
 - **vcpkg** or **Conan** when the project opts in (`project.package_manager = "vcpkg"`),
 - generation of the corresponding manifest (`vcpkg.json`, `conanfile.txt`) so the package manager's own tooling still works.
 
+```mermaid
+flowchart TD
+    Start(["app.depends fmt/10.2.1"]) --> Manager{"project.package_manager?"}
+
+    Manager -- "vcpkg" --> Vcpkg["vcpkg adapter:<br/>generate/update vcpkg.json,<br/>wire the vcpkg toolchain file"]
+    Manager -- "conan" --> Conan["Conan adapter:<br/>generate/update conanfile.txt,<br/>run the Conan install step"]
+    Manager -- "unset (default)" --> FindPkg{"find_package(fmt)<br/>found and version-compatible?"}
+
+    FindPkg -- "yes" --> System["Link the system package's real target: fmt::fmt"]
+    FindPkg -- "no" --> Fetch["FetchContent, pinned to an exact URL and hash"]
+
+    Vcpkg --> Lock[["Write cmakeless.lock"]]
+    Conan --> Lock
+    System --> Lock
+    Fetch --> Lock
+```
+
 What that one line replaces in raw CMake: the `find_package`-or-`FetchContent` fallback dance, `FetchContent_Declare`/`FetchContent_MakeAvailable` ceremony, remembering the exported target name (`fmt::fmt` is not `fmt`), and toolchain-file plumbing for vcpkg.
 
 Resolution runs in parallel threads on free-threaded Python, one per dependency. And every resolution writes `cmakeless.lock`, so CI and teammates get byte-identical dependency trees.

@@ -16,6 +16,22 @@ project.build()
 
 This builds exactly what you had, through CMakeless's pipeline, with zero behavior change. From here, migrate one target or one concern at a time: pick a library, describe it with `add_library(...)`/`link(...)` instead of the equivalent raw commands, delete that section from the legacy file, and rebuild to confirm nothing moved. Repeat until the raw file is empty, then delete it.
 
+```mermaid
+flowchart TD
+    A["Existing CMakeLists.txt"] --> B["Rename to CMakeLists.legacy.cmake"]
+    B --> C["New cmakelessfile.py:<br/>project.raw_cmake_file 'CMakeLists.legacy.cmake'"]
+    C --> D["cmakeless build<br/>(zero behavior change, same binary)"]
+    D --> E["Pick one target or concern still living in the legacy file"]
+    E --> F["Describe it with add_library / add_executable / link(...)"]
+    F --> G["Delete that section from the legacy file"]
+    G --> H["Rebuild and diff: confirm nothing moved"]
+    H --> I{"Legacy file empty?"}
+    I -- "No, more to migrate" --> E
+    I -- "Yes" --> J["Delete CMakeLists.legacy.cmake and the raw_cmake_file() call"]
+```
+
+Each loop through the diagram is deliberately small and independently verifiable: a migration that stalls halfway still leaves you with a project that builds, because the legacy file and the CMakeless description cooperate rather than compete.
+
 ## Idiom mapping
 
 | Raw CMake | CMakeless |

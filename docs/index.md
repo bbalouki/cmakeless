@@ -69,4 +69,4 @@ project.add_executable("hello", sources=["src/main.cpp"])
 project.build()
 ```
 
-Runnable projects live in [Examples](../examples/), smallest first.
+Runnable projects live in [Examples](https://github.com/bbalouki/cmakeless/tree/main/examples), smallest first.
