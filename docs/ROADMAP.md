@@ -21,6 +21,23 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 
 Scope is the fixed variable, order is the promise.
 
+```mermaid
+flowchart LR
+    P0["Phase 0<br/>Walking skeleton"] --> P1["Phase 1 · v0.1<br/>MVP"]
+    P1 --> P2["Phase 2 · v0.2<br/>Dependencies"]
+    P2 --> P3["Phase 3 · v0.3<br/>Tests, presets, install"]
+    P3 --> P4["Phase 4 · v0.4<br/>Interop & parallelism"]
+    P4 --> P50["Phase 5.0 · v0.5<br/>Mechanical fixes"]
+    P50 --> P51["Phase 5.1 · v0.5.1<br/>Language unlock"]
+    P51 --> P52["Phase 5.2 · v0.5.2<br/>Custom build steps"]
+    P52 --> P53["Phase 5.3 · v0.5.3<br/>Interop unlock"]
+    P53 --> P54["Phase 5.4 · v0.5.4<br/>Portability"]
+    P54 --> P55["Phase 5.5 · v0.5.5<br/>Docs & quality debt"]
+    P55 --> P56["Phase 5.6 · v1.0<br/>Stability promise"]
+```
+
+Every phase gates the next: nothing in Phase _N_ + 1 starts until Phase _N_'s exit criterion is met, so the diagram above is also the dependency graph, not just a calendar.
+
 ---
 
 ## Phase 0: Walking Skeleton

@@ -15,38 +15,19 @@ Every architectural decision below serves four goals, in priority order:
 
 CMakeless is a strict layered architecture. Each layer depends only on the layer directly below it. Data flows down; results and errors flow back up.
 
-```text
-+--------------------------------------------------------------+
-|  1. API layer          cmakeless/api/                         |
-|     What the user touches: Project, Executable, Library,     |
-|     Dependency, Toolchain, Preset. Friendly, forgiving,      |
-|     mutable while the user is describing the build.          |
-+--------------------------------------------------------------+
-                              | freeze() + validate
-                              v
-+--------------------------------------------------------------+
-|  2. Model layer        cmakeless/model/                       |
-|     The single source of truth: an immutable, validated      |
-|     build graph made of frozen dataclasses. No CMake         |
-|     knowledge, no subprocess calls, pure data.               |
-+--------------------------------------------------------------+
-                              | visit
-                              v
-+--------------------------------------------------------------+
-|  3. Emitter layer      cmakeless/emitter/                     |
-|     Walks the model and generates idiomatic, modern          |
-|     CMakeLists.txt, preset files, and toolchain files.       |
-|     Deterministic: same model in, same bytes out.            |
-+--------------------------------------------------------------+
-                              | invoke
-                              v
-+--------------------------------------------------------------+
-|  4. Driver layer       cmakeless/driver/                      |
-|     Runs cmake / ctest / cpack as subprocesses, consumes     |
-|     the CMake File API for structured results, and           |
-|     translates CMake failures into Python exceptions.        |
-+--------------------------------------------------------------+
+```mermaid
+flowchart TD
+    A["<b>1. API layer</b><br/><code>cmakeless/api/</code><br/>What the user touches: Project, Executable, Library, Dependency, Toolchain, Preset.<br/>Friendly, forgiving, mutable while the user is describing the build."]
+    B["<b>2. Model layer</b><br/><code>cmakeless/model/</code><br/>The single source of truth: an immutable, validated build graph made of frozen dataclasses.<br/>No CMake knowledge, no subprocess calls, pure data."]
+    C["<b>3. Emitter layer</b><br/><code>cmakeless/emitter/</code><br/>Walks the model and generates idiomatic, modern CMakeLists.txt, preset files, and toolchain files.<br/>Deterministic: same model in, same bytes out."]
+    D["<b>4. Driver layer</b><br/><code>cmakeless/driver/</code><br/>Runs cmake / ctest / cpack as subprocesses, consumes the CMake File API for structured results,<br/>and translates CMake failures into Python exceptions."]
+
+    A -->|"freeze() + validate"| B
+    B -->|"visit"| C
+    C -->|"invoke"| D
 ```
+
+Each arrow is also a one-way door: nothing below a layer imports from above it, so `cmakeless.model` never imports `cmakeless.api`, and `cmakeless.emitter` never imports `cmakeless.driver`. That constraint is enforced by the package layout, not just convention (see [Repository Layout](#repository-layout)).
 
 ### Why layers, and why these layers
 
@@ -55,6 +36,43 @@ The separation between **API** and **model** exists because the two have opposit
 The separation between **model** and **emitter** is what keeps us honest about goal 4. The model knows nothing about CMake syntax. This means the emitter is replaceable and testable in isolation (feed it a model, assert on the generated text), and it leaves the door open for other emitters later (for example, a compile_commands-only emitter for tooling) without touching the user-facing API.
 
 The separation between **emitter** and **driver** means generation never requires CMake to be installed. You can generate, inspect, and commit build files on a machine that has never seen a compiler. Only `build()`, `configure()`, and `test()` need the real tool.
+
+### What happens inside `project.build()`
+
+The four layers are not just a static picture: every call to `project.build()` walks down through all of them and back up, in this order.
+
+```mermaid
+sequenceDiagram
+    participant U as cmakelessfile.py
+    participant P as Project (API layer)
+    participant M as Model layer
+    participant E as Emitter layer
+    participant D as Driver layer
+    participant C as cmake (subprocess)
+
+    U->>P: project.build()
+    P->>M: freeze() + validate()
+    alt invalid build description
+        M-->>P: ConfigurationError
+        P-->>U: raised, with the offending line
+    else valid
+        M-->>P: immutable build graph
+        P->>E: emit(graph)
+        E-->>P: CMakeLists.txt / CMakePresets.json / toolchain files
+        P->>D: configure() then build()
+        D->>C: cmake -S . -B build/... (and the matching build command)
+        C-->>D: exit code + CMake File API replies
+        alt cmake or compiler failed
+            D-->>P: CMakeError (parsed stderr, command line, log path)
+            P-->>U: raised
+        else success
+            D-->>P: TargetInfo / BuildEvent stream
+            P-->>U: control returns, binaries exist
+        end
+    end
+```
+
+`configure()` and `test()` follow the same shape, entering at the driver step that matches the verb. This is also why generation (freeze through emit) never needs CMake on `PATH`: the driver is the only layer that shells out.
 
 ## The Public API
 
@@ -162,13 +180,18 @@ The single biggest quality-of-life difference over raw CMake is _when_ and _how_
 2. **Translate at run time.** When CMake or the compiler does fail, the driver parses the output and raises a structured exception instead of dumping a wall of text.
 3. **One hierarchy.** Everything raised on purpose derives from `CmakelessError`:
 
-```text
-CmakelessError
-├── ConfigurationError      # invalid build description (caught at freeze)
-├── DependencyError         # package cannot be resolved/fetched
-├── ToolchainError          # compiler/toolchain missing or misconfigured
-└── CMakeError              # CMake itself failed; carries parsed stderr,
-                            # the exact command line, and the log path
+```mermaid
+flowchart TD
+    Base["CmakelessError"]
+    Config["ConfigurationError<br/>invalid build description<br/><i>caught at freeze</i>"]
+    Dep["DependencyError<br/>package cannot be resolved or fetched"]
+    Tool["ToolchainError<br/>compiler/toolchain missing or misconfigured"]
+    CMake["CMakeError<br/>CMake itself failed; carries parsed stderr,<br/>the exact command line, and the log path"]
+
+    Base --> Config
+    Base --> Dep
+    Base --> Tool
+    Base --> CMake
 ```
 
 Every message must say three things: what went wrong, where (file and target), and what to try next. A message that fails the "what to try next" test is a bug.

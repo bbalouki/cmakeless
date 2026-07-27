@@ -21,7 +21,7 @@ engine = project.add_library(
     "engine",
     sources=["src/engine/*.cpp"],
     public_headers="include/",
-    kind="static",              # "static" | "shared" | "header_only"
+    kind="static",  # "static" | "shared" | "header_only"
 )
 
 app = project.add_executable("mygame", sources=["src/main.cpp"])
@@ -37,8 +37,8 @@ Glob patterns are expanded _by CMakeless in Python_ and validated: a pattern tha
 `app.link(engine)` links privately by default (the common case for executables). Library-to-library linking states visibility as a plain argument, with the correct CMake keyword chosen for you:
 
 ```python
-engine.link(math_lib, public=True)    # users of engine also need math_lib
-engine.link(zlib_dep)                 # implementation detail, stays private
+engine.link(math_lib, public=True)  # users of engine also need math_lib
+engine.link(zlib_dep)  # implementation detail, stays private
 ```
 
 No more guessing among `PUBLIC`, `PRIVATE`, and `INTERFACE`: `public=True` when your headers expose it, nothing otherwise. Header-only libraries pick `INTERFACE` automatically because there is no other correct answer.
@@ -46,8 +46,8 @@ No more guessing among `PUBLIC`, `PRIVATE`, and `INTERFACE`: `public=True` when 
 ### Private headers and a per-target standard
 
 ```python
-engine.include_dirs("src/engine/internal")   # PRIVATE, never exposed to consumers
-engine.cpp_std = 17                          # overrides the project's default for this target only
+engine.include_dirs("src/engine/internal")  # PRIVATE, never exposed to consumers
+engine.cpp_std = 17  # overrides the project's default for this target only
 ```
 
 `include_dirs()` is the private counterpart to `public_headers=`: for the internal headers a target's own sources need but consumers never should. `cpp_std` lets one target compile against a different standard than the rest of the project (a vendored C++17 core underneath a C++23 app), without a second `Project`.
@@ -55,7 +55,7 @@ engine.cpp_std = 17                          # overrides the project's default f
 ### Subprojects (Composite)
 
 ```python
-project.add_subproject("tools/asset_packer")   # its own cmakelessfile.py
+project.add_subproject("tools/asset_packer")  # its own cmakelessfile.py
 ```
 
 Replaces `add_subdirectory` plus the folkloric knowledge about variable scoping across directories. Each subproject is a self-contained `Project`; the parent composes them.
@@ -78,12 +78,29 @@ app.depends("boost/1.84.0", components=["asio", "beast"])
 - **vcpkg** or **Conan** when the project opts in (`project.package_manager = "vcpkg"`),
 - generation of the corresponding manifest (`vcpkg.json`, `conanfile.txt`) so the package manager's own tooling still works.
 
+```mermaid
+flowchart TD
+    Start(["app.depends fmt/10.2.1"]) --> Manager{"project.package_manager?"}
+
+    Manager -- "vcpkg" --> Vcpkg["vcpkg adapter:<br/>generate/update vcpkg.json,<br/>wire the vcpkg toolchain file"]
+    Manager -- "conan" --> Conan["Conan adapter:<br/>generate/update conanfile.txt,<br/>run the Conan install step"]
+    Manager -- "unset (default)" --> FindPkg{"find_package(fmt)<br/>found and version-compatible?"}
+
+    FindPkg -- "yes" --> System["Link the system package's real target: fmt::fmt"]
+    FindPkg -- "no" --> Fetch["FetchContent, pinned to an exact URL and hash"]
+
+    Vcpkg --> Lock[["Write cmakeless.lock"]]
+    Conan --> Lock
+    System --> Lock
+    Fetch --> Lock
+```
+
 What that one line replaces in raw CMake: the `find_package`-or-`FetchContent` fallback dance, `FetchContent_Declare`/`FetchContent_MakeAvailable` ceremony, remembering the exported target name (`fmt::fmt` is not `fmt`), and toolchain-file plumbing for vcpkg.
 
 Resolution runs in parallel threads on free-threaded Python, one per dependency. And every resolution writes `cmakeless.lock`, so CI and teammates get byte-identical dependency trees.
 
 ```python
-project.dependencies.lock()      # refresh the lockfile explicitly
+project.dependencies.lock()  # refresh the lockfile explicitly
 ```
 
 ### Extending the registry
@@ -117,8 +134,8 @@ An explicit `register_dependency()` call always wins over a plugin-supplied entr
 **You write:**
 
 ```python
-project.warnings = "strict"          # or "default", "none"
-project.optimize = "release"         # per-preset, see section 6
+project.warnings = "strict"  # or "default", "none"
+project.optimize = "release"  # per-preset, see section 6
 app.sanitize = ["address", "undefined"]
 project.lto = True
 ```
@@ -184,7 +201,7 @@ engine.unity = True
 tests = project.add_test(
     "engine_tests",
     sources=["tests/*.cpp"],
-    framework="gtest",           # the default; or "catch2", "doctest", "none"
+    framework="gtest",  # the default; or "catch2", "doctest", "none"
 )
 tests.link(engine)
 ```
@@ -205,7 +222,9 @@ Sanitized test runs are one argument: `cmakeless test --sanitize=address`.
 
 ```python
 bindings = project.add_python_module(
-    "mygame_core", sources=["src/bindings.cpp"], binding="pybind11"  # the default
+    "mygame_core",
+    sources=["src/bindings.cpp"],
+    binding="pybind11",  # the default
 )
 bindings.link(engine)
 ```
@@ -237,12 +256,14 @@ from cmakeless import Preset, Toolchain
 
 project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
 project.add_preset(Preset("release", optimize="release", lto=True))
-project.add_preset(Preset(
-    "ci",
-    inherits="release",
-    options={"MYLIB_BUILD_GUI": False},
-    env={"CI": "1"},
-))
+project.add_preset(
+    Preset(
+        "ci",
+        inherits="release",
+        options={"MYLIB_BUILD_GUI": False},
+        env={"CI": "1"},
+    )
+)
 
 project.add_toolchain(Toolchain.from_file("cmake/rpi4.toolchain.cmake"))
 project.add_toolchain(Toolchain("arm64-linux", compiler="aarch64-linux-gnu-g++"))
@@ -265,7 +286,7 @@ On free-threaded Python, configuring multiple presets runs concurrently.
 ```python
 project.install(app)
 project.install(engine, headers=True)
-project.package(formats=["zip", "deb"])    # CPack, when you want it
+project.package(formats=["zip", "deb"])  # CPack, when you want it
 ```
 
 **We handle:** `install(TARGETS ...)` with GNUInstallDirs-correct destinations, header set installation, export sets and `Config.cmake` generation so _other_ CMake users can `find_package(mygame)` your library, version-compatibility files, and CPack configuration for the requested formats. This paragraph of Python replaces the single most copy-pasted hundred lines in the CMake ecosystem.
@@ -288,7 +309,7 @@ No opt-in required, because there is no reason not to want these:
 The 1% rule: anything we do not model must still be reachable, locally and visibly.
 
 ```python
-engine.raw_cmake('set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)')
+engine.raw_cmake("set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)")
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 
@@ -307,7 +328,7 @@ gen = project.add_command(
     depends=["tools/gen_version.py"],
     comment="Generating version.cpp",
 )
-app.add_sources(gen)   # wires the dependency edge; no special CMake syntax needed
+app.add_sources(gen)  # wires the dependency edge; no special CMake syntax needed
 
 project.add_custom_target(
     "cook-assets",
@@ -328,8 +349,8 @@ This is the answer to "does CMakeless support custom build steps": code generati
 
 ```python
 summary = project.include("cmake/print_build_summary.cmake")
-summary.call("print_build_summary", "mygame")           # validated against what the file defines
-version = summary.variable("PROJECT_HELPER_VERSION")    # read a value it defines back into Python
+summary.call("print_build_summary", "mygame")  # validated against what the file defines
+version = summary.variable("PROJECT_HELPER_VERSION")  # read a value it defines back into Python
 
 checks = project.include_module("CheckCXXCompilerFlag")  # a real built-in CMake module
 checks.call("check_cxx_compiler_flag", "-Wall", "HAS_WALL")
@@ -419,8 +440,8 @@ $ cmakeless build --offline              # resolve from the vendored copies, no 
 **You write:**
 
 ```python
-project.lint(clang_tidy=True, iwyu=False)          # every compiled target
-vendored_core.lint(clang_tidy=False)                # this one library opts out
+project.lint(clang_tidy=True, iwyu=False)  # every compiled target
+vendored_core.lint(clang_tidy=False)  # this one library opts out
 strict_lib.lint(clang_tidy=["clang-tidy", "-checks=-*,modernize-*"])
 ```
 

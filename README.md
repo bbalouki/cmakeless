@@ -125,13 +125,13 @@ project = Project("mygame", version="1.0.0", cpp_std=23, warnings="strict")
 
 engine = project.add_library(
     "engine",
-    sources=["src/engine/*.cpp"],   # globs expand in Python and are validated
+    sources=["src/engine/*.cpp"],  # globs expand in Python and are validated
     public_headers="include/",
-    kind="static",                  # "static" | "shared" | "header_only"
+    kind="static",  # "static" | "shared" | "header_only"
 )
 
 app = project.add_executable("mygame", sources=["src/main.cpp"])
-app.link(engine)                    # visibility inferred; no PUBLIC/PRIVATE guessing
+app.link(engine)  # visibility inferred; no PUBLIC/PRIVATE guessing
 
 project.build()
 ```
@@ -143,7 +143,7 @@ $ cmakeless build
 ### 2. Add a dependency in one line
 
 ```python
-app.depends("fmt/10.2.1")           # find_package first, else FetchContent, pinned in cmakeless.lock
+app.depends("fmt/10.2.1")  # find_package first, else FetchContent, pinned in cmakeless.lock
 ```
 
 CMakeless remembers that the target is `fmt::fmt`, not `fmt`, writes a lockfile so CI and teammates get byte-identical trees, and can generate a `vcpkg.json` or `conanfile.txt` if you opt into a package manager.
@@ -151,7 +151,7 @@ CMakeless remembers that the target is `fmt::fmt`, not `fmt`, writes a lockfile 
 ### 3. Test as a first-class verb (GoogleTest by default)
 
 ```python
-tests = project.add_test("engine_tests", sources=["tests/*.cpp"])   # framework="gtest" by default
+tests = project.add_test("engine_tests", sources=["tests/*.cpp"])  # framework="gtest" by default
 tests.link(engine)
 ```
 
@@ -165,7 +165,9 @@ Prefer Catch2 or doctest? Pass `framework="catch2"` or `framework="doctest"`.
 ### 4. Ship Python bindings (pybind11 by default)
 
 ```python
-bindings = project.add_python_module("mygame_core", sources=["src/bindings.cpp"])  # binding="pybind11"
+bindings = project.add_python_module(
+    "mygame_core", sources=["src/bindings.cpp"]
+)  # binding="pybind11"
 bindings.link(engine)
 ```
 
@@ -187,9 +189,11 @@ project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
 project.add_preset(Preset("release", optimize="release", lto=True))
 project.add_preset(Preset("ci", inherits="release", options={"MYGAME_BUILD_TOOLS": False}))
 
-project.install(engine, headers=True)   # export set + Config.cmake, so others can find_package(mygame)
+project.install(
+    engine, headers=True
+)  # export set + Config.cmake, so others can find_package(mygame)
 project.install(app)
-project.package(formats=["zip", "deb"]) # CPack
+project.package(formats=["zip", "deb"])  # CPack
 ```
 
 ```console
@@ -240,23 +244,25 @@ Watch progress through the Observer API, read the configured build as Python obj
 ```python
 from cmakeless import Observer, Project, StepFinished
 
+
 class Timer:
     def on_event(self, event):
         if isinstance(event, StepFinished):
             print(f"{event.step} finished ({event.exit_code})")
 
+
 project = Project("app", cpp_std=20)
 project.add_executable("app", sources=["src/main.cpp"])
 project.add_observer(Timer())
 
-for target in project.targets_info():        # read from CMake's File API, not scraped text
+for target in project.targets_info():  # read from CMake's File API, not scraped text
     print(target.name, target.type, target.artifacts)
 
-info = project.cmake_info()                  # the resolved generator, compiler, and system
+info = project.cmake_info()  # the resolved generator, compiler, and system
 print(info.generator, info.system_name, [c.compiler_id for c in info.compilers])
 
-cmake = project.cmake_globals()              # any CMake variable, at description time
-if hasattr(cmake, "ANDROID"):                # mirrors CMake's if(DEFINED ANDROID)
+cmake = project.cmake_globals()  # any CMake variable, at description time
+if hasattr(cmake, "ANDROID"):  # mirrors CMake's if(DEFINED ANDROID)
     app.link(android_only_dependency)
 ```
 
