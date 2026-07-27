@@ -14,7 +14,7 @@ headers a target's own sources need, but consumers never should, use `include_di
 
 ```python
 engine = project.add_library("engine", sources=["src/engine/*.cpp"], public_headers="include/")
-engine.include_dirs("src/engine/internal")   # PRIVATE: never exposed to anything linking engine
+engine.include_dirs("src/engine/internal")  # PRIVATE: never exposed to anything linking engine
 ```
 
 ### Link one library into another with the right visibility
@@ -23,8 +23,8 @@ engine.include_dirs("src/engine/internal")   # PRIVATE: never exposed to anythin
 linking states visibility as a plain argument, and CMakeless picks the correct CMake keyword:
 
 ```python
-engine.link(math_lib, public=True)    # users of engine also need math_lib's headers/symbols
-engine.link(zlib_dep)                 # implementation detail: stays private, never leaks out
+engine.link(math_lib, public=True)  # users of engine also need math_lib's headers/symbols
+engine.link(zlib_dep)  # implementation detail: stays private, never leaks out
 ```
 
 Header-only libraries pick `INTERFACE` automatically, since there is no other correct answer for a
@@ -48,7 +48,7 @@ header-only target, rather than silently doing nothing).
 ```python
 project = Project("mygame", cpp_std=23)
 vendored_core = project.add_library("vendored_core", sources=["third_party/core/*.c*"])
-vendored_core.cpp_std = 17   # this target only; everything else stays at 23
+vendored_core.cpp_std = 17  # this target only; everything else stays at 23
 ```
 
 Useful for a vendored dependency you build from source but did not write, without splitting it into
@@ -57,7 +57,7 @@ a second `Project`.
 ### Split a project into subprojects
 
 ```python
-project.add_subproject("tools/asset_packer")   # its own cmakelessfile.py, its own Project
+project.add_subproject("tools/asset_packer")  # its own cmakelessfile.py, its own Project
 ```
 
 The child directory needs its own `cmakelessfile.py` describing exactly one `Project`; CMakeless
@@ -69,7 +69,7 @@ freeze time, not a CMake-level infinite recursion.
 ### Precompile headers and enable unity builds
 
 ```python
-engine.pch = ["<vector>", "src/engine/pch.hpp"]   # system headers verbatim, project headers quoted
+engine.pch = ["<vector>", "src/engine/pch.hpp"]  # system headers verbatim, project headers quoted
 engine.unity = True
 ```
 
@@ -203,8 +203,8 @@ and its source URL.
 ### Turn on strict warnings, an optimization level, and LTO
 
 ```python
-project.warnings = "strict"          # or "default", "none"
-project.optimize = "release"         # ignored once a preset is active; see Presets below
+project.warnings = "strict"  # or "default", "none"
+project.optimize = "release"  # ignored once a preset is active; see Presets below
 project.lto = True
 app.sanitize = ["address", "undefined"]
 ```
@@ -222,7 +222,7 @@ from cmakeless import When
 app.define("USE_D3D12", when=When.platform("windows"))
 app.compile_options("-march=native", when=When.compiler("gcc", "clang"))
 app.define("ENABLE_TRACING", when=When.config("Debug"))
-app.define("HAS_GUI", when=When.option(gui))            # gui = project.option(...)
+app.define("HAS_GUI", when=When.option(gui))  # gui = project.option(...)
 app.define("VERBOSE_ASAN", when=When.compiler("clang") & When.config("Debug"))
 ```
 
@@ -272,12 +272,14 @@ from cmakeless import Preset
 
 project.add_preset(Preset("debug", optimize="none", sanitize=["address"]))
 project.add_preset(Preset("release", optimize="release", lto=True))
-project.add_preset(Preset(
-    "ci",
-    inherits="release",
-    options={"MYLIB_BUILD_GUI": False},
-    env={"CI": "1"},
-))
+project.add_preset(
+    Preset(
+        "ci",
+        inherits="release",
+        options={"MYLIB_BUILD_GUI": False},
+        env={"CI": "1"},
+    )
+)
 ```
 
 ```console
@@ -308,7 +310,14 @@ Registering the toolchain never requires the SDK to be installed; only building 
 references it does. For a target triple the gallery does not cover, describe it directly:
 
 ```python
-project.add_toolchain(Toolchain("arm64-linux", compiler="aarch64-linux-gnu-g++", system_name="Linux", system_processor="aarch64"))
+project.add_toolchain(
+    Toolchain(
+        "arm64-linux",
+        compiler="aarch64-linux-gnu-g++",
+        system_name="Linux",
+        system_processor="aarch64",
+    )
+)
 ```
 
 or wrap an existing toolchain file unchanged:
@@ -369,7 +378,7 @@ gen = project.add_command(
     command=["python", "tools/gen_version.py", "--out", "generated/version.cpp"],
     depends=["tools/gen_version.py"],
 )
-app.add_sources(gen)   # wires the dependency edge; CMakeless validates it is actually consumed
+app.add_sources(gen)  # wires the dependency edge; CMakeless validates it is actually consumed
 ```
 
 Commands are argument lists, never shell strings: portable across cmd and POSIX by construction,
@@ -414,9 +423,11 @@ $ cmakeless package
 ### Lint every target with clang-tidy or include-what-you-use
 
 ```python
-project.lint(clang_tidy=True, iwyu=False)                         # every compiled target
-vendored_core.lint(clang_tidy=False)                                # this one library opts out
-strict_lib.lint(clang_tidy=["clang-tidy", "-checks=-*,modernize-*"])  # explicit checks, this target only
+project.lint(clang_tidy=True, iwyu=False)  # every compiled target
+vendored_core.lint(clang_tidy=False)  # this one library opts out
+strict_lib.lint(
+    clang_tidy=["clang-tidy", "-checks=-*,modernize-*"]
+)  # explicit checks, this target only
 ```
 
 A target's own `lint()` call always wins over the project-wide default, including turning both
@@ -456,9 +467,7 @@ stub unless `stubs=False`.
 ### Pin a minimum Python version for a binding module
 
 ```python
-bindings = project.add_python_module(
-    "mymath", sources=["src/bindings.cpp"], python_version="3.13"
-)
+bindings = project.add_python_module("mymath", sources=["src/bindings.cpp"], python_version="3.13")
 ```
 
 The generated `find_package(Python ...)` version defaults to CMakeless's own supported floor,
@@ -480,7 +489,7 @@ variable CMake defined, so you can branch before anything is emitted:
 cmake = project.cmake_globals()
 
 if hasattr(cmake, "WIN32"):
-    app.depends("dirent")   # a POSIX-dirent shim, only needed on Windows
+    app.depends("dirent")  # a POSIX-dirent shim, only needed on Windows
 ```
 
 Remember: `hasattr(cmake, name)` mirrors CMake's `if(DEFINED name)`. `WIN32`/`APPLE`/`UNIX`/`ANDROID`
@@ -493,8 +502,8 @@ argument reuses the first probe.
 
 ```python
 summary = project.include("cmake/print_build_summary.cmake")
-summary.call("print_build_summary", "mygame")           # validated against what the file defines
-version = summary.variable("PROJECT_HELPER_VERSION")    # read a value it defines back into Python
+summary.call("print_build_summary", "mygame")  # validated against what the file defines
+version = summary.variable("PROJECT_HELPER_VERSION")  # read a value it defines back into Python
 
 checks = project.include_module("CheckCXXCompilerFlag")  # a real built-in CMake module
 checks.call("check_cxx_compiler_flag", "-Wall", "HAS_WALL")
@@ -536,6 +545,7 @@ a target you expect to exist actually does.
 ```python
 from cmakeless import Observer, StepFailed, StepFinished, StepStarted
 
+
 class MyObserver:
     def on_event(self, event) -> None:
         if isinstance(event, StepStarted):
@@ -544,6 +554,7 @@ class MyObserver:
             print(f"done: {event.step}")
         elif isinstance(event, StepFailed):
             print(f"failed: {event.step} (exit {event.exit_code})")
+
 
 project.add_observer(MyObserver())
 ```
@@ -559,7 +570,7 @@ output uses, so an IDE extension or a CI log formatter is a listener, not a spec
 ### Drop to raw CMake for the 1%
 
 ```python
-engine.raw_cmake('set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)')
+engine.raw_cmake("set_property(TARGET engine PROPERTY JOB_POOL_COMPILE heavy_jobs)")
 project.raw_cmake_file("cmake/legacy_weirdness.cmake")
 ```
 

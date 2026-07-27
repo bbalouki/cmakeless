@@ -10,7 +10,7 @@ Start by including your existing file verbatim from a new `cmakelessfile.py`, us
 from cmakeless import Project
 
 project = Project("legacy", version="1.0.0", cpp_std=17)
-project.raw_cmake_file("CMakeLists.legacy.cmake")   # your old file, renamed and untouched
+project.raw_cmake_file("CMakeLists.legacy.cmake")  # your old file, renamed and untouched
 project.build()
 ```
 
