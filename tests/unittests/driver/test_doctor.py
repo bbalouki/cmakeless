@@ -143,3 +143,31 @@ def test_a_generator_that_cannot_scan_is_reported(monkeypatch: pytest.MonkeyPatc
     if checks["generator"].detail != "ninja":
         assert not checks["modules"].ok
         assert "cannot scan for modules" in checks["modules"].detail
+
+
+def test_unparseable_cmake_version_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cmake whose --version output makes no sense fails the required check."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    monkeypatch.setattr(
+        "cmakeless.driver.doctor.subprocess.run",
+        lambda *_a, **_kw: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="cmake version unknown\n", stderr=""
+        ),
+    )
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["cmake"].ok
+    assert checks["cmake"].required
+    assert "could not be parsed" in checks["cmake"].detail
+
+
+def test_modules_check_defers_to_cmake_when_cmake_is_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Modules check defers to cmake when cmake is unusable."""
+    patch_tools(monkeypatch, tool_paths={**_TOOL_PATHS, "cmake": None})
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["modules"].ok
+    assert not checks["modules"].required
+    assert "see above" in checks["modules"].detail
