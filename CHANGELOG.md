@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [1.0.1]
+
+A supply-chain fix for the `docs` extra. No change to the package itself:
+`cmakeless` still has exactly one runtime dependency, and nothing about the
+build description API, the CLI, or the generated CMake moved.
+
+### Fixed
+
+- **The `docs` extra's five pinned packages are back on their audited
+  versions.** `griffe`, `mkdocstrings-python`, `mkdocs-gen-files`,
+  `mkdocs-literate-nav` and `mkdocs-section-index` had been bumped by
+  automation to releases that hand their import namespace to `griffelib`,
+  `griffecli`, or `properdocs`, which is exactly what the comments beside
+  those pins warn against. They are pinned back to `griffe==1.15.0`,
+  `mkdocstrings-python==2.0.2`, `mkdocs-gen-files==0.6.0`,
+  `mkdocs-literate-nav==0.6.2` and `mkdocs-section-index==0.3.10`, all of
+  which build the documentation unchanged.
+
+  Only `pip install cmakeless[docs]` and the project's own documentation
+  build were ever affected; `pip install cmakeless` installs Typer and
+  nothing else, so no runtime install pulled these packages.
+
+### Changed
+
+- `.github/dependabot.yml` now ignores those five packages, so the pins move
+  only when a human re-audits the newer release. They are pinned for
+  supply-chain reasons rather than compatibility, which is not a distinction
+  an automated version bump can make.
+
 ## [1.0.0]
 
 The stability promise (see ROADMAP.md Phase 5.6). CMakeless moves from beta to

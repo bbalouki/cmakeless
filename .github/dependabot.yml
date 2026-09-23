@@ -7,6 +7,17 @@ updates:
     open-pull-requests-limit: 10
     commit-message:
       prefix: "deps"
+    # These five are pinned in pyproject.toml's docs extra for supply-chain
+    # reasons, not for compatibility: their newer releases hand their import
+    # namespace to griffelib, griffecli, or properdocs. An automated bump
+    # walks straight past that boundary, and did, so the pins move only when
+    # a human re-audits the newer release and updates the comment with it.
+    ignore:
+      - dependency-name: "griffe"
+      - dependency-name: "mkdocstrings-python"
+      - dependency-name: "mkdocs-gen-files"
+      - dependency-name: "mkdocs-literate-nav"
+      - dependency-name: "mkdocs-section-index"
 
   - package-ecosystem: "github-actions"
     directory: "/"
