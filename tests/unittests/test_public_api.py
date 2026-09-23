@@ -36,14 +36,21 @@ def _signature(value: Any) -> str:
 
 
 def _own_members(owner: type) -> dict[str, Any]:
-    """Collect public members of a class and its bases, nearest definition winning.
+    """Collect public members of a class and its CMakeless bases, nearest winning.
 
     Inherited members count: a target's add_sources() is just as public as
     the methods its own class defines, so dropping one from a shared base
     must fail here too.
+
+    Bases from outside the package are skipped. What Exception or Protocol
+    contributes is CPython's API, not ours, and its rendering moves between
+    interpreter versions (BaseException.add_note reads as "add_note(...)"
+    on 3.12 and "add_note(self, object, /)" on 3.13), which would make this
+    snapshot fail on one Python and pass on another.
     """
+    ours = [base for base in owner.__mro__ if base.__module__.split(".")[0] == "cmakeless"]
     collected: dict[str, Any] = {}
-    for klass in reversed([base for base in owner.__mro__ if base is not object]):
+    for klass in reversed(ours):
         collected.update({n: v for n, v in vars(klass).items() if _is_public(n)})
     return collected
 

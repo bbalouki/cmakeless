@@ -12,9 +12,6 @@ CMAKE_MINIMUM_VERSION: str
 
 class CMakeError(CmakelessError)
     __init__(self, message: 'str', *, command: 'Sequence[str]', exit_code: 'int', log_path: 'Path | None' = None, diagnostics: 'Sequence[Diagnostic]' = ()) -> 'None'
-    add_note(self, object, /)
-    args: getset_descriptor
-    with_traceback(self, object, /)
 
 class CMakeGlobals
     __init__(self, values: 'Mapping[str, str]') -> 'None'
@@ -40,10 +37,6 @@ class CMakeModule
 CXX_MODULES_MINIMUM_VERSION: str
 
 class CmakelessError(Exception)
-    __init__(self, /, *args, **kwargs)
-    add_note(self, object, /)
-    args: getset_descriptor
-    with_traceback(self, object, /)
 
 class Command
     __init__(self, *, output: 'Sequence[str]', command: 'Sequence[str]', depends: 'Sequence[str | Command]' = (), comment: 'str | None', script: 'str') -> 'None'
@@ -56,10 +49,6 @@ class CompilerInfo
     language: member_descriptor
 
 class ConfigurationError(CmakelessError)
-    __init__(self, /, *args, **kwargs)
-    add_note(self, object, /)
-    args: getset_descriptor
-    with_traceback(self, object, /)
 
 class ConsoleObserver
     on_event(self, event: 'BuildEvent') -> 'None'
@@ -81,10 +70,6 @@ class Dependency
     version: property
 
 class DependencyError(CmakelessError)
-    __init__(self, /, *args, **kwargs)
-    add_note(self, object, /)
-    args: getset_descriptor
-    with_traceback(self, object, /)
 
 class Diagnostic
     __init__(self, file: 'str | None', line: 'int | None', message: 'str') -> None
@@ -243,10 +228,6 @@ class Toolchain
     name: property
 
 class ToolchainError(CmakelessError)
-    __init__(self, /, *args, **kwargs)
-    add_note(self, object, /)
-    args: getset_descriptor
-    with_traceback(self, object, /)
 
 class When
     __init__(self, model: 'WhenModel') -> 'None'
