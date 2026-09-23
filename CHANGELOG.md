@@ -7,7 +7,53 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [1.0.0]
+
+The stability promise (see ROADMAP.md Phase 5.6). CMakeless moves from beta to
+Production/Stable: the public API is frozen behind Semantic Versioning and a
+golden-file test that fails CI on any unannounced change, C++20 module
+interfaces are modelled, the license is now Apache-2.0, and the CLI is built on
+Typer.
+
 ### Added
+
+- **C++20 module interfaces.** `project.add_library(..., modules=[...])`,
+  `project.add_executable(..., modules=[...])`, and
+  `target.add_module_sources(...)` declare module interface units, emitted as
+  `target_sources(<target> <visibility> FILE_SET CXX_MODULES FILES ...)`.
+  Visibility is `PUBLIC` for a library, so consumers can `import` it, and
+  `PRIVATE` for anything nothing links against. Globs expand and are validated
+  in Python exactly like `sources=`, and a module-only target needs no
+  `sources=` at all.
+- The emitted `cmake_minimum_required` floor is now computed per project:
+  `3.28` when the tree declares module interfaces, the previous `3.25`
+  otherwise. Projects that declare none emit byte-identical output to 0.5.5.
+- Freeze-time validation for module interfaces: the target must compile as
+  C++20 or later, a file may not be declared as both a source and a module
+  interface, a header-only library may not declare one, and installing or
+  exporting a target that declares one is refused while CMake's own support
+  for shipping built module interfaces remains experimental.
+- `cmakeless doctor` gained a `modules` check reporting whether the local
+  CMake reaches 3.28 and whether the selected generator scans for module
+  dependencies. `cmakeless.driver.generators` gained `CXX_MODULES_FAMILIES`
+  and `supports_cxx_modules(...)`.
+- `examples/13_cxx_modules`: a module-only library imported by an executable,
+  with no header and no include directory anywhere.
+- `docs/stability.md`, a new page stating what the version number covers, what
+  it does not, how deprecations work, and how all of it is enforced in CI.
+- `cmakeless.deprecated(...)` and `cmakeless.warn_deprecated_argument(...)`:
+  one spelling for retiring public API,
+  emitting a `DeprecationWarning` that names the replacement and the removal
+  version. Nothing is deprecated yet; the mechanism exists so the first 1.x
+  deprecation has a house style.
+- `tests/unittests/test_public_api.py` snapshots the entire public surface,
+  inherited methods and full signatures included, against
+  `tests/unittests/golden/public_api.txt`.
+- `tests/unittests/test_package_exports.py` enforces that each layer package
+  re-exports every public name its submodules define.
+- `tests/integration/` builds every project under `examples/` from its real
+  `cmakelessfile.py` and checks the generated CMake stays target-centric.
+- Shell completion for the CLI: `cmakeless --install-completion`.
 
 - Repository governance scaffolding: issue forms
   (`.github/ISSUE_TEMPLATE/{bug_report,feature_request,documentation}.yml`
@@ -29,6 +75,38 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Changed
 
+- **The license is now Apache-2.0** (previously MPL-2.0). `LICENSE` carries the
+  canonical text and a new root `NOTICE` names the copyright holder.
+  `pyproject.toml` declares `license = "Apache-2.0"` and `license-files`.
+  `CONTRIBUTING.md` gained an inbound=outbound clause (Apache-2.0 section 5);
+  no CLA is required. Per-file license headers were removed: the root `LICENSE`
+  and `NOTICE` are now the single authoritative statement of terms.
+- **The CLI is built on Typer instead of argparse.** Every verb, flag, short
+  flag, output string, and exit code is unchanged, and `main(argv)` keeps its
+  signature, so the existing CLI test suite passes untouched. Help text now
+  comes from each command's docstring. `--version` remains an eager top-level
+  option.
+- `typer` is now CMakeless's one runtime dependency, and the only module that
+  imports it is `cli.py`, so `import cmakeless` in a build description still
+  pulls in nothing but the standard library. `docs/ARCHITECTURE.md` was updated
+  to state that boundary instead of the previous zero-dependency claim.
+- `cmakeless.__all__` now also carries the public names defined in
+  underscore-prefixed modules, so no public name has to be reached through a
+  submodule: `BUILD_SCRIPT_NAME`, `CMAKE_MINIMUM_VERSION`,
+  `CXX_MODULES_MINIMUM_VERSION`, `MIN_PYTHON_VERSION`,
+  `CMAKELESS_SYSTEM_NAME_VAR`, `CMAKELESS_SYSTEM_PROCESSOR_VAR`, `gil_enabled`,
+  and `parallel_map`, alongside the new deprecation helpers.
+- Every layer package's `__init__.py` now re-exports its submodules' full
+  public surface. `cmakeless.api` previously claimed to do this and omitted
+  `check_file_reference`, `check_module_path`, and `DEFAULT_BUILD_DIR_NAME`;
+  `cmakeless.deps`, `cmakeless.driver`, `cmakeless.emitter`, and
+  `cmakeless.model` each omitted between one and eleven names.
+- `cmakeless.deps`' two colliding `MANIFEST_NAME` constants are now
+  `CONAN_MANIFEST_NAME` and `VCPKG_MANIFEST_NAME`. Both are private machinery,
+  not public API.
+- `Development Status` classifier moved from `4 - Beta` to
+  `5 - Production/Stable`.
+
 - `.github/workflows/ci.yml` split into `.github/workflows/lint.yml`
   (ruff + mypy, single OS/Python) and `.github/workflows/tests.yml` (the
   existing 3-OS x 2-Python pytest matrix + Codecov upload), giving
@@ -40,11 +118,35 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ### Fixed
 
+- **Custom-command arguments are now quoted individually in the generated
+  CMake.** An argument containing a backslash (any absolute Windows path, such
+  as `sys.executable`), a space, or a quote previously reached CMake's parser
+  raw, producing a syntax error or silently splitting into several arguments.
+  `VERBATIM` governs how CMake hands arguments to the shell and never protected
+  the CMake-language parse itself. Variable references such as
+  `${CMAKE_COMMAND}` still expand.
+- `examples/09_build_language` invoked a bare `python`, which resolves to the
+  Microsoft Store stub on Windows and does not exist on Linux images that ship
+  only `python3`. It now uses `sys.executable`. Found by the new integration
+  suite on its first run.
 - `CONTRIBUTING.md`'s clone command referenced the wrong repository
   (`cmakeless/cmakeless` instead of `bbalouki/cmakeless`).
 - Broken relative links to `CONTRIBUTING.md` in `docs/FEATURES.md` and
   `docs/ROADMAP.md` (missing `../`), which would otherwise fail the new
   `mkdocs build --strict` docs gate.
+
+### Docs
+
+- `docs/FEATURES.md` gained section 13, C++20 Modules, and shell completion in
+  section 8.
+- `docs/cookbook.md` gained three module recipes; `docs/migration.md` lists
+  module installation and `import std` among what has no equivalent yet.
+- `docs/ARCHITECTURE.md`: the dependency rule, the repository layout, the
+  Template Method description, and the public-API paragraph now describe the
+  frozen, enforced surface.
+- `README.md`: Apache-2.0 badge and license section, a modules row in the
+  feature tour, the requirements section, and a production-ready FAQ answer.
+- `docs/ROADMAP.md` records Phase 5.6 as shipped, with its deferred items.
 
 ## [0.5.5]
 

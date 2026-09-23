@@ -13,9 +13,15 @@ authors = [
 maintainers = [
     { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
 ]
-license = "MPL-2.0"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    # The CLI front end, and the only runtime dependency: everything below the
+    # CLI stays standard library, so importing cmakeless in a build description
+    # pulls in nothing else.
+    "typer>=0.15",
+]
 keywords = [
     "cmake",
     "build",
@@ -43,7 +49,7 @@ keywords = [
     "developer-tools",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
