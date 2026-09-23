@@ -146,3 +146,33 @@ def test_python_module_golden_file() -> None:
     )
     text = emit_cmakelists(model, tool_version=FIXED_VERSION)
     assert text == (GOLDEN_DIR / "python_module.cmake").read_text(encoding="utf-8")
+
+
+def test_python_module_project_builds_position_independent() -> None:
+    """A project with a Python module builds everything position-independent.
+
+    A dependency built through FetchContent is a subproject we cannot set
+    properties on, so without the directory-level variable its static
+    archive compiles without -fPIC and fails to link into the module.
+    """
+    module = PythonModuleModel(name="pystats", sources=(Path("src/bindings.cpp"),))
+    text = emit_cmakelists(make_model(python_modules=(module,)), tool_version=FIXED_VERSION)
+    assert "set(CMAKE_POSITION_INDEPENDENT_CODE ON)" in text
+
+
+def test_shared_library_project_builds_position_independent() -> None:
+    """A project with a shared library builds everything position-independent."""
+    library = LibraryModel(
+        name="engine", kind=LibraryKind.SHARED, sources=(Path("src/engine.cpp"),)
+    )
+    text = emit_cmakelists(make_model(libraries=(library,)), tool_version=FIXED_VERSION)
+    assert "set(CMAKE_POSITION_INDEPENDENT_CODE ON)" in text
+
+
+def test_static_only_project_sets_no_directory_wide_pic() -> None:
+    """A project of static libraries and executables is left alone."""
+    library = LibraryModel(
+        name="engine", kind=LibraryKind.STATIC, sources=(Path("src/engine.cpp"),)
+    )
+    text = emit_cmakelists(make_model(libraries=(library,)), tool_version=FIXED_VERSION)
+    assert "set(CMAKE_POSITION_INDEPENDENT_CODE ON)" not in text

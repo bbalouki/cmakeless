@@ -455,7 +455,35 @@ class _CMakeListsVisitor:
                 "    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)\n"
                 "endif()"
             )
+        sections.extend(self._position_independent_code())
         return sections
+
+    def _position_independent_code(self) -> list[str]:
+        """Build everything position-independent when the project links a shared object.
+
+        This is the one directory-level variable the emitter sets on purpose.
+        Our own targets already get the POSITION_INDEPENDENT_CODE property
+        set on them individually, but a dependency built through
+        FetchContent is a subproject we do not own and cannot set properties
+        on. Without this, a static dependency compiles without -fPIC and
+        then fails to link into a shared library or Python module on
+        platforms where that matters, which is every ELF platform.
+
+        Returns:
+            One section when the project builds something shared, so a
+            project of plain static libraries and executables is unchanged.
+        """
+        builds_shared = bool(self._model.python_modules) or any(
+            library.kind is LibraryKind.SHARED for library in self._model.libraries
+        )
+        if not builds_shared:
+            return []
+        return [
+            "# This project links a shared object, so everything it links into\n"
+            "# one, including dependencies built as subprojects, must be\n"
+            "# position-independent.\n"
+            "set(CMAKE_POSITION_INDEPENDENT_CODE ON)"
+        ]
 
     def _options_section(self) -> list[str]:
         """Declare every project.option() as a CMake cache variable.
