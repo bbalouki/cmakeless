@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Model to CMakeLists.txt: a Visitor over the frozen build graph.
 
 The generated file is our public face. The contract: modern target-centric
@@ -284,6 +280,24 @@ class _CMakeListsVisitor:
             return f"${{CMAKE_CURRENT_SOURCE_DIR}}/{normalized}"
         return token
 
+    def _command_line(self, argv: Iterable[str], *, depends: tuple[Path, ...]) -> str:
+        """Render an argument vector as one quoted, parser-safe COMMAND line.
+
+        Every argument is quoted individually, so a Windows path full of
+        backslashes, a directory with a space in it, or an argument
+        containing a quote survives CMake's parser intact and still arrives
+        at the tool as exactly one argument.
+
+        Args:
+            argv: The command's arguments, as the user wrote them.
+            depends: The command's declared dependencies, for anchoring.
+
+        Returns:
+            The space-separated, individually quoted argument list.
+        """
+        anchored = (self._anchor_command_token(token, depends=depends) for token in argv)
+        return " ".join(_quote_cmake_argument(token) for token in anchored)
+
     def _visit_command(self, command: CommandModel) -> str:
         """Emit one build-time step as add_custom_command(OUTPUT ...).
 
@@ -293,9 +307,7 @@ class _CMakeListsVisitor:
         Returns:
             The command's complete section text.
         """
-        argv = " ".join(
-            self._anchor_command_token(token, depends=command.depends) for token in command.command
-        )
+        argv = self._command_line(command.command, depends=command.depends)
         lines = ["add_custom_command(", "    OUTPUT"]
         lines.extend(f"        {output.as_posix()}" for output in command.outputs)
         lines.append("    COMMAND " + argv)
@@ -303,7 +315,7 @@ class _CMakeListsVisitor:
             depends = " ".join(depend.as_posix() for depend in sorted(command.depends))
             lines.append(f"    DEPENDS {depends}")
         if command.comment is not None:
-            lines.append(f'    COMMENT "{command.comment}"')
+            lines.append(f"    COMMENT {_quote_cmake_argument(command.comment)}")
         lines.append("    VERBATIM")
         lines.append(")")
         return "\n".join(lines)
@@ -328,9 +340,7 @@ class _CMakeListsVisitor:
         Returns:
             The target's complete section text.
         """
-        argv = " ".join(
-            self._anchor_command_token(token, depends=target.depends) for token in target.command
-        )
+        argv = self._command_line(target.command, depends=target.depends)
         lines = [f"add_custom_target({target.name}", "    COMMAND " + argv]
         if target.depends:
             depends = " ".join(depend.as_posix() for depend in sorted(target.depends))
@@ -1317,6 +1327,25 @@ class _CMakeListsVisitor:
             lines.extend(f"    PRIVATE {name}" for name in private)
         lines.append(")")
         return "\n".join(lines)
+
+
+def _quote_cmake_argument(token: str) -> str:
+    """Render one string as a single quoted CMake argument.
+
+    Backslashes and quotes are escaped so a Windows path or an argument
+    containing a quote cannot end the argument early or be read as a CMake
+    escape sequence. Dollar signs are deliberately left alone, so a caller
+    can still pass a reference such as ${CMAKE_COMMAND} and have CMake
+    expand it.
+
+    Args:
+        token: The argument text.
+
+    Returns:
+        The argument, escaped and wrapped in double quotes.
+    """
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _tree_has_tests(model: ProjectModel) -> bool:

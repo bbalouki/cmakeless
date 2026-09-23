@@ -15,7 +15,7 @@ set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
 add_custom_command(
     OUTPUT
         generated/version.cpp
-    COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_version.py --out ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp
+    COMMAND "python" "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_version.py" "--out" "${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp"
     DEPENDS tools/gen_version.py
     COMMENT "Generating version.cpp"
     VERBATIM
@@ -31,7 +31,7 @@ target_sources(app PRIVATE
 target_compile_features(app PRIVATE cxx_std_17)
 
 add_custom_target(cook-assets
-    COMMAND python tools/cook.py assets/ --out cooked/
+    COMMAND "python" "tools/cook.py" "assets/" "--out" "cooked/"
     DEPENDS assets/manifest.json
     VERBATIM
 )
