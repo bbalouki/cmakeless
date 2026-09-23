@@ -123,3 +123,34 @@ def test_a_project_without_modules_is_unchanged(project_dir: Path) -> None:
     project = Project("demo", root=project_dir, cpp_std=23)
     project.add_executable("app", sources=["src/main.cpp"])
     assert project.freeze().executables[0].cxx_modules == ()
+
+
+def test_a_generated_module_interface_need_not_exist_yet(modules_project: Project) -> None:
+    """A module interface produced by add_command() is not checked for existence.
+
+    A code-generation step's output does not exist until the step runs, so
+    requiring it on disk at freeze time would make generated module
+    interfaces impossible to declare.
+    """
+    generated = modules_project.add_command(
+        output=["generated/version.cppm"],
+        command=["gen-version", "--out", "generated/version.cppm"],
+        comment="Generating version.cppm",
+    )
+    engine = modules_project.add_library("engine", modules=["src/geometry.cppm"])
+    engine.add_module_sources(*generated.outputs)
+    model = modules_project.freeze()
+    assert Path("generated/version.cppm") in model.libraries[0].cxx_modules
+
+
+def test_an_ungenerated_missing_module_interface_is_still_rejected(
+    modules_project: Project,
+) -> None:
+    """Declaring a command output does not excuse a different missing module."""
+    modules_project.add_command(
+        output=["generated/version.cppm"],
+        command=["gen-version"],
+    )
+    modules_project.add_library("engine", modules=["src/nope.cppm"])
+    with pytest.raises(ConfigurationError, match="Module interface"):
+        modules_project.freeze()

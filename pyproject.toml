@@ -115,6 +115,14 @@ markers = [
     "integration: builds a real example project; needs CMake and a compiler",
 ]
 
+[tool.coverage.run]
+# Measure the package, not the test suite. Coverage of test code answers no
+# useful question, and counting it makes the number swing whenever tests are
+# reorganised or a slow suite is deselected, which says nothing about whether
+# the product is tested.
+source_pkgs = ["cmakeless"]
+branch = true
+
 [tool.mypy]
 strict = true
 python_version = "3.12"
