@@ -44,6 +44,7 @@ nav:
       - Cookbook: cookbook.md
       - Features: FEATURES.md
       - Migration Guide: migration.md
+      - Stability Promise: stability.md
       - Roadmap: ROADMAP.md
       - Benchmarks: benchmarks.md
   - API Reference: reference/

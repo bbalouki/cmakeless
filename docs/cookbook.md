@@ -75,6 +75,43 @@ engine.unity = True
 
 Both raise a clear error on a header-only library, which compiles nothing to precompile or unify.
 
+### Build a C++20 module interface
+
+```python
+project = Project("mygame", version="1.0.0", cpp_std=23)
+
+# A module-only library: no sources=, because a module interface unit is both
+# the interface and the implementation.
+geometry = project.add_library("geometry", modules=["src/*.cppm"])
+```
+
+Globs expand in Python and are validated at freeze time, exactly like `sources=`.
+`modules=` needs `cpp_std` of at least 20 on the project or on the target, and a
+file may appear in `sources=` or `modules=`, never both.
+
+### Consume a module from another target
+
+```python
+app = project.add_executable("mygame", sources=["src/main.cpp"])
+app.link(geometry)
+```
+
+```cpp
+// src/main.cpp
+import geometry;
+```
+
+Nothing else: no include directory, no header. A library's module interfaces are
+declared `PUBLIC` so anything linking it can import them.
+
+### Add module interfaces to an existing target
+
+```python
+app.add_module_sources("src/app_config.cppm")
+```
+
+The counterpart to `add_sources()`, for when the target already exists.
+
 ---
 
 ## Dependencies and Supply Chain

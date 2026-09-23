@@ -94,7 +94,7 @@ The user-facing surface is intentionally small, and the intent is that the class
 | `CMakeModule`                 | A reflected `include()`/`include_module()`, with validated `.call()`/`.variable()` access.                   |
 | `CMakeGlobals`                | Every CMake variable a real configure defined, as attributes. Created via `project.cmake_globals()`.         |
 
-Alongside these builders, the public surface also re-exports read-only result types (`CMakeInfo`, `CompilerInfo`, `TargetInfo`, `RegistryEntry`), the `Observer` event types (`StepStarted`, `StepFinished`, `StepFailed`, `BuildEvent`), and the error hierarchy (see below): data and diagnostics you read, not classes you construct. `cmakeless.__all__` is the authoritative, current list.
+Alongside these builders, the public surface also re-exports read-only result types (`CMakeInfo`, `CompilerInfo`, `TargetInfo`, `RegistryEntry`), the `Observer` event types (`StepStarted`, `StepFinished`, `StepFailed`, `BuildEvent`), the error hierarchy (see below), the version floors and conventions the emitter works to (`CMAKE_MINIMUM_VERSION`, `CXX_MODULES_MINIMUM_VERSION`, `MIN_PYTHON_VERSION`, `BUILD_SCRIPT_NAME`), the free-threading helpers (`gil_enabled`, `parallel_map`), and the deprecation helpers (`deprecated`, `warn_deprecated_argument`): data, diagnostics, and utilities you read or call, not classes you construct. Several of those are defined in underscore-prefixed modules, which is exactly why they are re-exported here: a user must never reach a public name through a submodule, and a test enforces that every public name in a private module appears in `__all__`. `cmakeless.__all__` is the authoritative, current list, and since 1.0 it is frozen: `tests/unittests/test_public_api.py` snapshots every exported name, its inherited methods, and their full signatures against a golden file, so drift fails CI rather than review. What that promise does and does not cover is spelled out in [STABILITY](stability.md).
 
 Users never import from `cmakeless.model`, `cmakeless.emitter`, or `cmakeless.driver`. Those are implementation details, and the package layout enforces it: only names re-exported in `cmakeless/__init__.py` are public, and the package ships `py.typed` so every signature is checked by the user's IDE and type checker.
 
@@ -117,6 +117,8 @@ $ cmakeless configure --preset debug
 $ cmakeless test
 $ cmakeless clean
 $ cmakeless init            # scaffold a new project interactively
+$ cmakeless doctor          # report what this machine is missing
+$ cmakeless --install-completion   # tab completion for your shell
 ```
 
 The `cmakeless` console script and `python -m cmakeless` share one implementation in `cmakeless/cli.py`.
@@ -135,15 +137,17 @@ cmakeless/
 │   └── cmakeless/
 │       ├── __init__.py       # the ONLY public import surface
 │       ├── py.typed
-│       ├── cli.py
+│       ├── cli.py            # Typer app; the only Typer importer
 │       ├── errors.py         # exception hierarchy (see below)
+│       ├── _deprecation.py   # one spelling for retiring public API
 │       ├── api/              # layer 1: Project, targets, deps, toolchains
 │       ├── model/            # layer 2: frozen dataclasses, validation
 │       ├── emitter/          # layer 3: model -> CMakeLists.txt
 │       ├── driver/           # layer 4: subprocess + CMake File API
 │       └── deps/             # dependency-provider strategies (see below)
 ├── tests/
-│   └── unittests/            # mirrors src/ structure; pytest
+│   ├── unittests/            # mirrors src/ structure; pytest
+│   └── integration/          # builds every examples/ project for real
 ├── examples/                 # runnable example projects, smallest first
 └── docs/
     ├── index.md              # documentation site entry point
@@ -154,10 +158,13 @@ cmakeless/
     ├── tutorial.md           # a ten-minute, linear first project
     ├── cookbook.md           # task-oriented recipes
     ├── migration.md          # introducing CMakeless into raw CMake
+    ├── stability.md          # what 1.0 promises, and how it is enforced
     └── benchmarks.md         # measured parallelism wins
 ```
 
-`pyproject.toml` declares **zero runtime dependencies**. A tool whose reason to exist is reducing build friction cannot itself bring a dependency tree. The standard library is enough: `dataclasses` for the model, `subprocess` for the driver, `json` for the File API, `argparse` for the CLI.
+`pyproject.toml` declares **exactly one runtime dependency**, [Typer](https://typer.tiangolo.com/), and it is confined to `cli.py`. A tool whose reason to exist is reducing build friction must not bring a dependency tree, so the rule is drawn at the layer boundary rather than at zero: the four layers are standard library only (`dataclasses` for the model, `subprocess` for the driver, `json` for the File API), and nothing below `cli.py` imports Typer. A `cmakelessfile.py` that does `from cmakeless import Project` therefore pulls in no third-party code at all, and `import cmakeless` keeps working even if the CLI's dependency is absent.
+
+Typer earns the exception because the CLI is a real user interface, not an afterthought: declarative commands typed with `Annotated`, per-verb help generated from the same docstrings mypy checks, and shell completion that argparse would have required hundreds of hand-written lines to match. The cost is bounded and reviewable, and the benefit lands on the surface users touch first.
 
 ## Design Patterns, Named
 
@@ -169,7 +176,7 @@ CMakeless uses classic, [design patterns](https://github.com/bbalouki/DesignPatt
 - **Strategy.** Anything with interchangeable backends is a strategy behind a small interface: CMake generators (Ninja, Visual Studio, Xcode), and above all **dependency providers**.
 - **Adapter.** Each dependency provider in `cmakeless/deps/` (FetchContent, `find_package`, vcpkg, Conan) adapts a foreign tool to the single internal `DependencyProvider` interface, so `target.depends("fmt/10.2.1")` never changes when the backend does.
 - **Composite.** A `Project` may contain subprojects; targets and subprojects form a tree that the emitter and validator traverse uniformly.
-- **Template Method.** Target emission shares a fixed skeleton (declare, sources, properties, links, install) with per-target-type overrides, which is what keeps the generated CMake uniform and boring.
+- **Template Method.** Target emission shares a fixed skeleton (declare, inputs, properties, links, install) with per-target-type overrides, which is what keeps the generated CMake uniform and boring. The "inputs" step is why C++20 module interfaces cost one new block rather than a new traversal: every target kind asks for its sources and its module file set the same way, and only the visibility differs.
 - **Observer.** The driver publishes progress events (configure started, target compiled, test finished) to subscribers, so the CLI progress display, IDE integrations, and CI log formatting are listeners, not special cases inside the driver.
 
 ## Error Handling: Errors Are a Feature

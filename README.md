@@ -12,7 +12,7 @@
 [![CMake](https://img.shields.io/badge/CMake-3.25+-blue.svg)](https://cmake.org/)
 [![C++20](https://img.shields.io/badge/C++-20-blue.svg)](https://isocpp.org/std/the-standard)
 [![Typed](https://img.shields.io/badge/typing-strict-brightgreen.svg)](https://peps.python.org/pep-0561/)
-[![License: MPL 2.0](https://img.shields.io/badge/License-MPL_2.0-brightgreen.svg)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-brightgreen.svg)](LICENSE)
 [![LinkedIn](https://img.shields.io/badge/LinkedIn-grey?logo=Linkedin&logoColor=white)](https://www.linkedin.com/in/bertin-balouki-s-15b17a1a6)
 
 **Write your C++ build in real Python. CMakeless generates clean, modern `CMakeLists.txt` from it and drives CMake for you, so you get the entire CMake ecosystem, every generator, every toolchain, every IDE, without ever writing the CMake language by hand again.**
@@ -236,7 +236,8 @@ project.lto = True
 | `Toolchain.arm_none_eabi()` / `.ios()` / `.android(ndk=...)` / `.emscripten()` | a curated cross-compilation toolchain gallery, each validated with a helpful error                  |
 | `project.lint(clang_tidy=True)` / `target.lint(...)`                           | `CXX_CLANG_TIDY`/`CXX_INCLUDE_WHAT_YOU_USE`, project-wide with a per-target override                |
 | `cmakeless sbom` / `cmakeless vendor` / `--offline`                            | a CycloneDX/SPDX bill of materials, dependency vendoring, and zero-network builds                   |
-| `cmakeless doctor`                                                             | one command checking cmake/generator/ccache/vcpkg/Conan/network, no project needed                  |
+| `cmakeless doctor`                                                             | one command checking cmake/generator/modules/ccache/vcpkg/Conan/network, no project needed          |
+| `project.add_library(..., modules=["src/*.cppm"])`                              | `target_sources(... FILE_SET CXX_MODULES ...)`, import-graph scanning, a per-project CMake 3.28 floor |
 | `target.raw_cmake("...")` / `project.raw_cmake_file("...")`                    | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin                         |
 
 Watch progress through the Observer API, read the configured build as Python objects via the CMake File API, and query any CMake variable before you have emitted a single line:
@@ -266,7 +267,7 @@ if hasattr(cmake, "ANDROID"):  # mirrors CMake's if(DEFINED ANDROID)
     app.link(android_only_dependency)
 ```
 
-The full before/after catalog lives in [FEATURES](docs/FEATURES.md).
+The full before/after catalog lives in [FEATURES](docs/FEATURES.md), and what the 1.0 version number promises is in [STABILITY](docs/stability.md).
 
 ## Where CMakeless fits in the C++ build ecosystem
 
@@ -291,7 +292,7 @@ Boundaries, stated as promises, not limitations we hope to lift later:
 ## FAQ
 
 **Is this production-ready?**
-CMakeless is in beta: pre-1.0, but no longer an unstable sketch. The public API is stabilizing and the pipeline is exercised by a real test suite and CI on all three major OSes, but the API can still change without a full deprecation cycle until v1.0 ships (see the [roadmap](docs/ROADMAP.md#phase-56-v10-the-stability-promise-v100-productionstable)). If you need long-term stability today, pin the exact version and read `CHANGELOG.md` before upgrading.
+Yes. CMakeless is 1.0: the public API is frozen behind a Semantic Versioning promise, enforced by a golden-file test that fails CI on any unannounced signature change. Breaking changes mean 2.0, and anything removed gets a deprecation warning naming its replacement for at least one minor version first. The full contract is in the [stability policy](docs/stability.md).
 
 **Why not just use Meson, Bazel, or xmake?**
 Because you would be leaving the CMake ecosystem behind: vcpkg, Conan, every IDE, every CI action, every existing library's build. CMakeless keeps all of that and only replaces the part everyone actually hates: writing the CMake language by hand.
@@ -314,7 +315,10 @@ Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake 
 ## Requirements
 
 - Python 3.12+
-- CMake 3.25+ on `PATH` (only for building; generation works without it)
+- CMake 3.25+ on `PATH` (only for building; generation works without it).
+  Projects that declare C++20 module interfaces need CMake 3.28+, and only
+  then: CMakeless raises the generated floor per project, never globally.
+- One runtime dependency, [Typer](https://typer.tiangolo.com/), for the CLI.
 
 ## Learn more
 
@@ -325,6 +329,7 @@ Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake 
 - [Tutorial](docs/tutorial.md): A ten-minute, linear walkthrough for a first project.
 - [Cookbook](docs/cookbook.md): Task-oriented recipes for common jobs.
 - [Migration guide](docs/migration.md): Bringing CMakeless into a project that already has a hand-written `CMakeLists.txt`.
+- [Stability promise](docs/stability.md): What the 1.0 version number covers, how deprecations work, and how the promise is enforced in CI.
 - [Benchmarks](docs/benchmarks.md): Measured free-threaded parallelism wins, with the method.
 - [CONTRIBUTING](CONTRIBUTING.md): Why your scars from CMake make you exactly the contributor we need.
 - [Examples](examples/): Smallest first, up to a full real-world capstone.
@@ -333,4 +338,7 @@ Your build script should be the most boring file in your repository. Let us make
 
 ## License
 
-MPL-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+
+The CMake files CMakeless generates are your project's output, not derivative
+works of CMakeless: they carry no license obligation back to this project.

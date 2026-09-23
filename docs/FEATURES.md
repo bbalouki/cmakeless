@@ -301,6 +301,7 @@ No opt-in required, because there is no reason not to want these:
 - **IDE projects for free.** Since the output is honest CMake, CLion, Visual Studio, Qt Creator, and VS Code's CMake Tools open the project natively. CMakeless does not need IDE plugins to be usable inside every IDE.
 - **`cmakeless init`** scaffolds a new project (directory layout, `cmakelessfile.py`, `.gitignore`, a hello-world target) in one command.
 - **Structured build feedback.** The driver consumes the CMake File API, so `project.targets_info()` returns real Python objects describing the configured build, and progress events stream to the console (or your own Observer) instead of raw log walls.
+- **Shell completion.** `cmakeless --install-completion` wires tab completion for verbs and flags into bash, zsh, fish, or PowerShell. The CLI is built on [Typer](https://typer.tiangolo.com/), CMakeless's one runtime dependency.
 
 ---
 
@@ -461,6 +462,69 @@ $ cmakeless doctor
 ```
 
 **We handle:** one command, no `cmakelessfile.py` required, that checks everything a new machine needs before it can build anything: CMake's presence and version, the generator CMakeless would auto-select, `ccache`/`sccache`/`vcpkg`/`conan` on `PATH`, and network reachability. A missing `cmake` or an unusable generator fails the command; every other check is informational.
+
+---
+
+## 13. C++20 Modules
+
+**You write:**
+
+```python
+project = Project("mygame", version="1.0.0", cpp_std=23)
+
+geometry = project.add_library("geometry", modules=["src/geometry.cppm"])
+
+app = project.add_executable("mygame", sources=["src/main.cpp"])
+app.link(geometry)
+```
+
+```cpp
+// src/main.cpp
+import geometry;
+```
+
+**We handle:** the `target_sources(... FILE_SET CXX_MODULES ...)` block that tells
+CMake to scan these files and order compilation by their import graph, the
+`PUBLIC` visibility a library's interfaces need so consumers can import them
+(`PRIVATE` for an executable, where nothing can), and the CMake version floor.
+
+A module interface is not a header. There is no include directory to declare, no
+include guard to write, and no separate declaration and definition: a module-only
+library needs no `sources=` at all.
+
+### The floor moves only for projects that use them
+
+`FILE_SET CXX_MODULES` needs CMake 3.28, but raising the floor for everyone to
+buy a feature most projects do not use is not a trade we will make. So the floor
+is computed per project: declare a module interface anywhere in the tree and the
+generated file says `cmake_minimum_required(VERSION 3.28)`; declare none and it
+still says `3.25`, byte for byte as before.
+
+Modules also need a generator that scans for dependencies (Ninja, Ninja
+Multi-Config, or Visual Studio; not Makefiles or Xcode). `cmakeless doctor`
+reports whether the local machine qualifies:
+
+```console
+$ cmakeless doctor
+[cmakeless] doctor
+  cmake      ok     3.31.0 (>= 3.25 required)
+  generator  ok     ninja
+  modules    ok     cmake 3.31.0 with ninja
+```
+
+### What we check before CMake ever runs
+
+Declaring modules turns on a few freeze-time checks, each with the usual
+what/where/what-next message: the target must compile as C++20 or later, a file
+cannot be declared as both a source and a module interface, and a header-only
+library cannot declare one at all (an `INTERFACE` library compiles nothing).
+
+**Deferred, honestly:** installing and exporting a module interface is refused
+rather than emitted. CMake's own support for shipping built module interfaces is
+still behind an experimental flag, and emitting output that breaks on the next
+CMake release would be worse than saying so. `import std` is deferred for the
+same reason. Build and consume modules inside your project today; both land when
+the ground stops moving.
 
 ---
 
