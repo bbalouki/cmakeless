@@ -132,6 +132,15 @@ Typer.
   Microsoft Store stub on Windows and does not exist on Linux images that ship
   only `python3`. It now uses `sys.executable`. Found by the new integration
   suite on its first run.
+- **A project building a Python module or a shared library now compiles
+  everything position-independent.** Targets CMakeless owns already carried
+  `POSITION_INDEPENDENT_CODE`, but a dependency built through `FetchContent`
+  is a subproject whose properties CMakeless cannot set, so its static archive
+  compiled without `-fPIC` and then failed to link into the shared object.
+  On Linux that made any Python-module project with a fetched dependency
+  unbuildable. `set(CMAKE_POSITION_INDEPENDENT_CODE ON)` is now emitted, and
+  only when the project actually builds something shared, so a project of
+  static libraries and executables emits the same bytes as before.
 - `CONTRIBUTING.md`'s clone command referenced the wrong repository
   (`cmakeless/cmakeless` instead of `bbalouki/cmakeless`).
 - Broken relative links to `CONTRIBUTING.md` in `docs/FEATURES.md` and
