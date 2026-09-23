@@ -1,0 +1,268 @@
+BUILD_SCRIPT_NAME: str
+
+class BuildEvent
+    __init__(self, step: 'str') -> None
+    step: member_descriptor
+
+CMAKELESS_SYSTEM_NAME_VAR: str
+
+CMAKELESS_SYSTEM_PROCESSOR_VAR: str
+
+CMAKE_MINIMUM_VERSION: str
+
+class CMakeError(CmakelessError)
+    __init__(self, message: 'str', *, command: 'Sequence[str]', exit_code: 'int', log_path: 'Path | None' = None, diagnostics: 'Sequence[Diagnostic]' = ()) -> 'None'
+    add_note(self, object, /)
+    args: getset_descriptor
+    with_traceback(self, object, /)
+
+class CMakeGlobals
+    __init__(self, values: 'Mapping[str, str]') -> 'None'
+    get(self, name: 'str', default: 'str | None' = None) -> 'str | None'
+
+class CMakeInfo
+    __init__(self, generator: 'str', multi_config: 'bool', system_name: 'str', system_processor: 'str', compilers: 'tuple[CompilerInfo, ...]' = (), options: 'tuple[tuple[str, bool | int | str], ...]' = ()) -> None
+    compilers: member_descriptor
+    generator: member_descriptor
+    multi_config: member_descriptor
+    options: member_descriptor
+    system_name: member_descriptor
+    system_processor: member_descriptor
+
+class CMakeModule
+    __init__(self, *, kind: 'ModuleKind', reference: 'str', module_path: 'Path | None', reflection: 'ModuleReflection', script: 'str') -> 'None'
+    call(self, function: 'str', *args: 'str') -> 'None'
+    functions: property
+    targets: property
+    variable(self, name: 'str') -> 'str'
+    variables: property
+
+CXX_MODULES_MINIMUM_VERSION: str
+
+class CmakelessError(Exception)
+    __init__(self, /, *args, **kwargs)
+    add_note(self, object, /)
+    args: getset_descriptor
+    with_traceback(self, object, /)
+
+class Command
+    __init__(self, *, output: 'Sequence[str]', command: 'Sequence[str]', depends: 'Sequence[str | Command]' = (), comment: 'str | None', script: 'str') -> 'None'
+    outputs: property
+
+class CompilerInfo
+    __init__(self, language: 'str', compiler_id: 'str' = '', compiler_version: 'str' = '') -> None
+    compiler_id: member_descriptor
+    compiler_version: member_descriptor
+    language: member_descriptor
+
+class ConfigurationError(CmakelessError)
+    __init__(self, /, *args, **kwargs)
+    add_note(self, object, /)
+    args: getset_descriptor
+    with_traceback(self, object, /)
+
+class ConsoleObserver
+    on_event(self, event: 'BuildEvent') -> 'None'
+
+class CustomTarget
+    __init__(self, name: 'str', *, command: 'Sequence[str]', depends: 'Sequence[str | Command]' = (), script: 'str') -> 'None'
+    name: property
+
+class Dependencies
+    __init__(self, project: 'Project') -> 'None'
+    add(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = ()) -> 'Dependency'
+    lock(self) -> 'Path'
+    sbom(self, *, format: 'str' = 'cyclonedx', output: 'str | Path | None' = None) -> 'Path'
+    vendor(self, *, directory: 'str | Path | None' = None) -> 'Path'
+
+class Dependency
+    __init__(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), script: 'str' = 'cmakelessfile.py') -> 'None'
+    name: property
+    version: property
+
+class DependencyError(CmakelessError)
+    __init__(self, /, *args, **kwargs)
+    add_note(self, object, /)
+    args: getset_descriptor
+    with_traceback(self, object, /)
+
+class Diagnostic
+    __init__(self, file: 'str | None', line: 'int | None', message: 'str') -> None
+    file: member_descriptor
+    line: member_descriptor
+    message: member_descriptor
+
+class Executable(_Target)
+    __init__(self, name: 'str', sources: 'Sequence[str]', *, modules: 'Sequence[str]' = (), script: 'str', dependencies: 'Dependencies') -> 'None'
+    add_module_sources(self, *modules: 'str') -> 'None'
+    add_sources(self, *sources: 'str | Command') -> 'None'
+    compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    include_dirs(self, *dirs: 'str') -> 'None'
+    link(self, library: 'Library') -> 'None'
+    link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    name: property
+    raw_cmake(self, snippet: 'str') -> 'None'
+
+class Library(_Target)
+    __init__(self, name: 'str', sources: 'Sequence[str]', *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = (), script: 'str', dependencies: 'Dependencies') -> 'None'
+    add_module_sources(self, *modules: 'str') -> 'None'
+    add_sources(self, *sources: 'str | Command') -> 'None'
+    compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    include_dirs(self, *dirs: 'str') -> 'None'
+    kind: property
+    link(self, library: 'Library', *, public: 'bool' = False) -> 'None'
+    link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    name: property
+    raw_cmake(self, snippet: 'str') -> 'None'
+
+MIN_PYTHON_VERSION: str
+
+class Observer(Protocol)
+    __init__(self, *args, **kwargs)
+    on_event(self, event: 'BuildEvent') -> 'None'
+
+class Option
+    __init__(self, name: 'str', *, default: 'bool | int | str', help: 'str' = '', type: 'type[bool] | type[int] | type[str] | None' = None, script: 'str') -> 'None'
+    name: property
+
+class Preset
+    __init__(self, name: 'str', *, optimize: 'str' = 'debug', sanitize: 'Sequence[str]' = (), lto: 'bool' = False, toolchain: 'str | Toolchain | None' = None, options: 'Mapping[str, bool | int | str] | None' = None, env: 'Mapping[str, str] | None' = None, inherits: 'str | Preset | None' = None) -> 'None'
+    name: property
+
+class Project
+    __init__(self, name: 'str', *, version: 'str' = '0.1.0', cpp_std: 'int' = 17, warnings: 'str' = 'default', root: 'str | Path | None' = None) -> 'None'
+    add_command(self, output: 'Sequence[str]', command: 'Sequence[str]', *, depends: 'Sequence[str | Command]' = (), comment: 'str | None' = None) -> 'Command'
+    add_custom_target(self, name: 'str', *, command: 'Sequence[str]', depends: 'Sequence[str | Command]' = ()) -> 'CustomTarget'
+    add_executable(self, name: 'str', sources: 'Sequence[str]', *, modules: 'Sequence[str]' = ()) -> 'Executable'
+    add_library(self, name: 'str', sources: 'Sequence[str]' = (), *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = ()) -> 'Library'
+    add_observer(self, observer: 'Observer') -> 'Observer'
+    add_preset(self, preset: 'Preset') -> 'Preset'
+    add_python_module(self, name: 'str', sources: 'Sequence[str]', *, binding: 'PythonBindingName' = 'pybind11', stubs: 'bool' = True, install: 'bool' = True, python_version: 'str | None' = None) -> 'PythonModule'
+    add_subproject(self, path: 'str | Path') -> 'Project'
+    add_test(self, name: 'str', sources: 'Sequence[str]', *, framework: 'TestFrameworkName' = 'gtest') -> 'Test'
+    add_toolchain(self, toolchain: 'Toolchain') -> 'Toolchain'
+    build(self) -> 'None'
+    clean(self) -> 'None'
+    cmake_globals(self, *, toolchain: 'Toolchain | None' = None) -> 'CMakeGlobals'
+    cmake_info(self) -> 'CMakeInfo'
+    configure(self) -> 'None'
+    configure_presets(self) -> 'None'
+    dependencies: property
+    freeze(self) -> 'ProjectModel'
+    generate(self) -> 'list[Path]'
+    include(self, path: 'str | Path') -> 'CMakeModule'
+    include_module(self, name: 'str', *, module_path: 'str | Path | None' = None) -> 'CMakeModule'
+    install(self, target: 'Executable | Library', *, headers: 'bool' = False) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    name: property
+    option(self, name: 'str', *, default: 'bool | int | str', help: 'str' = '', type: 'type[bool] | type[int] | type[str] | None' = None) -> 'Option'
+    package(self, *, formats: 'Sequence[str]' = ('zip',)) -> 'None'
+    raw_cmake_file(self, path: 'str | Path') -> 'None'
+    root: property
+    set_generator(self, generator: 'str | None') -> 'None'
+    targets_info(self) -> 'tuple[TargetInfo, ...]'
+    test(self) -> 'None'
+
+class PythonModule(_Target)
+    __init__(self, name: 'str', sources: 'Sequence[str]', *, binding: 'PythonBindingName' = 'pybind11', stubs: 'bool' = True, install: 'bool' = True, python_version: 'str | None' = None, script: 'str', dependencies: 'Dependencies') -> 'None'
+    add_module_sources(self, *modules: 'str') -> 'None'
+    add_sources(self, *sources: 'str | Command') -> 'None'
+    binding: property
+    compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    include_dirs(self, *dirs: 'str') -> 'None'
+    link(self, library: 'Library') -> 'None'
+    link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    name: property
+    raw_cmake(self, snippet: 'str') -> 'None'
+
+class RegistryEntry
+    __init__(self, cmake_name: 'str', targets: 'tuple[str, ...]', component_target_template: 'str | None' = None, url_template: 'str | None' = None, sha256_by_version: 'Mapping[str, str]' = <factory>, vcpkg_name: 'str' = '', conan_name: 'str' = '') -> None
+    cmake_name: member_descriptor
+    component_target_template: member_descriptor
+    conan_name: member_descriptor
+    sha256_by_version: member_descriptor
+    targets: member_descriptor
+    url_template: member_descriptor
+    vcpkg_name: member_descriptor
+
+class StepFailed(BuildEvent)
+    __init__(self, step: 'str', exit_code: 'int' = 1, diagnostics: 'tuple[Diagnostic, ...]' = <factory>) -> None
+    diagnostics: member_descriptor
+    exit_code: member_descriptor
+    step: member_descriptor
+
+class StepFinished(BuildEvent)
+    __init__(self, step: 'str', exit_code: 'int' = 0) -> None
+    exit_code: member_descriptor
+    step: member_descriptor
+
+class StepStarted(BuildEvent)
+    __init__(self, step: 'str', command: 'tuple[str, ...]' = ()) -> None
+    command: member_descriptor
+    step: member_descriptor
+
+class TargetInfo
+    __init__(self, name: 'str', type: 'str', artifacts: 'tuple[Path, ...]' = (), sources: 'tuple[Path, ...]' = (), dependencies: 'tuple[str, ...]' = <factory>) -> None
+    artifacts: member_descriptor
+    dependencies: member_descriptor
+    name: member_descriptor
+    sources: member_descriptor
+    type: member_descriptor
+
+class Test(_Target)
+    __init__(self, name: 'str', sources: 'Sequence[str]', *, framework: 'TestFrameworkName' = 'gtest', script: 'str', dependencies: 'Dependencies') -> 'None'
+    add_module_sources(self, *modules: 'str') -> 'None'
+    add_sources(self, *sources: 'str | Command') -> 'None'
+    compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    framework: property
+    include_dirs(self, *dirs: 'str') -> 'None'
+    link(self, library: 'Library') -> 'None'
+    link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    name: property
+    raw_cmake(self, snippet: 'str') -> 'None'
+
+class Toolchain
+    __init__(self, name: 'str', *, compiler: 'str | None' = None, system_name: 'str | None' = None, system_processor: 'str | None' = None) -> 'None'
+    android: classmethod
+    arm_none_eabi: classmethod
+    emscripten: classmethod
+    from_file: classmethod
+    ios: classmethod
+    name: property
+
+class ToolchainError(CmakelessError)
+    __init__(self, /, *args, **kwargs)
+    add_note(self, object, /)
+    args: getset_descriptor
+    with_traceback(self, object, /)
+
+class When
+    __init__(self, model: 'WhenModel') -> 'None'
+    compiler: classmethod
+    config: classmethod
+    option: classmethod
+    platform: classmethod
+
+__version__: str
+
+def deprecated(*, replacement: 'str', removed_in: 'str') -> 'Callable[[_Function], _Function]'
+
+def gil_enabled() -> 'bool'
+
+def parallel_map(function: 'Callable[[T], R]', items: 'Sequence[T]') -> 'list[R]'
+
+def register_dependency(name: 'str', entry: 'RegistryEntry') -> 'None'
+
+def warn_deprecated_argument(name: 'str', *, owner: 'str', replacement: 'str', removed_in: 'str') -> 'None'
