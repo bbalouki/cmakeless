@@ -1,14 +1,10 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Emitter coverage for Python modules: backends, stubs, and settings reuse."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cmakeless._constants import MIN_PYTHON_VERSION
+from cmakeless import MIN_PYTHON_VERSION
 from cmakeless.emitter import emit_cmakelists
 from cmakeless.model.nodes import (
     DefineModel,

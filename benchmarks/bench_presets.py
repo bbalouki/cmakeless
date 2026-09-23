@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Benchmark: parallel vs serial multi-preset configure.
 
 Configuring several presets means running independent CMake configures, each
@@ -25,8 +21,7 @@ import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 
-from cmakeless import Preset, Project
-from cmakeless._parallel import gil_enabled, parallel_map
+from cmakeless import Preset, Project, gil_enabled, parallel_map
 from cmakeless.deps import DependencyProvider
 from cmakeless.model.nodes import ProjectModel
 

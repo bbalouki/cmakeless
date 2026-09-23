@@ -1,14 +1,25 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Layer 2: the immutable, validated build graph.
 
 Pure data. No CMake knowledge, no subprocess calls. The model is the single
 source of truth that the emitter and driver consume.
+
+This package re-exports every public class, constant, and function from
+its submodules, so `from cmakeless.model import ...` reaches the whole
+layer-2 surface.
 """
 
 from cmakeless.model.nodes import (
+    BUILD_TYPE_BY_OPTIMIZE,
+    CMAKE_COMPILER_ID_BY_CANONICAL,
+    CMAKE_PLATFORM_ID_BY_TOKEN,
+    COMPILERS_BY_TOKEN,
+    CPACK_GENERATOR_BY_FORMAT,
+    PACKAGE_MANAGERS,
+    PYTHON_BINDING_BACKENDS,
+    SANITIZERS,
+    SUPPORTED_CPP_STANDARDS,
+    TEST_FRAMEWORKS,
+    WARNING_PRESETS,
     CommandModel,
     CompiledModel,
     CompileOptionsModel,
@@ -39,6 +50,17 @@ from cmakeless.model.nodes import (
 from cmakeless.model.validate import validate_project
 
 __all__ = [
+    "BUILD_TYPE_BY_OPTIMIZE",
+    "CMAKE_COMPILER_ID_BY_CANONICAL",
+    "CMAKE_PLATFORM_ID_BY_TOKEN",
+    "COMPILERS_BY_TOKEN",
+    "CPACK_GENERATOR_BY_FORMAT",
+    "PACKAGE_MANAGERS",
+    "PYTHON_BINDING_BACKENDS",
+    "SANITIZERS",
+    "SUPPORTED_CPP_STANDARDS",
+    "TEST_FRAMEWORKS",
+    "WARNING_PRESETS",
     "CommandModel",
     "CompileOptionsModel",
     "CompiledModel",

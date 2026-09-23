@@ -1,14 +1,10 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Emitter coverage for reflected includes: project.include()/include_module()."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from cmakeless._constants import CMAKELESS_SYSTEM_NAME_VAR, CMAKELESS_SYSTEM_PROCESSOR_VAR
+from cmakeless import CMAKELESS_SYSTEM_NAME_VAR, CMAKELESS_SYSTEM_PROCESSOR_VAR
 from cmakeless.emitter import emit_cmakelists
 from cmakeless.model.nodes import (
     ExecutableModel,
