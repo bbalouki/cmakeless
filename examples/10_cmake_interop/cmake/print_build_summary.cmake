@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 # A tiny, reusable CMake helper, included and reflected via project.include()
 # rather than run directly: CMakeless discovers print_build_summary() and
 # CMAKE_INTEROP_HELPER_VERSION by asking real CMake to run this file, never

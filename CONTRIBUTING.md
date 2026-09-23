@@ -69,7 +69,9 @@ You need Python 3.13+ (3.14 free-threaded to exercise the parallel paths) and CM
 3. CI must be green on Windows, Linux, and macOS. The build tool for a cross-platform language does not get to have a favorite platform.
 4. One approving review merges it. Reviews here critique code, never people.
 
-**Versioning:** Semantic Versioning 2.0.0. A breaking change is any backward-incompatible change to the public API, including the generated file formats and CLI. Deprecate with a warning and a migration path before removing.
+**Versioning:** Semantic Versioning 2.0.0. A breaking change is any backward-incompatible change to the public API, including the generated file formats and CLI. Since 1.0 this is enforced, not merely promised: `tests/unittests/test_public_api.py` compares the entire public surface against a golden file, so an unannounced signature change fails CI. To remove something, first deprecate it with `cmakeless.deprecated(...)`, which emits a `DeprecationWarning` naming the replacement, and leave it in place for at least one minor version. The full contract is in the [stability policy](docs/stability.md).
+
+**Licensing:** CMakeless is licensed under the Apache License 2.0. Per section 5 of that license, any contribution you intentionally submit for inclusion in the project is licensed under the same terms, with no additional conditions. No separate CLA is required. Source files carry no per-file license header: the root `LICENSE` and `NOTICE` files are the single authoritative statement of terms.
 
 **Conduct:** we follow the [Contributor Covenant](https://www.contributor-covenant.org/). The short version: the mission is to remove frustration from this ecosystem, starting with how we treat each other.
 
