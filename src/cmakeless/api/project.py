@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """The Project facade: the root object users interact with.
 
 project.build() hides freeze, validate, emit, configure, and compile behind
@@ -214,18 +210,26 @@ class Project:
             f"cpp_std={self._cpp_std}, root={str(self._root)!r})"
         )
 
-    def add_executable(self, name: str, sources: Sequence[str]) -> Executable:
+    def add_executable(
+        self, name: str, sources: Sequence[str], *, modules: Sequence[str] = ()
+    ) -> Executable:
         """Declare a runnable target built from the given source files or globs.
 
         Args:
             name: Unique target name within the project.
             sources: Source files or glob patterns, project-root-relative.
+            modules: C++20 module interface units this target defines, or
+                glob patterns matching them.
 
         Returns:
             The mutable Executable builder, for further link()/define() calls.
         """
         executable = Executable(
-            name, sources, script=self._source_script, dependencies=self._dependencies
+            name,
+            sources,
+            modules=modules,
+            script=self._source_script,
+            dependencies=self._dependencies,
         )
         self._executables.append(executable)
         return executable
@@ -237,6 +241,7 @@ class Project:
         *,
         public_headers: str | Sequence[str] = (),
         kind: LibraryKindName = "static",
+        modules: Sequence[str] = (),
     ) -> Library:
         """Declare a library target.
 
@@ -246,6 +251,9 @@ class Project:
             public_headers: Directory (or directories) whose headers
                 consumers may include.
             kind: "static", "shared", or "header_only".
+            modules: C++20 module interface units this library exports, or
+                glob patterns matching them; consumers import them without
+                any include directory.
 
         Returns:
             The mutable Library builder, for further link()/define() calls.
@@ -258,6 +266,7 @@ class Project:
             sources,
             public_headers=public_headers,
             kind=kind,
+            modules=modules,
             script=self._source_script,
             dependencies=self._dependencies,
         )

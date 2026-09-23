@@ -12,6 +12,11 @@ project(demo
 set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
 set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
 
+# This project links a shared object, so everything it links into
+# one, including dependencies built as subprojects, must be
+# position-independent.
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
 include(GenerateExportHeader)
 
 add_library(engine STATIC)

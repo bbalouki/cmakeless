@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """The Conan 2 adapter: conanfile.txt generation and toolchain wiring.
 
 cmakeless writes a conanfile.txt next to the generated CMakeLists.txt, runs
@@ -26,7 +22,7 @@ from cmakeless.deps.registry import registry_entry
 from cmakeless.errors import DependencyError, ToolchainError
 from cmakeless.model.nodes import DependencyModel, ProjectModel
 
-MANIFEST_NAME = "conanfile.txt"
+CONAN_MANIFEST_NAME = "conanfile.txt"
 
 
 class ConanAdapter(DependencyProvider):
@@ -67,7 +63,7 @@ class ConanAdapter(DependencyProvider):
         del lock
         requires = [_conan_reference(dep) for dep in collect_tree_dependencies(model)]
         lines = ["[requires]", *requires, "", "[generators]", "CMakeDeps", "CMakeToolchain", ""]
-        return {Path(MANIFEST_NAME): "\n".join(lines)}
+        return {Path(CONAN_MANIFEST_NAME): "\n".join(lines)}
 
     def toolchain_args(self, build_dir: Path, *, build_type: str) -> tuple[str, ...]:
         """Point cmake at the toolchain file 'conan install' generated.

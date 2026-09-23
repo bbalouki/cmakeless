@@ -1,14 +1,10 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """The free-threaded helpers: GIL detection and ordered parallel mapping."""
 
 from __future__ import annotations
 
 import threading
 
-from cmakeless._parallel import gil_enabled, parallel_map
+from cmakeless import gil_enabled, parallel_map
 
 
 def test_gil_enabled_returns_a_bool() -> None:

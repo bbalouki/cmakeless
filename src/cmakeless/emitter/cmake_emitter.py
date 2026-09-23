@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Model to CMakeLists.txt: a Visitor over the frozen build graph.
 
 The generated file is our public face. The contract: modern target-centric
@@ -22,6 +18,7 @@ from cmakeless._constants import (
     CMAKE_MINIMUM_VERSION,
     CMAKELESS_SYSTEM_NAME_VAR,
     CMAKELESS_SYSTEM_PROCESSOR_VAR,
+    CXX_MODULES_MINIMUM_VERSION,
 )
 from cmakeless.emitter.presets_emitter import emit_presets
 from cmakeless.emitter.sanitizers import (
@@ -284,6 +281,24 @@ class _CMakeListsVisitor:
             return f"${{CMAKE_CURRENT_SOURCE_DIR}}/{normalized}"
         return token
 
+    def _command_line(self, argv: Iterable[str], *, depends: tuple[Path, ...]) -> str:
+        """Render an argument vector as one quoted, parser-safe COMMAND line.
+
+        Every argument is quoted individually, so a Windows path full of
+        backslashes, a directory with a space in it, or an argument
+        containing a quote survives CMake's parser intact and still arrives
+        at the tool as exactly one argument.
+
+        Args:
+            argv: The command's arguments, as the user wrote them.
+            depends: The command's declared dependencies, for anchoring.
+
+        Returns:
+            The space-separated, individually quoted argument list.
+        """
+        anchored = (self._anchor_command_token(token, depends=depends) for token in argv)
+        return " ".join(_quote_cmake_argument(token) for token in anchored)
+
     def _visit_command(self, command: CommandModel) -> str:
         """Emit one build-time step as add_custom_command(OUTPUT ...).
 
@@ -293,9 +308,7 @@ class _CMakeListsVisitor:
         Returns:
             The command's complete section text.
         """
-        argv = " ".join(
-            self._anchor_command_token(token, depends=command.depends) for token in command.command
-        )
+        argv = self._command_line(command.command, depends=command.depends)
         lines = ["add_custom_command(", "    OUTPUT"]
         lines.extend(f"        {output.as_posix()}" for output in command.outputs)
         lines.append("    COMMAND " + argv)
@@ -303,7 +316,7 @@ class _CMakeListsVisitor:
             depends = " ".join(depend.as_posix() for depend in sorted(command.depends))
             lines.append(f"    DEPENDS {depends}")
         if command.comment is not None:
-            lines.append(f'    COMMENT "{command.comment}"')
+            lines.append(f"    COMMENT {_quote_cmake_argument(command.comment)}")
         lines.append("    VERBATIM")
         lines.append(")")
         return "\n".join(lines)
@@ -328,9 +341,7 @@ class _CMakeListsVisitor:
         Returns:
             The target's complete section text.
         """
-        argv = " ".join(
-            self._anchor_command_token(token, depends=target.depends) for token in target.command
-        )
+        argv = self._command_line(target.command, depends=target.depends)
         lines = [f"add_custom_target({target.name}", "    COMMAND " + argv]
         if target.depends:
             depends = " ".join(depend.as_posix() for depend in sorted(target.depends))
@@ -375,13 +386,27 @@ class _CMakeListsVisitor:
             The preamble section text.
         """
         return (
-            f"cmake_minimum_required(VERSION {CMAKE_MINIMUM_VERSION})\n"
+            f"cmake_minimum_required(VERSION {self._required_cmake_version()})\n"
             f"\n"
             f"project({self._model.name}\n"
             f"    VERSION {self._model.version}\n"
             f"    LANGUAGES CXX\n"
             f")"
         )
+
+    def _required_cmake_version(self) -> str:
+        """Pick the CMake version floor this particular project needs.
+
+        Raised only for a project that declares C++20 module interfaces,
+        which need a newer CMake than everything else the emitter writes; a
+        project that declares none keeps the lower, wider floor.
+
+        Returns:
+            The version string for cmake_minimum_required.
+        """
+        if any(target.cxx_modules for target in self._model.all_targets()):
+            return CXX_MODULES_MINIMUM_VERSION
+        return CMAKE_MINIMUM_VERSION
 
     def _reflection_preamble(self) -> str:
         """Promote CMAKE_SYSTEM_NAME/PROCESSOR into cache entries cmake_info() reads.
@@ -430,7 +455,35 @@ class _CMakeListsVisitor:
                 "    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)\n"
                 "endif()"
             )
+        sections.extend(self._position_independent_code())
         return sections
+
+    def _position_independent_code(self) -> list[str]:
+        """Build everything position-independent when the project links a shared object.
+
+        This is the one directory-level variable the emitter sets on purpose.
+        Our own targets already get the POSITION_INDEPENDENT_CODE property
+        set on them individually, but a dependency built through
+        FetchContent is a subproject we do not own and cannot set properties
+        on. Without this, a static dependency compiles without -fPIC and
+        then fails to link into a shared library or Python module on
+        platforms where that matters, which is every ELF platform.
+
+        Returns:
+            One section when the project builds something shared, so a
+            project of plain static libraries and executables is unchanged.
+        """
+        builds_shared = bool(self._model.python_modules) or any(
+            library.kind is LibraryKind.SHARED for library in self._model.libraries
+        )
+        if not builds_shared:
+            return []
+        return [
+            "# This project links a shared object, so everything it links into\n"
+            "# one, including dependencies built as subprojects, must be\n"
+            "# position-independent.\n"
+            "set(CMAKE_POSITION_INDEPENDENT_CODE ON)"
+        ]
 
     def _options_section(self) -> list[str]:
         """Declare every project.option() as a CMake cache variable.
@@ -601,7 +654,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"add_executable({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -646,7 +699,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"{target.binding}_add_module({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -689,7 +742,7 @@ class _CMakeListsVisitor:
             return self._visit_header_only_library(target)
         keyword = "STATIC" if target.kind is LibraryKind.STATIC else "SHARED"
         blocks = [f"add_library({target.name} {keyword})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -717,7 +770,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"add_executable({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -834,7 +887,26 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
         return "\n\n".join(blocks)
 
-    def _sources_block(self, target: CompiledModel, visibility: str) -> str:
+    def _input_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
+        """Write the blocks declaring everything a target compiles.
+
+        Args:
+            target: The target whose inputs to declare.
+            visibility: The CMake visibility keyword for ordinary sources;
+                module interfaces always get their own, since consumers
+                import them.
+
+        Returns:
+            The source block, the module interface block, or both, in the
+            order CMake reads most naturally.
+        """
+        candidates = (
+            self._sources_block(target, visibility),
+            self._cxx_modules_block(target, self._cxx_modules_visibility(target)),
+        )
+        return [block for block in candidates if block is not None]
+
+    def _sources_block(self, target: CompiledModel, visibility: str) -> str | None:
         """Write a target_sources command with sorted sources.
 
         Args:
@@ -842,12 +914,48 @@ class _CMakeListsVisitor:
             visibility: The CMake visibility keyword to use.
 
         Returns:
-            The command text.
+            The command text, or None for a target built only from module
+            interfaces.
         """
+        if not target.sources:
+            return None
         lines = [f"target_sources({target.name} {visibility}"]
         lines.extend(f"    {source.as_posix()}" for source in sorted(target.sources))
         lines.append(")")
         return "\n".join(lines)
+
+    def _cxx_modules_block(self, target: CompiledModel, visibility: str) -> str | None:
+        """Write the target_sources command declaring C++20 module interfaces.
+
+        Module interfaces live in their own FILE_SET so CMake scans them and
+        orders compilation by the import graph, which a plain source list
+        does not do.
+
+        Args:
+            target: The target whose module interfaces to list.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The command text, or None when the target declares no modules.
+        """
+        if not target.cxx_modules:
+            return None
+        lines = [f"target_sources({target.name} {visibility}", "    FILE_SET CXX_MODULES FILES"]
+        lines.extend(f"        {module.as_posix()}" for module in sorted(target.cxx_modules))
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _cxx_modules_visibility(self, target: CompiledModel) -> str:
+        """Pick the visibility a target's module interfaces are declared with.
+
+        Args:
+            target: The target declaring module interfaces.
+
+        Returns:
+            PUBLIC for a library, whose consumers must be able to import the
+            module, and PRIVATE for anything nothing links against.
+        """
+        return "PUBLIC" if isinstance(target, LibraryModel) else "PRIVATE"
 
     def _private_include_dirs_block(self, target: CompiledModel, visibility: str) -> str | None:
         """Write a target_include_directories command for a target's own private dirs.
@@ -1317,6 +1425,25 @@ class _CMakeListsVisitor:
             lines.extend(f"    PRIVATE {name}" for name in private)
         lines.append(")")
         return "\n".join(lines)
+
+
+def _quote_cmake_argument(token: str) -> str:
+    """Render one string as a single quoted CMake argument.
+
+    Backslashes and quotes are escaped so a Windows path or an argument
+    containing a quote cannot end the argument early or be read as a CMake
+    escape sequence. Dollar signs are deliberately left alone, so a caller
+    can still pass a reference such as ${CMAKE_COMMAND} and have CMake
+    expand it.
+
+    Args:
+        token: The argument text.
+
+    Returns:
+        The argument, escaped and wrapped in double quotes.
+    """
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
 
 
 def _tree_has_tests(model: ProjectModel) -> bool:

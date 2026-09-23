@@ -17,7 +17,7 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 | 5.3   | v0.5.3  | The interop unlock                                                                |
 | 5.4   | v0.5.4  | The portability release                                                           |
 | 5.5   | v0.5.5  | Documentation and quality debt                                                    |
-| 5.6   | v1.0    | Stability promise                                                                 |
+| 5.6   | v1.0    | Stability promise: C++20 modules, frozen API, Apache-2.0, Typer CLI               |
 
 Scope is the fixed variable, order is the promise.
 
@@ -179,13 +179,17 @@ The adoption-friction work a growing user base starts to feel, closed out before
 
 ## Phase 5.6: v1.0, the Stability Promise, v1.0.0 (Production/Stable)
 
-v1.0 is a social contract, not a feature list. Declaring it requires:
+v1.0 is a social contract, not a feature list. Declaring it required:
 
-- C++20/23 modules support (tracking CMake's own maturing support; this lands last on purpose, when the ground stops moving).
-- Public API frozen and audited: every class, method, and argument justified or removed. Deprecations from 0.x deleted.
-- Documentation complete: tutorial, cookbook, migration guide from raw CMake, API reference.
-- Real-world validation: at least a handful of independent projects on 0.x in CI, their issues closed.
-- From here on, SemVer with teeth: breaking changes mean 2.0, and `[[deprecated]]`-style migration paths are mandatory (deprecation warnings with the new spelling, one minor version of overlap minimum).
+- **C++20 modules**: `add_library(..., modules=[...])` and `add_module_sources(...)` emit `target_sources(... FILE_SET CXX_MODULES ...)`, `PUBLIC` for a library so consumers can import it, `PRIVATE` otherwise. The CMake floor rises to 3.28 only for a project that actually declares modules; every other project's generated file is byte-identical to before. Freeze-time checks cover the C++20 minimum, source/module double-declaration, and header-only libraries; `cmakeless doctor` reports whether the local CMake and generator qualify.
+- **Public API frozen and audited**: the surface is snapshotted, inherited methods and full signatures included, by `tests/unittests/test_public_api.py`, so drift fails CI instead of review. Each layer package now genuinely re-exports its submodules' public names, enforced by `tests/unittests/test_package_exports.py`. Nothing was deprecated during 0.x, so there was nothing to delete; what was missing was the mechanism, now `cmakeless._deprecation`.
+- **Documentation complete**: tutorial, cookbook, migration guide, API reference, and a new [STABILITY](stability.md) page stating exactly what the version number covers.
+- **Real-world validation, made mechanical**: `tests/integration/` builds every project under `examples/` from its real `cmakelessfile.py`, so a change that breaks documented usage fails before anyone else meets it. It found two real bugs on its first run.
+- **SemVer with teeth**: breaking changes mean 2.0, and migration paths are mandatory (a `DeprecationWarning` naming the new spelling, one minor version of overlap minimum).
+
+Two supporting changes landed with it: the license moved from MPL-2.0 to Apache-2.0, and the CLI moved from `argparse` to [Typer](https://typer.tiangolo.com/), which makes Typer CMakeless's one runtime dependency, confined to `cli.py` so that importing `cmakeless` in a build description still pulls in nothing but the standard library.
+
+**Deferred from this phase:** installing and exporting C++20 module interfaces is refused at freeze time rather than emitted, because CMake's own support for shipping built module interfaces is still behind an experimental flag; `import std` is deferred for the same reason, since its gate is a UUID upstream rotates every release. Both land when that ground stops moving.
 
 ## Beyond 1.0 (unscheduled, honestly)
 

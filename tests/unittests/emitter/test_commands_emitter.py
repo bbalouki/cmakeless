@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Emitter coverage for custom build steps: add_command() and add_custom_target()."""
 
 from __future__ import annotations
@@ -41,7 +37,7 @@ def test_command_emits_custom_command_with_output_and_depends() -> None:
     assert "    OUTPUT\n        generated/version.cpp" in text
     # The script argument is anchored to the source dir: CMake runs a custom
     # command's argv with the build directory as its default CWD.
-    assert "COMMAND python ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_version.py" in text
+    assert 'COMMAND "python" "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_version.py"' in text
     assert "DEPENDS tools/gen_version.py" in text
     assert 'COMMENT "Generating version.cpp"' in text
     assert "VERBATIM" in text
@@ -55,7 +51,7 @@ def test_command_argument_matching_its_own_output_is_anchored_to_the_binary_dir(
         depends=(Path("tools/gen.py"),),
     )
     text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
-    assert "--out ${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp" in text
+    assert '"--out" "${CMAKE_CURRENT_BINARY_DIR}/generated/version.cpp"' in text
 
 
 def test_command_argument_matching_another_commands_output_is_anchored_too() -> None:
@@ -67,14 +63,14 @@ def test_command_argument_matching_another_commands_output_is_anchored_too() -> 
         depends=(Path("assets/manifest.json"),),
     )
     text = emit_cmakelists(make_model(commands=(producer, consumer)), tool_version=FIXED_VERSION)
-    assert "--manifest ${CMAKE_CURRENT_BINARY_DIR}/assets/manifest.json" in text
+    assert '"--manifest" "${CMAKE_CURRENT_BINARY_DIR}/assets/manifest.json"' in text
 
 
 def test_command_flags_and_interpreter_name_are_left_untouched() -> None:
     """Plain flags and the interpreter name are never anchored."""
     command = CommandModel(outputs=(Path("out.txt"),), command=("python", "--version"))
     text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
-    assert "COMMAND python --version" in text
+    assert 'COMMAND "python" "--version"' in text
 
 
 def test_command_without_comment_or_depends_omits_those_lines() -> None:
@@ -102,7 +98,7 @@ def test_custom_target_emits_add_custom_target_with_depends() -> None:
     )
     text = emit_cmakelists(make_model(custom_targets=(target,)), tool_version=FIXED_VERSION)
     assert "add_custom_target(cook-assets" in text
-    assert "COMMAND python cook.py" in text
+    assert 'COMMAND "python" "cook.py"' in text
     assert "DEPENDS assets/manifest.json" in text
     assert "VERBATIM" in text
 
@@ -142,3 +138,46 @@ def test_golden_custom_commands_file() -> None:
     )
     text = emit_cmakelists(model, tool_version=FIXED_VERSION)
     assert text == (GOLDEN_DIR / "custom_commands.cmake").read_text(encoding="utf-8")
+
+
+def test_a_windows_path_argument_survives_cmakes_parser() -> None:
+    """A Windows interpreter path keeps its backslashes instead of becoming escapes."""
+    command = CommandModel(
+        outputs=(Path("out.txt"),),
+        command=(r"C:\Python\python.exe", "gen.py"),
+    )
+    text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
+    assert r'COMMAND "C:\\Python\\python.exe" "gen.py"' in text
+
+
+def test_an_argument_with_a_space_stays_one_argument() -> None:
+    """An argument with a space stays one argument."""
+    command = CommandModel(
+        outputs=(Path("out.txt"),),
+        command=("gen", "--title", "my cooked assets"),
+    )
+    text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
+    assert '"--title" "my cooked assets"' in text
+
+
+def test_an_argument_cannot_close_its_own_quote() -> None:
+    """An argument containing a quote cannot break out of the command line."""
+    command = CommandModel(
+        outputs=(Path("out.txt"),),
+        command=("gen", '--name="; message(FATAL_ERROR "pwned") #'),
+    )
+    text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
+    # Every quote inside the argument is escaped, so the argument cannot end
+    # early and the CMake it smuggles stays inert text rather than code.
+    expected = r'COMMAND "gen" "--name=\"; message(FATAL_ERROR \"pwned\") #"'
+    assert expected in text
+
+
+def test_a_variable_reference_still_expands() -> None:
+    """A deliberate CMake variable reference is left expandable."""
+    command = CommandModel(
+        outputs=(Path("out.txt"),),
+        command=("${CMAKE_COMMAND}", "-E", "echo", "hi"),
+    )
+    text = emit_cmakelists(make_model(commands=(command,)), tool_version=FIXED_VERSION)
+    assert 'COMMAND "${CMAKE_COMMAND}" "-E" "echo" "hi"' in text

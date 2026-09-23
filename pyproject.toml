@@ -13,9 +13,15 @@ authors = [
 maintainers = [
     { name = "Bertin Balouki SIMYELI", email = "bbsimyeli@gmail.com" },
 ]
-license = "MPL-2.0"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    # The CLI front end, and the only runtime dependency: everything below the
+    # CLI stays standard library, so importing cmakeless in a build description
+    # pulls in nothing else.
+    "typer>=0.15",
+]
 keywords = [
     "cmake",
     "build",
@@ -43,7 +49,7 @@ keywords = [
     "developer-tools",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
@@ -101,7 +107,21 @@ packages = ["src/cmakeless"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-q"
+# The example builds are deselected by default: they invoke real CMake and
+# compilers, and several fetch dependencies, so a plain 'pytest' stays fast
+# enough to run constantly. CI runs them in their own job.
+addopts = "-q -m 'not integration'"
+markers = [
+    "integration: builds a real example project; needs CMake and a compiler",
+]
+
+[tool.coverage.run]
+# Measure the package, not the test suite. Coverage of test code answers no
+# useful question, and counting it makes the number swing whenever tests are
+# reorganised or a slow suite is deselected, which says nothing about whether
+# the product is tested.
+source_pkgs = ["cmakeless"]
+branch = true
 
 [tool.mypy]
 strict = true

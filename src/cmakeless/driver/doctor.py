@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Environment diagnostics: what 'cmakeless doctor' checks on a new machine.
 
 Every probe here is read-only: no project, no cmakelessfile.py, and no
@@ -18,8 +14,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from cmakeless._constants import CMAKE_MINIMUM_VERSION
-from cmakeless.driver.generators import select_generator
+from cmakeless._constants import CMAKE_MINIMUM_VERSION, CXX_MODULES_MINIMUM_VERSION
+from cmakeless.driver.generators import select_generator, supports_cxx_modules
 
 _NETWORK_PROBE_URL = "https://github.com"
 _NETWORK_TIMEOUT_SECONDS = 3.0
@@ -62,10 +58,41 @@ def run_diagnostics() -> tuple[DoctorCheck, ...]:
         One DoctorCheck per probe: cmake, the auto-selected generator, the
         optional compiler caches and package managers, and network access.
     """
-    checks = [_check_cmake(), _check_generator()]
+    checks = [_check_cmake(), _check_generator(), _check_cxx_modules()]
     checks.extend(_check_optional_tool(tool, note) for tool, note in _OPTIONAL_TOOLS)
     checks.append(_check_network())
     return tuple(checks)
+
+
+def _check_cxx_modules() -> DoctorCheck:
+    """Check whether this machine could build a project that uses C++20 modules.
+
+    Never required: most projects declare no module interfaces, and the ones
+    that do already fail at freeze time with a more specific message.
+
+    Returns:
+        The DoctorCheck for C++20 module support, naming whichever of the
+        CMake version or the generator falls short.
+    """
+    path = shutil.which("cmake")
+    version = None if path is None else _tool_version(path)
+    if version is None:
+        return DoctorCheck(
+            name="modules", ok=False, required=False, detail="cmake not usable; see above"
+        )
+    if _parse_version(version) < _parse_version(CXX_MODULES_MINIMUM_VERSION):
+        detail = f"cmake {version} is older than the {CXX_MODULES_MINIMUM_VERSION} modules need"
+        return DoctorCheck(name="modules", ok=False, required=False, detail=detail)
+    generator = select_generator(None)
+    if not supports_cxx_modules(generator):
+        detail = (
+            f"generator {generator.name!r} cannot scan for modules; "
+            f'use "ninja", "ninja-multi", or "vs"'
+        )
+        return DoctorCheck(name="modules", ok=False, required=False, detail=detail)
+    return DoctorCheck(
+        name="modules", ok=True, required=False, detail=f"cmake {version} with {generator.name}"
+    )
 
 
 def _check_cmake() -> DoctorCheck:

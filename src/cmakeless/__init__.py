@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """CMakeless: write your C++ builds in Python. Keep CMake. Lose the pain.
 
 This module is the ONLY public import surface. Everything under
@@ -9,6 +5,16 @@ cmakeless.model, cmakeless.emitter, cmakeless.driver, and cmakeless.deps is
 private machinery.
 """
 
+from cmakeless._constants import (
+    BUILD_SCRIPT_NAME,
+    CMAKE_MINIMUM_VERSION,
+    CMAKELESS_SYSTEM_NAME_VAR,
+    CMAKELESS_SYSTEM_PROCESSOR_VAR,
+    CXX_MODULES_MINIMUM_VERSION,
+    MIN_PYTHON_VERSION,
+)
+from cmakeless._deprecation import deprecated, warn_deprecated_argument
+from cmakeless._parallel import gil_enabled, parallel_map
 from cmakeless._version import __version__
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies, Dependency
@@ -41,6 +47,12 @@ from cmakeless.observer import (
 )
 
 __all__ = [
+    "BUILD_SCRIPT_NAME",
+    "CMAKELESS_SYSTEM_NAME_VAR",
+    "CMAKELESS_SYSTEM_PROCESSOR_VAR",
+    "CMAKE_MINIMUM_VERSION",
+    "CXX_MODULES_MINIMUM_VERSION",
+    "MIN_PYTHON_VERSION",
     "BuildEvent",
     "CMakeError",
     "CMakeGlobals",
@@ -73,5 +85,9 @@ __all__ = [
     "ToolchainError",
     "When",
     "__version__",
+    "deprecated",
+    "gil_enabled",
+    "parallel_map",
     "register_dependency",
+    "warn_deprecated_argument",
 ]

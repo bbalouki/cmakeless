@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Frozen dataclasses that form the build graph.
 
 Immutability is what makes the downstream layers simple: the emitter can rely
@@ -270,6 +266,9 @@ class ExecutableModel:
         iwyu: This target's own include-what-you-use command (and extra
             arguments) to run as CXX_INCLUDE_WHAT_YOU_USE, or None to
             inherit the project's project.lint() setting.
+        cxx_modules: C++20 module interface units for this target,
+            emitted as a FILE_SET CXX_MODULES so CMake scans them and
+            orders compilation by their import graph.
     """
 
     name: str
@@ -286,6 +285,7 @@ class ExecutableModel:
     unity: bool = False
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
+    cxx_modules: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,6 +322,9 @@ class LibraryModel:
         iwyu: This target's own include-what-you-use command (and extra
             arguments) to run as CXX_INCLUDE_WHAT_YOU_USE, or None to
             inherit the project's project.lint() setting.
+        cxx_modules: C++20 module interface units for this target,
+            emitted as a FILE_SET CXX_MODULES so CMake scans them and
+            orders compilation by their import graph.
     """
 
     name: str
@@ -340,6 +343,7 @@ class LibraryModel:
     unity: bool = False
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
+    cxx_modules: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -372,6 +376,9 @@ class TestModel:
             inherit the project's project.lint() setting.
         iwyu: This target's own include-what-you-use command, or None to
             inherit the project's project.lint() setting.
+        cxx_modules: C++20 module interface units for this target,
+            emitted as a FILE_SET CXX_MODULES so CMake scans them and
+            orders compilation by their import graph.
     """
 
     # Tell pytest this model is not a test case, despite the Test* name.
@@ -392,6 +399,7 @@ class TestModel:
     unity: bool = False
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
+    cxx_modules: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +443,9 @@ class PythonModuleModel:
             inherit the project's project.lint() setting.
         iwyu: This target's own include-what-you-use command, or None to
             inherit the project's project.lint() setting.
+        cxx_modules: C++20 module interface units for this target,
+            emitted as a FILE_SET CXX_MODULES so CMake scans them and
+            orders compilation by their import graph.
     """
 
     name: str
@@ -455,6 +466,7 @@ class PythonModuleModel:
     unity: bool = False
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
+    cxx_modules: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """CMake reflection and introspection: include(), include_module(), cmake_info().
 
 Shows the full interop-unlock surface: a small hand-written .cmake helper

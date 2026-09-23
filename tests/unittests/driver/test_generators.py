@@ -1,14 +1,17 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Generator strategy selection."""
 
 from __future__ import annotations
 
 import pytest
 
-from cmakeless.driver.generators import GeneratorFamily, select_generator
+from cmakeless.driver.generators import (
+    CXX_MODULES_FAMILIES,
+    Generator,
+    GeneratorFamily,
+    known_generator_names,
+    select_generator,
+    supports_cxx_modules,
+)
 from cmakeless.errors import ConfigurationError
 
 
@@ -103,3 +106,43 @@ def test_raw_ninja_multi_config_name_gets_correct_family(monkeypatch: pytest.Mon
     patch_ninja(monkeypatch, available=True)
     generator = select_generator("Ninja Multi-Config")
     assert generator.family is GeneratorFamily.NINJA_MULTI_CONFIG
+
+
+def test_known_generator_names_are_the_documented_shorthands() -> None:
+    """Known generator names are the documented shorthands."""
+    names = known_generator_names()
+    assert "ninja" in names
+    assert "ninja-multi" in names
+    assert "vs" in names
+
+
+def test_an_unrecognized_raw_generator_name_has_no_family() -> None:
+    """A raw -G name CMakeless cannot classify falls back to OTHER."""
+    generator = select_generator("Green Hills MULTI")
+    assert generator.family is GeneratorFamily.OTHER
+
+
+def test_a_raw_generator_name_is_passed_straight_through() -> None:
+    """A raw -G name is passed straight through."""
+    generator = select_generator("Green Hills MULTI")
+    assert generator.cmake_args == ("-G", "Green Hills MULTI")
+
+
+@pytest.mark.parametrize(
+    ("family", "supported"),
+    [
+        (GeneratorFamily.NINJA, True),
+        (GeneratorFamily.NINJA_MULTI_CONFIG, True),
+        (GeneratorFamily.VISUAL_STUDIO, True),
+        (GeneratorFamily.MAKEFILES, False),
+        (GeneratorFamily.XCODE, False),
+        (GeneratorFamily.OTHER, False),
+    ],
+)
+def test_only_scanning_generators_support_cxx_modules(
+    family: GeneratorFamily, supported: bool
+) -> None:
+    """Only scanning generators support cxx modules."""
+    generator = Generator(name="x", cmake_args=(), family=family)
+    assert supports_cxx_modules(generator) is supported
+    assert (family in CXX_MODULES_FAMILIES) is supported

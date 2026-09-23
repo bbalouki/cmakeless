@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Custom build steps, project options, When conditions, and presets, together.
 
 Shows the full "language unlock" surface: a code-generation step feeding a
@@ -15,7 +11,14 @@ environment variable.
     $ cmakeless build --preset ci    # BUILD_LANGUAGE_VERBOSE forced on, CI=1
 """
 
+import sys
+
 from cmakeless import Preset, Project, When
+
+# The interpreter running this description, not a bare "python": on Windows
+# that name resolves to the Store stub, and many Linux images only ship
+# "python3", so hardcoding either one makes the generated build unportable.
+PYTHON = sys.executable
 
 project = Project("build_language_demo", version="1.0.0", cpp_std=20)
 
@@ -36,7 +39,7 @@ project.add_preset(
 version_source = project.add_command(
     output=["generated/version.cpp"],
     command=[
-        "python",
+        PYTHON,
         "tools/gen_version.py",
         "--out",
         "generated/version.cpp",
@@ -51,7 +54,7 @@ version_source = project.add_command(
 # lint, docs). A real project would resize/pack images here.
 project.add_custom_target(
     "cook-assets",
-    command=["python", "tools/cook_assets.py", "assets/manifest.txt"],
+    command=[PYTHON, "tools/cook_assets.py", "assets/manifest.txt"],
     depends=["tools/cook_assets.py", "assets/manifest.txt"],
 )
 

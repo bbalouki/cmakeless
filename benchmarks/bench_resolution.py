@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Benchmark: parallel vs serial dependency resolution.
 
 Resolution is I/O-bound (each package is a network fetch and a hash), so the
@@ -24,7 +20,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-from cmakeless._parallel import gil_enabled, parallel_map
+from cmakeless import gil_enabled, parallel_map
 
 # Simulated per-package I/O latency (a real fetch is far larger, but a fixed,
 # deterministic stand-in keeps the benchmark reproducible).

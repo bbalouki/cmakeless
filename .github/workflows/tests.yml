@@ -47,3 +47,37 @@ jobs:
         uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  examples:
+    name: examples / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Set up MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Install package with dev dependencies
+        run: uv pip install -e ".[dev]"
+
+      # Builds every examples/ project from its real cmakelessfile.py. Run on
+      # one Python version only: these exercise CMake and the compiler, not
+      # the interpreter, so the matrix that matters here is the operating
+      # system.
+      - name: Build every example
+        run: uv run pytest -m integration tests/integration
+        env:
+          CMAKELESS_NETWORK_TESTS: "1"

@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """'cmakeless doctor' environment diagnostics, subprocess/network mocked."""
 
 from __future__ import annotations
@@ -115,3 +111,63 @@ def test_unreachable_network_is_optional(monkeypatch: pytest.MonkeyPatch) -> Non
     checks = by_name(run_diagnostics())
     assert not checks["network"].ok
     assert not checks["network"].required
+
+
+def test_modern_cmake_and_ninja_support_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modern cmake and ninja support modules."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    patch_cmake_version(monkeypatch, "3.29.2")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert checks["modules"].ok
+    assert not checks["modules"].required
+
+
+def test_cmake_below_the_modules_floor_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cmake below the modules floor is reported."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    patch_cmake_version(monkeypatch, "3.26.0")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["modules"].ok
+    assert not checks["modules"].required
+    assert "3.28" in checks["modules"].detail
+
+
+def test_a_generator_that_cannot_scan_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A generator that cannot scan is reported."""
+    patch_tools(monkeypatch, tool_paths={**_TOOL_PATHS, "ninja": None})
+    patch_cmake_version(monkeypatch, "3.29.2")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    if checks["generator"].detail != "ninja":
+        assert not checks["modules"].ok
+        assert "cannot scan for modules" in checks["modules"].detail
+
+
+def test_unparseable_cmake_version_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A cmake whose --version output makes no sense fails the required check."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    monkeypatch.setattr(
+        "cmakeless.driver.doctor.subprocess.run",
+        lambda *_a, **_kw: subprocess.CompletedProcess(
+            args=[], returncode=0, stdout="cmake version unknown\n", stderr=""
+        ),
+    )
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["cmake"].ok
+    assert checks["cmake"].required
+    assert "could not be parsed" in checks["cmake"].detail
+
+
+def test_modules_check_defers_to_cmake_when_cmake_is_unusable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Modules check defers to cmake when cmake is unusable."""
+    patch_tools(monkeypatch, tool_paths={**_TOOL_PATHS, "cmake": None})
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["modules"].ok
+    assert not checks["modules"].required
+    assert "see above" in checks["modules"].detail

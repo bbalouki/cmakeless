@@ -1,0 +1,13 @@
+CMakeless
+Copyright 2026 Bertin Balouki SIMYELI
+
+This product includes software developed by Bertin Balouki SIMYELI and the
+CMakeless contributors (https://github.com/bbalouki/cmakeless).
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file for the
+full terms.
+
+CMakeless generates CMake build files from a Python build description. The
+generated CMakeLists.txt, CMakePresets.json, and toolchain files are output,
+not derivative works of CMakeless: they belong to the project that generated
+them and carry no CMakeless license obligation.
