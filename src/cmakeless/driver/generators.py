@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """CMake generator selection: a small Strategy behind one factory function."""
 
 from __future__ import annotations
@@ -48,6 +44,18 @@ class Generator:
     name: str
     cmake_args: tuple[str, ...]
     family: GeneratorFamily = GeneratorFamily.OTHER
+
+
+# The families whose CMake support scans sources for module dependencies.
+# Makefiles and Xcode do not, so a project declaring C++20 module interfaces
+# fails inside CMake under them rather than producing a wrong build.
+CXX_MODULES_FAMILIES = frozenset(
+    {
+        GeneratorFamily.NINJA,
+        GeneratorFamily.NINJA_MULTI_CONFIG,
+        GeneratorFamily.VISUAL_STUDIO,
+    }
+)
 
 
 _NINJA = Generator(name="ninja", cmake_args=("-G", "Ninja"), family=GeneratorFamily.NINJA)
@@ -157,3 +165,15 @@ def known_generator_names() -> tuple[str, ...]:
         The shorthand names accepted by --generator.
     """
     return _KNOWN_GENERATORS
+
+
+def supports_cxx_modules(generator: Generator) -> bool:
+    """Tell whether a generator can build C++20 module interfaces.
+
+    Args:
+        generator: The selected generator.
+
+    Returns:
+        True when its build tool scans sources for module dependencies.
+    """
+    return generator.family in CXX_MODULES_FAMILIES

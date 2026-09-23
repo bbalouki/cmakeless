@@ -1,0 +1,1 @@
+Target 'engine' in cmakelessfile.py declares C++20 module interfaces but compiles as C++17. Modules need C++20 or later: set cpp_std=20 on the project, or engine.cpp_std = 20 on this target.

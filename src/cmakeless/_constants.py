@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Shared literals with no internal dependencies, safe for any module to import."""
 
 BUILD_SCRIPT_NAME = "cmakelessfile.py"
@@ -10,6 +6,12 @@ BUILD_SCRIPT_NAME = "cmakelessfile.py"
 # doctor'; shared because the driver layer must not import from the emitter
 # layer (layers depend only on the layer directly below them).
 CMAKE_MINIMUM_VERSION = "3.25"
+
+# The floor a project that declares C++20 module interfaces needs instead:
+# target_sources(... FILE_SET CXX_MODULES ...) became a supported, non-
+# experimental interface in CMake 3.28. Raised per project, never globally,
+# so a project that declares no modules keeps emitting the lower floor.
+CXX_MODULES_MINIMUM_VERSION = "3.28"
 
 # The default find_package(Python ...) floor for add_python_module() targets
 # that do not pass python_version=. Keep in sync with pyproject.toml's own

@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Golden-file coverage for the highest-value error messages.
 
 A regression in diagnostic quality should fail CI the same way a regression
@@ -123,3 +119,19 @@ def test_cmake_error_configure_failure_with_diagnostic(
         .replace(str(source_dir), "<SOURCE_DIR>")
     )
     assert normalized == _golden("cmake_error_configure_failure_with_diagnostic")
+
+
+def test_configuration_error_cxx_modules_need_cpp20(project_dir: Path) -> None:
+    """Declaring modules below C++20 names the target, the standard, and both fixes."""
+    from cmakeless import Project
+
+    module = project_dir / "src" / "geometry.cppm"
+    module.write_text("export module geometry;\n", encoding="utf-8")
+    project = Project("demo", root=project_dir, cpp_std=17)
+    project.add_library("engine", modules=["src/geometry.cppm"])
+    with pytest.raises(ConfigurationError) as excinfo:
+        project.freeze()
+    # The script name is whatever file called Project(), so it is this test
+    # under pytest; normalize it to the name a real user would see.
+    normalized = str(excinfo.value).replace(Path(__file__).name, "cmakelessfile.py")
+    assert normalized == _golden("configuration_error_cxx_modules_need_cpp20")

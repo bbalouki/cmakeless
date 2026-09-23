@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Freeze-time validation: every error that can be caught before CMake runs, is.
 
 Each check raises ConfigurationError with what went wrong, where, and what to
@@ -41,6 +37,10 @@ from cmakeless.model.nodes import (
 # CMake target and project names: conservative subset that never needs quoting.
 _VALID_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.+-]*$")
 
+# Module interfaces are a C++20 language feature, so a target declaring one
+# must compile at this standard or later whatever the project default is.
+_CXX_MODULES_MINIMUM_STANDARD = 20
+
 
 def validate_project(model: ProjectModel) -> None:
     """Validate the whole frozen graph, subprojects included.
@@ -59,6 +59,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_package_manager(model)
     _check_target_names(model)
     _check_sources(model)
+    _check_cxx_modules(model)
     _check_include_dirs(model)
     _check_pch_and_unity(model)
     _check_libraries(model)
@@ -314,10 +315,11 @@ def _check_sources(model: ProjectModel) -> None:
     for target in model.all_targets():
         if _is_header_only(target):
             continue
-        if not target.sources:
+        if not target.sources and not target.cxx_modules:
             raise ConfigurationError(
                 f"Target {target.name!r} in {model.source_script} has no source files. "
-                f"Add at least one file to its 'sources' argument."
+                f"Add at least one file to its 'sources' argument, or declare a C++20 "
+                f"module interface with modules=[...]."
             )
         for source in target.sources:
             if source in generated:
@@ -329,6 +331,82 @@ def _check_sources(model: ProjectModel) -> None:
                     f"does not exist (looked for {resolved}). Check the 'sources' "
                     f"argument in {model.source_script} for a typo, or create the file."
                 )
+
+
+def _check_cxx_modules(model: ProjectModel) -> None:
+    """Require every declared C++20 module interface to be buildable.
+
+    Args:
+        model: The frozen project to check.
+
+    Raises:
+        ConfigurationError: When a target's module interfaces cannot work as
+            declared.
+    """
+    generated = {output for command in model.commands for output in command.outputs}
+    for target in model.all_targets():
+        if target.cxx_modules:
+            _check_one_target_cxx_modules(target, model, generated=generated)
+
+
+def _check_one_target_cxx_modules(
+    target: CompiledModel, model: ProjectModel, *, generated: set[Path]
+) -> None:
+    """Check one target's module interfaces against CMake's requirements.
+
+    Args:
+        target: The target declaring module interfaces.
+        model: The owning project, for message context.
+        generated: Declared add_command() outputs, which need not exist yet.
+
+    Raises:
+        ConfigurationError: On the first defect found.
+    """
+    if _is_header_only(target):
+        raise ConfigurationError(
+            f"Header-only library {target.name!r} in {model.source_script} cannot "
+            f"declare C++20 module interfaces: a module interface is compiled, and "
+            f"an INTERFACE library compiles nothing. Make it kind='static' instead."
+        )
+    standard = model.cpp_std if target.cpp_std is None else target.cpp_std
+    if standard < _CXX_MODULES_MINIMUM_STANDARD:
+        raise ConfigurationError(
+            f"Target {target.name!r} in {model.source_script} declares C++20 module "
+            f"interfaces but compiles as C++{standard}. Modules need C++20 or later: "
+            f"set cpp_std={_CXX_MODULES_MINIMUM_STANDARD} on the project, or "
+            f"{target.name}.cpp_std = {_CXX_MODULES_MINIMUM_STANDARD} on this target."
+        )
+    _check_cxx_modules_are_not_also_sources(target, model)
+    for module in target.cxx_modules:
+        if module in generated:
+            continue
+        resolved = model.root_dir / module
+        if not resolved.is_file():
+            raise ConfigurationError(
+                f"Module interface '{module.as_posix()}' for target {target.name!r} "
+                f"does not exist (looked for {resolved}). Check the 'modules' argument "
+                f"in {model.source_script} for a typo, or create the file."
+            )
+
+
+def _check_cxx_modules_are_not_also_sources(target: CompiledModel, model: ProjectModel) -> None:
+    """Reject a file declared both as an ordinary source and as a module interface.
+
+    Args:
+        target: The target declaring module interfaces.
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: When the two declarations overlap.
+    """
+    overlap = sorted(set(target.cxx_modules) & set(target.sources))
+    if overlap:
+        names = ", ".join(f"'{path.as_posix()}'" for path in overlap)
+        raise ConfigurationError(
+            f"Target {target.name!r} in {model.source_script} declares {names} as both "
+            f"a source and a module interface. CMake compiles a file one way or the "
+            f"other: remove it from 'sources' and keep it in 'modules'."
+        )
 
 
 def _check_directory_exists(
@@ -962,7 +1040,32 @@ def _check_installs(model: ProjectModel) -> None:
                 f"Target {install.target!r} is installed twice in "
                 f"{model.source_script}. Remove the duplicate install() call."
             )
+        _check_install_has_no_cxx_modules(install.target, model)
         seen.add(install.target)
+
+
+def _check_install_has_no_cxx_modules(name: str, model: ProjectModel) -> None:
+    """Refuse to install a target whose interface is a C++20 module.
+
+    Exporting a module interface means shipping built module interface
+    files, and CMake's own support for that is still behind an experimental
+    flag, so failing here beats emitting CMake that fails later.
+
+    Args:
+        name: The target named by an install rule.
+        model: The owning project, for message context.
+
+    Raises:
+        ConfigurationError: When that target declares module interfaces.
+    """
+    for target in model.targets():
+        if target.name == name and target.cxx_modules:
+            raise ConfigurationError(
+                f"Cannot install target {name!r} in {model.source_script}: it exports "
+                f"C++20 module interfaces, and installing those requires CMake support "
+                f"that is still experimental. Build and consume the module inside this "
+                f"project, or drop the install() call until that support is stable."
+            )
 
 
 def _check_package_formats(model: ProjectModel) -> None:

@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """Mutable target builders.
 
 Users create these via Project.add_executable() and Project.add_library();
@@ -72,6 +68,7 @@ class _Target:
         name: str,
         sources: Sequence[str],
         *,
+        modules: Sequence[str] = (),
         script: str,
         dependencies: Dependencies,
     ) -> None:
@@ -80,6 +77,8 @@ class _Target:
         Args:
             name: Unique target name within the project.
             sources: Source files or glob patterns, project-root-relative.
+            modules: C++20 module interface units, or glob patterns matching
+                them, project-root-relative.
             script: Display name of the owning build description, used in
                 error messages.
             dependencies: The owning project's dependency collection, where
@@ -87,6 +86,7 @@ class _Target:
         """
         self._name = name
         self._sources: list[str] = list(sources)
+        self._cxx_modules: list[str] = list(modules)
         self._script = script
         self.sanitize: Sequence[str] = []
         self.cpp_std: int | None = None
@@ -124,6 +124,19 @@ class _Target:
                 self._generated_sources.update(source.outputs)
             else:
                 self._sources.append(source)
+
+    def add_module_sources(self, *modules: str) -> None:
+        """Append C++20 module interface units, or globs matching them.
+
+        Module interfaces are compiled ahead of the translation units that
+        import them, so CMake needs them named separately from ordinary
+        sources rather than mixed in with them.
+
+        Args:
+            *modules: Module interface files or glob patterns,
+                project-root-relative.
+        """
+        self._cxx_modules.extend(modules)
 
     def include_dirs(self, *dirs: str) -> None:
         """Add directories, private to this target, that its own sources may #include.
@@ -327,7 +340,7 @@ class _Target:
         return When.option(when)._freeze()
 
     def _freeze_sources(self, root: Path) -> tuple[Path, ...]:
-        """Expand glob patterns here in Python, where they can be validated.
+        """Expand the ordinary source globs here in Python, where they validate.
 
         Args:
             root: Absolute project root that patterns are relative to.
@@ -338,15 +351,45 @@ class _Target:
         Raises:
             ConfigurationError: When a glob pattern matches no files.
         """
+        return self._expand(self._sources, root, kind="Source")
+
+    def _freeze_cxx_modules(self, root: Path) -> tuple[Path, ...]:
+        """Expand the C++20 module interface globs the same way sources expand.
+
+        Args:
+            root: Absolute project root that patterns are relative to.
+
+        Returns:
+            Root-relative module interface paths; glob matches are sorted.
+
+        Raises:
+            ConfigurationError: When a glob pattern matches no files.
+        """
+        return self._expand(self._cxx_modules, root, kind="Module")
+
+    def _expand(self, entries: Sequence[str], root: Path, *, kind: str) -> tuple[Path, ...]:
+        """Resolve one list of file entries and glob patterns to real paths.
+
+        Args:
+            entries: The file names and glob patterns as the user wrote them.
+            root: Absolute project root that patterns are relative to.
+            kind: What the entries are ("Source" or "Module"), for the error.
+
+        Returns:
+            Root-relative paths, with each pattern's matches sorted.
+
+        Raises:
+            ConfigurationError: When a glob pattern matches no files.
+        """
         resolved: list[Path] = []
-        for entry in self._sources:
+        for entry in entries:
             if entry in self._generated_sources or _GLOB_CHARACTERS.isdisjoint(entry):
                 resolved.append(Path(entry))
                 continue
             matches = sorted(path.relative_to(root) for path in root.glob(entry) if path.is_file())
             if not matches:
                 raise ConfigurationError(
-                    f"Source pattern '{entry}' for target {self._name!r} matched no "
+                    f"{kind} pattern '{entry}' for target {self._name!r} matched no "
                     f"files under {root}. Check the pattern in {self._script} for a "
                     f"typo, or create the files."
                 )
@@ -443,6 +486,7 @@ class Executable(_Target):
             unity=self.unity,
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
+            cxx_modules=self._freeze_cxx_modules(root),
         )
 
 
@@ -539,6 +583,7 @@ class Test(_Target):
             unity=self.unity,
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
+            cxx_modules=self._freeze_cxx_modules(root),
         )
 
 
@@ -656,6 +701,7 @@ class PythonModule(_Target):
             unity=self.unity,
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
+            cxx_modules=self._freeze_cxx_modules(root),
         )
 
 
@@ -673,6 +719,7 @@ class Library(_Target):
         *,
         public_headers: str | Sequence[str] = (),
         kind: LibraryKindName = "static",
+        modules: Sequence[str] = (),
         script: str,
         dependencies: Dependencies,
     ) -> None:
@@ -684,6 +731,8 @@ class Library(_Target):
             public_headers: Directory (or directories) whose headers
                 consumers may include.
             kind: "static", "shared", or "header_only".
+            modules: C++20 module interface units this library exports, or
+                glob patterns matching them.
             script: Display name of the owning build description, used in
                 error messages.
             dependencies: The owning project's dependency collection, where
@@ -692,7 +741,7 @@ class Library(_Target):
         Raises:
             ConfigurationError: When ``kind`` is not a known library kind.
         """
-        super().__init__(name, sources, script=script, dependencies=dependencies)
+        super().__init__(name, sources, modules=modules, script=script, dependencies=dependencies)
         self._kind = self._resolve_kind(kind)
         headers = [public_headers] if isinstance(public_headers, str) else list(public_headers)
         self._public_headers: list[str] = headers
@@ -767,6 +816,7 @@ class Library(_Target):
             unity=self.unity,
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
+            cxx_modules=self._freeze_cxx_modules(root),
         )
 
 

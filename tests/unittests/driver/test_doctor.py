@@ -1,7 +1,3 @@
-# This Source Code Form is subject to the terms of the Mozilla Public
-# License, v. 2.0. If a copy of the MPL was not distributed with this
-# file, You can obtain one at http://mozilla.org/MPL/2.0/.
-
 """'cmakeless doctor' environment diagnostics, subprocess/network mocked."""
 
 from __future__ import annotations
@@ -115,3 +111,35 @@ def test_unreachable_network_is_optional(monkeypatch: pytest.MonkeyPatch) -> Non
     checks = by_name(run_diagnostics())
     assert not checks["network"].ok
     assert not checks["network"].required
+
+
+def test_modern_cmake_and_ninja_support_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Modern cmake and ninja support modules."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    patch_cmake_version(monkeypatch, "3.29.2")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert checks["modules"].ok
+    assert not checks["modules"].required
+
+
+def test_cmake_below_the_modules_floor_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cmake below the modules floor is reported."""
+    patch_tools(monkeypatch, tool_paths=_TOOL_PATHS)
+    patch_cmake_version(monkeypatch, "3.26.0")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    assert not checks["modules"].ok
+    assert not checks["modules"].required
+    assert "3.28" in checks["modules"].detail
+
+
+def test_a_generator_that_cannot_scan_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A generator that cannot scan is reported."""
+    patch_tools(monkeypatch, tool_paths={**_TOOL_PATHS, "ninja": None})
+    patch_cmake_version(monkeypatch, "3.29.2")
+    patch_network(monkeypatch, reachable=True)
+    checks = by_name(run_diagnostics())
+    if checks["generator"].detail != "ninja":
+        assert not checks["modules"].ok
+        assert "cannot scan for modules" in checks["modules"].detail

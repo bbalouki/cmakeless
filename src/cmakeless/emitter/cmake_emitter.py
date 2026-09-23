@@ -18,6 +18,7 @@ from cmakeless._constants import (
     CMAKE_MINIMUM_VERSION,
     CMAKELESS_SYSTEM_NAME_VAR,
     CMAKELESS_SYSTEM_PROCESSOR_VAR,
+    CXX_MODULES_MINIMUM_VERSION,
 )
 from cmakeless.emitter.presets_emitter import emit_presets
 from cmakeless.emitter.sanitizers import (
@@ -385,13 +386,27 @@ class _CMakeListsVisitor:
             The preamble section text.
         """
         return (
-            f"cmake_minimum_required(VERSION {CMAKE_MINIMUM_VERSION})\n"
+            f"cmake_minimum_required(VERSION {self._required_cmake_version()})\n"
             f"\n"
             f"project({self._model.name}\n"
             f"    VERSION {self._model.version}\n"
             f"    LANGUAGES CXX\n"
             f")"
         )
+
+    def _required_cmake_version(self) -> str:
+        """Pick the CMake version floor this particular project needs.
+
+        Raised only for a project that declares C++20 module interfaces,
+        which need a newer CMake than everything else the emitter writes; a
+        project that declares none keeps the lower, wider floor.
+
+        Returns:
+            The version string for cmake_minimum_required.
+        """
+        if any(target.cxx_modules for target in self._model.all_targets()):
+            return CXX_MODULES_MINIMUM_VERSION
+        return CMAKE_MINIMUM_VERSION
 
     def _reflection_preamble(self) -> str:
         """Promote CMAKE_SYSTEM_NAME/PROCESSOR into cache entries cmake_info() reads.
@@ -611,7 +626,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"add_executable({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -656,7 +671,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"{target.binding}_add_module({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -699,7 +714,7 @@ class _CMakeListsVisitor:
             return self._visit_header_only_library(target)
         keyword = "STATIC" if target.kind is LibraryKind.STATIC else "SHARED"
         blocks = [f"add_library({target.name} {keyword})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -727,7 +742,7 @@ class _CMakeListsVisitor:
             The target's complete section text.
         """
         blocks = [f"add_executable({target.name})"]
-        blocks.append(self._sources_block(target, "PRIVATE"))
+        blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
             blocks.append(private_include_dirs)
@@ -844,7 +859,26 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "INTERFACE", warnings=False))
         return "\n\n".join(blocks)
 
-    def _sources_block(self, target: CompiledModel, visibility: str) -> str:
+    def _input_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
+        """Write the blocks declaring everything a target compiles.
+
+        Args:
+            target: The target whose inputs to declare.
+            visibility: The CMake visibility keyword for ordinary sources;
+                module interfaces always get their own, since consumers
+                import them.
+
+        Returns:
+            The source block, the module interface block, or both, in the
+            order CMake reads most naturally.
+        """
+        candidates = (
+            self._sources_block(target, visibility),
+            self._cxx_modules_block(target, self._cxx_modules_visibility(target)),
+        )
+        return [block for block in candidates if block is not None]
+
+    def _sources_block(self, target: CompiledModel, visibility: str) -> str | None:
         """Write a target_sources command with sorted sources.
 
         Args:
@@ -852,12 +886,48 @@ class _CMakeListsVisitor:
             visibility: The CMake visibility keyword to use.
 
         Returns:
-            The command text.
+            The command text, or None for a target built only from module
+            interfaces.
         """
+        if not target.sources:
+            return None
         lines = [f"target_sources({target.name} {visibility}"]
         lines.extend(f"    {source.as_posix()}" for source in sorted(target.sources))
         lines.append(")")
         return "\n".join(lines)
+
+    def _cxx_modules_block(self, target: CompiledModel, visibility: str) -> str | None:
+        """Write the target_sources command declaring C++20 module interfaces.
+
+        Module interfaces live in their own FILE_SET so CMake scans them and
+        orders compilation by the import graph, which a plain source list
+        does not do.
+
+        Args:
+            target: The target whose module interfaces to list.
+            visibility: The CMake visibility keyword to use.
+
+        Returns:
+            The command text, or None when the target declares no modules.
+        """
+        if not target.cxx_modules:
+            return None
+        lines = [f"target_sources({target.name} {visibility}", "    FILE_SET CXX_MODULES FILES"]
+        lines.extend(f"        {module.as_posix()}" for module in sorted(target.cxx_modules))
+        lines.append(")")
+        return "\n".join(lines)
+
+    def _cxx_modules_visibility(self, target: CompiledModel) -> str:
+        """Pick the visibility a target's module interfaces are declared with.
+
+        Args:
+            target: The target declaring module interfaces.
+
+        Returns:
+            PUBLIC for a library, whose consumers must be able to import the
+            module, and PRIVATE for anything nothing links against.
+        """
+        return "PUBLIC" if isinstance(target, LibraryModel) else "PRIVATE"
 
     def _private_include_dirs_block(self, target: CompiledModel, visibility: str) -> str | None:
         """Write a target_include_directories command for a target's own private dirs.
