@@ -6,6 +6,11 @@ example is copied to a temp directory and its cmakelessfile.py is executed
 exactly as a user would run it, so an API change that breaks documented
 usage fails here rather than in somebody's first five minutes.
 
+The two build tests carry the "integration" marker and are deselected from
+a plain 'pytest' run, because they invoke real CMake and compilers and some
+of them fetch dependencies. Run them with 'pytest -m integration'. The two
+consistency checks are instant and always run.
+
 Gated the same way the end-to-end unit tests are: examples that only
 generate need CMake on PATH, and examples that fetch dependencies also need
 CMAKELESS_NETWORK_TESTS=1.
@@ -81,6 +86,7 @@ def test_every_example_is_listed_in_the_catalogue(example: Path) -> None:
     assert f"({example.name}/)" in catalogue
 
 
+@pytest.mark.integration
 @requires_cmake
 @pytest.mark.parametrize("example", example_dirs(), ids=lambda path: path.name)
 def test_every_example_builds(example: Path, tmp_path: Path) -> None:
@@ -97,6 +103,7 @@ def test_every_example_builds(example: Path, tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.integration
 @requires_cmake
 @pytest.mark.parametrize("example", example_dirs(), ids=lambda path: path.name)
 def test_every_example_generates_committable_cmake(example: Path, tmp_path: Path) -> None:

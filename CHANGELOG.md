@@ -52,7 +52,10 @@ Typer.
 - `tests/unittests/test_package_exports.py` enforces that each layer package
   re-exports every public name its submodules define.
 - `tests/integration/` builds every project under `examples/` from its real
-  `cmakelessfile.py` and checks the generated CMake stays target-centric.
+  `cmakelessfile.py` and checks the generated CMake stays target-centric. The
+  two build tests carry an `integration` marker and are deselected from a
+  plain `pytest`, so the default run stays fast; CI builds the examples in a
+  dedicated per-OS job.
 - Shell completion for the CLI: `cmakeless --install-completion`.
 
 - Repository governance scaffolding: issue forms

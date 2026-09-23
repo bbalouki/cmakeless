@@ -58,7 +58,7 @@ You need Python 3.13+ (3.14 free-threaded to exercise the parallel paths) and CM
 
 - Type hints on everything; the package ships `py.typed` and CI runs mypy strict.
 - Formatting and linting via ruff; CI enforces, so run it locally and forget about style debates forever.
-- Tests live in `tests/unittests/`, mirroring `src/`. Use real implementations; mock only true externals (network, subprocess). Emitter changes come with golden-file tests; deterministic inputs only.
+- Tests live in `tests/unittests/`, mirroring `src/`. `tests/integration/` builds every project under `examples/` for real; those two tests carry the `integration` marker and are deselected from a plain `pytest`, so run `pytest -m integration` when you touch the public API or an example. Use real implementations; mock only true externals (network, subprocess). Emitter changes come with golden-file tests; deterministic inputs only.
 - Comments explain the _why_, as complete sentences. Well-named code covers the _what_.
 - Public API changes require a matching documentation change and a `CHANGELOG.md` entry in the same PR.
 
