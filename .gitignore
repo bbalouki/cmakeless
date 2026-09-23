@@ -31,3 +31,9 @@ IMPROVEMENTS.md
 SUGGESTIONS.md
 CLAUDE.md
 *code-workspace
+
+# Coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
