@@ -256,3 +256,26 @@ def test_extensions_run_at_the_call_site_and_record_their_version(project: Proje
     assert (use.name, use.version, use.snippet) == ("banner", "9.9.9", "# banner app hi")
     with pytest.raises(ConfigurationError, match="No extension named"):
         app.extend("missing")
+
+
+def test_python_modules_configure_against_the_running_interpreter(
+    project: Project, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FindPython is pointed at this interpreter, so the extension ABI matches."""
+    import subprocess
+    import sys
+
+    commands: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        """Record the configure command instead of running CMake."""
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.subprocess.run", fake_run)
+    monkeypatch.setattr("cmakeless.driver.cmake_driver.shutil.which", lambda tool: tool)
+    project.add_python_module("core", sources=["src/main.cpp"])
+    driver = project._driver(project.freeze())
+    driver.configure()
+    expected = f"-DPython_EXECUTABLE={Path(sys.executable).as_posix()}"
+    assert expected in commands[0]
