@@ -27,7 +27,25 @@ SCRIPT_VERBS = (
     "sbom",
     "vendor",
 )
-ALL_VERBS = (*SCRIPT_VERBS, "init", "doctor")
+# Workflow verbs that take a positional argument or a required option are
+# pinned by name only; the --file check above covers the plain script verbs.
+WORKFLOW_VERBS = (
+    "run",
+    "explain",
+    "diff",
+    "audit",
+    "matrix",
+    "coverage",
+    "fuzz",
+    "pgo",
+    "profile",
+    "lint",
+    "evidence",
+    "verify",
+    "import",
+    "search",
+)
+ALL_VERBS = (*SCRIPT_VERBS, *WORKFLOW_VERBS, "init", "doctor")
 
 
 def test_help_lists_every_verb(capsys: pytest.CaptureFixture[str]) -> None:
