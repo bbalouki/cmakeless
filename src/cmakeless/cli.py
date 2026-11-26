@@ -1,52 +1,43 @@
 """The cmakeless command line: finds cmakelessfile.py and runs it.
 
 The console script and 'python -m cmakeless' share this one implementation.
-The build/configure/clean/lock verbs all execute the same cmakelessfile.py;
-a verb override in the runtime context tells project.build() which step the
-user asked for.
+Every script verb executes the same cmakelessfile.py; a verb override in the
+runtime context tells project.build() which step the user asked for.
 """
 
 from __future__ import annotations
 
-import runpy
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
+from cmakeless._cli import workflows as _cli_workflows
+from cmakeless._cli.common import (
+    AffectedOption,
+    ConfigOption,
+    DefineOption,
+    FileOption,
+    FreshOption,
+    GeneratorOption,
+    JobsOption,
+    JsonOption,
+    OfflineOption,
+    PresetOption,
+    ProjectOption,
+    TargetOption,
+    VerboseOption,
+    app,
+    parse_defines,
+    run_script_verb,
+)
 from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._version import __version__
 from cmakeless.api import _context
 from cmakeless.driver.doctor import run_diagnostics
 from cmakeless.errors import CmakelessError, ConfigurationError
-
-_INIT_BUILD_PY = """\
-from cmakeless import Project
-
-project = Project("{name}", version="0.1.0", cpp_std=20)
-project.add_executable("{name}", sources=["src/main.cpp"])
-project.build()
-"""
-
-_INIT_MAIN_CPP = """\
-#include <cstdlib>
-#include <iostream>
-
-auto main() -> int
-{
-    std::cout << "Hello from cmakeless!\\n";
-    return EXIT_SUCCESS;
-}
-"""
-
-_INIT_GITIGNORE = """\
-build/
-CMakeLists.txt
-CMakePresets.json
-compile_commands.json
-__pycache__/
-"""
+from cmakeless.tools.templates import available_templates, render_template, write_template
 
 _STATUS_COLOURS = {
     "ok": typer.colors.GREEN,
@@ -54,33 +45,9 @@ _STATUS_COLOURS = {
     "missing": typer.colors.YELLOW,
 }
 
-# Rich markup and pretty tracebacks stay off: this CLI's output is plain text
-# that scripts and CI logs read line by line, so help and errors go through the
-# plain formatter rather than a terminal-width-sensitive renderer.
-app = typer.Typer(
-    name="cmakeless",
-    help="Write your C++ builds in Python. Keep CMake. Lose the pain.",
-    rich_markup_mode=None,
-    pretty_exceptions_enable=False,
-    no_args_is_help=True,
-)
+# The workflow verbs register themselves on the shared app when imported.
+WORKFLOW_COMMANDS = _cli_workflows.COMMANDS
 
-FileOption = Annotated[
-    str,
-    typer.Option("--file", help=f"path to the build description (default: {BUILD_SCRIPT_NAME})"),
-]
-GeneratorOption = Annotated[
-    str | None,
-    typer.Option(
-        "--generator",
-        help='CMake generator: "ninja", "ninja-multi", "make", "vs", "xcode", '
-        "or any raw -G name (default: ninja when available)",
-    ),
-]
-PresetOption = Annotated[
-    str | None,
-    typer.Option("--preset", help="configure and build with this preset from CMakePresets.json"),
-]
 SanitizeOption = Annotated[
     str | None,
     typer.Option(
@@ -92,14 +59,6 @@ SanitizeOption = Annotated[
 PrefixOption = Annotated[
     str | None,
     typer.Option("--prefix", help="installation prefix (default: CMake's platform default)"),
-]
-OfflineOption = Annotated[
-    bool,
-    typer.Option(
-        "--offline",
-        help="disallow network access; resolve only from cmakeless.lock, "
-        "cmakeless.mirror.json, or an already-populated local cache",
-    ),
 ]
 SbomFormatOption = Annotated[
     str, typer.Option("--format", help='SBOM format: "cyclonedx" (the default) or "spdx"')
@@ -114,6 +73,14 @@ VendorDirOption = Annotated[
     str | None,
     typer.Option("--directory", "-d", help="where to download archives (default: vendor/)"),
 ]
+FilterOption = Annotated[
+    str | None, typer.Option("--filter", "-R", help="run only tests matching this regex")
+]
+LabelOption = Annotated[str | None, typer.Option("--label", "-L", help="run only tests with label")]
+RepeatOption = Annotated[
+    int | None, typer.Option("--repeat", min=1, help="rerun each test until it fails, N times")
+]
+JunitOption = Annotated[str | None, typer.Option("--junit", help="write a JUnit XML report here")]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -181,15 +148,78 @@ def _root(
     """Write your C++ builds in Python. Keep CMake. Lose the pain."""
 
 
+def _build_run_options(
+    *,
+    target: str | None,
+    jobs: int | None,
+    config: str | None,
+    verbose: bool,
+    fresh: bool,
+    define: list[str] | None,
+    json_events: bool,
+    project: str | None,
+    affected_since: str | None,
+) -> _context.RunOptions:
+    """Collect the flags every build-like verb shares.
+
+    Args:
+        target: --target.
+        jobs: --jobs.
+        config: --config.
+        verbose: --verbose.
+        fresh: --fresh.
+        define: The repeated --define values.
+        json_events: --json.
+        project: --project (workspaces).
+        affected_since: --affected-since (workspaces).
+
+    Returns:
+        The run options.
+    """
+    return _context.RunOptions(
+        target=target,
+        jobs=jobs,
+        config=config,
+        verbose=verbose,
+        fresh=fresh,
+        defines=parse_defines(define),
+        json_events=json_events,
+        workspace_project=project,
+        affected_since=affected_since,
+    )
+
+
 @app.command()
 def build(
     file: FileOption = BUILD_SCRIPT_NAME,
     generator: GeneratorOption = None,
     preset: PresetOption = None,
     offline: OfflineOption = False,
+    target: TargetOption = None,
+    jobs: JobsOption = None,
+    config: ConfigOption = None,
+    verbose: VerboseOption = False,
+    fresh: FreshOption = False,
+    define: DefineOption = None,
+    json_events: JsonOption = False,
+    project: ProjectOption = None,
+    affected_since: AffectedOption = None,
 ) -> None:
     """Run the project's cmakelessfile.py: freeze, emit, configure, and compile."""
-    _run_verb("build", file=file, generator=generator, preset=preset, offline=offline)
+    options = _build_run_options(
+        target=target,
+        jobs=jobs,
+        config=config,
+        verbose=verbose,
+        fresh=fresh,
+        define=define,
+        json_events=json_events,
+        project=project,
+        affected_since=affected_since,
+    )
+    run_script_verb(
+        "build", file=file, options=options, generator=generator, preset=preset, offline=offline
+    )
 
 
 @app.command()
@@ -198,9 +228,21 @@ def configure(
     generator: GeneratorOption = None,
     preset: PresetOption = None,
     offline: OfflineOption = False,
+    fresh: FreshOption = False,
+    define: DefineOption = None,
+    json_events: JsonOption = False,
+    project: ProjectOption = None,
 ) -> None:
     """Generate build files and run the CMake configure step only."""
-    _run_verb("configure", file=file, generator=generator, preset=preset, offline=offline)
+    options = _context.RunOptions(
+        fresh=fresh,
+        defines=parse_defines(define),
+        json_events=json_events,
+        workspace_project=project,
+    )
+    run_script_verb(
+        "configure", file=file, options=options, generator=generator, preset=preset, offline=offline
+    )
 
 
 @app.command()
@@ -210,11 +252,32 @@ def test(
     preset: PresetOption = None,
     sanitize: SanitizeOption = None,
     offline: OfflineOption = False,
+    jobs: JobsOption = None,
+    config: ConfigOption = None,
+    test_filter: FilterOption = None,
+    label: LabelOption = None,
+    repeat: RepeatOption = None,
+    junit: JunitOption = None,
+    json_events: JsonOption = False,
+    project: ProjectOption = None,
+    affected_since: AffectedOption = None,
 ) -> None:
     """Build everything, then run the test suite through CTest."""
-    _run_verb(
-        "test", file=file, generator=generator, preset=preset, sanitize=sanitize, offline=offline
+    options = _context.RunOptions(
+        jobs=jobs,
+        config=config,
+        test_filter=test_filter,
+        test_label=label,
+        test_repeat=repeat,
+        junit=junit,
+        json_events=json_events,
+        workspace_project=project,
+        affected_since=affected_since,
     )
+    with _context.sanitize_override(_parse_sanitize(sanitize)):
+        run_script_verb(
+            "test", file=file, options=options, generator=generator, preset=preset, offline=offline
+        )
 
 
 @app.command()
@@ -224,11 +287,19 @@ def install(
     preset: PresetOption = None,
     prefix: PrefixOption = None,
     offline: OfflineOption = False,
+    config: ConfigOption = None,
 ) -> None:
     """Build everything, then install it through cmake --install."""
-    _run_verb(
-        "install", file=file, generator=generator, preset=preset, prefix=prefix, offline=offline
-    )
+    options = _context.RunOptions(config=config)
+    with _context.prefix_override(prefix):
+        run_script_verb(
+            "install",
+            file=file,
+            options=options,
+            generator=generator,
+            preset=preset,
+            offline=offline,
+        )
 
 
 @app.command()
@@ -239,25 +310,33 @@ def package(
     offline: OfflineOption = False,
 ) -> None:
     """Build everything, then produce packages through CPack."""
-    _run_verb("package", file=file, generator=generator, preset=preset, offline=offline)
+    run_script_verb("package", file=file, generator=generator, preset=preset, offline=offline)
 
 
 @app.command()
 def clean(file: FileOption = BUILD_SCRIPT_NAME) -> None:
     """Delete the project's build directory."""
-    _run_verb("clean", file=file)
+    run_script_verb("clean", file=file)
 
 
 @app.command()
-def lock(file: FileOption = BUILD_SCRIPT_NAME, offline: OfflineOption = False) -> None:
+def lock(
+    file: FileOption = BUILD_SCRIPT_NAME,
+    offline: OfflineOption = False,
+    package_names: Annotated[
+        list[str] | None,
+        typer.Option("--package", "-p", help="refresh only this package (repeatable)"),
+    ] = None,
+) -> None:
     """Resolve dependencies and refresh cmakeless.lock."""
-    _run_verb("lock", file=file, offline=offline)
+    options = _context.RunOptions(lock_packages=tuple(package_names or ()))
+    run_script_verb("lock", file=file, options=options, offline=offline)
 
 
 @app.command()
 def options(file: FileOption = BUILD_SCRIPT_NAME) -> None:
     """List this project's declared options without building anything."""
-    _run_verb("options", file=file)
+    run_script_verb("options", file=file)
 
 
 @app.command()
@@ -266,14 +345,16 @@ def sbom(
     output_format: SbomFormatOption = "cyclonedx",
     output: SbomOutputOption = None,
 ) -> None:
-    """Generate a CycloneDX or SPDX bill of materials from cmakeless.lock."""
-    _run_verb("sbom", file=file, sbom_format=output_format, sbom_output=output)
+    """Generate a reproducible CycloneDX or SPDX bill of materials from cmakeless.lock."""
+    with _context.sbom_format_override(output_format), _context.sbom_output_override(output):
+        run_script_verb("sbom", file=file)
 
 
 @app.command()
 def vendor(file: FileOption = BUILD_SCRIPT_NAME, directory: VendorDirOption = None) -> None:
     """Download every locked dependency into vendor/ for offline builds."""
-    _run_verb("vendor", file=file, vendor_directory=directory)
+    with _context.vendor_directory_override(directory):
+        run_script_verb("vendor", file=file)
 
 
 @app.command()
@@ -282,67 +363,33 @@ def init(
         str | None,
         typer.Option("--name", help="project name (default: the current directory's name)"),
     ] = None,
+    template: Annotated[
+        str,
+        typer.Option(
+            "--template", "-t", help="app, library, game, embedded, python-ext, low-latency"
+        ),
+    ] = "app",
+    list_templates: Annotated[
+        bool, typer.Option("--list", help="list the available templates and exit")
+    ] = False,
 ) -> None:
-    """Scaffold a new project: cmakelessfile.py, src/main.cpp, and .gitignore."""
-    _init_project(Path.cwd(), name=name)
+    """Scaffold a new project from a template, CI and editor settings included."""
+    if list_templates:
+        for template_name, origin in sorted(available_templates().items()):
+            typer.echo(f"  {template_name:<14} {origin}")
+        return
+    _init_project(Path.cwd(), name=name, template=template)
 
 
 @app.command()
 def doctor() -> None:
-    """Check cmake, the generator, ccache/vcpkg/Conan, and network access.
+    """Check cmake, the generator, compilers, caches, package managers, and network.
 
     Raises:
         typer.Exit: With code 1 when a required check failed.
     """
     if not _print_doctor_report():
         raise typer.Exit(code=1)
-
-
-def _run_verb(
-    verb: str,
-    *,
-    file: str,
-    generator: str | None = None,
-    preset: str | None = None,
-    sanitize: str | None = None,
-    prefix: str | None = None,
-    offline: bool = False,
-    sbom_format: str = "cyclonedx",
-    sbom_output: str | None = None,
-    vendor_directory: str | None = None,
-) -> None:
-    """Execute a cmakelessfile.py verb with the CLI's overrides active.
-
-    Each verb passes only the options it accepts; the rest keep the defaults
-    the runtime context expects when a flag does not apply to that verb.
-
-    Args:
-        verb: The subcommand name, which project.build() reads back.
-        file: Path to the build description to execute.
-        generator: The --generator value, when the verb accepts one.
-        preset: The --preset value, when the verb accepts one.
-        sanitize: The raw --sanitize value, when the verb accepts one.
-        prefix: The --prefix value, when the verb accepts one.
-        offline: The --offline flag, when the verb accepts it.
-        sbom_format: The --format value of the sbom verb.
-        sbom_output: The --output value of the sbom verb.
-        vendor_directory: The --directory value of the vendor verb.
-
-    Raises:
-        CmakelessError: Whatever the build description or pipeline raises.
-    """
-    with (
-        _context.verb_override(verb),
-        _context.generator_override(generator),
-        _context.preset_override(preset),
-        _context.sanitize_override(_parse_sanitize(sanitize)),
-        _context.prefix_override(prefix),
-        _context.offline_override(offline),
-        _context.sbom_format_override(sbom_format),
-        _context.sbom_output_override(sbom_output),
-        _context.vendor_directory_override(vendor_directory),
-    ):
-        _run_build_script(Path(file))
 
 
 def _parse_sanitize(raw: str | None) -> tuple[str, ...]:
@@ -358,27 +405,6 @@ def _parse_sanitize(raw: str | None) -> tuple[str, ...]:
     if raw is None:
         return ()
     return tuple(name.strip() for name in raw.split(",") if name.strip())
-
-
-def _run_build_script(script: Path) -> None:
-    """Execute the user's build description as if run directly.
-
-    The script is the tool: running it under __main__ makes 'cmakeless
-    build' behave exactly like 'python cmakelessfile.py'.
-
-    Args:
-        script: Path of the build description to execute.
-
-    Raises:
-        ConfigurationError: When the script does not exist.
-    """
-    if not script.is_file():
-        raise ConfigurationError(
-            f"No build description found at '{script}'. Run cmakeless from the "
-            f"directory containing {BUILD_SCRIPT_NAME}, or point at one with "
-            f"--file path/to/{BUILD_SCRIPT_NAME}."
-        )
-    runpy.run_path(str(script), run_name="__main__")
 
 
 def _print_doctor_report() -> bool:
@@ -398,43 +424,34 @@ def _print_doctor_report() -> bool:
     return all(check.ok for check in checks if check.required)
 
 
-def _init_project(directory: Path, *, name: str | None) -> None:
-    """Scaffold a new project in the given directory.
+def _init_project(directory: Path, *, name: str | None, template: str = "app") -> None:
+    """Scaffold a new project in the given directory from a template.
 
-    Writes cmakelessfile.py, src/main.cpp, and .gitignore, refusing to
-    overwrite an existing cmakelessfile.py and leaving other existing files
-    untouched.
+    Refuses to overwrite an existing cmakelessfile.py and leaves every other
+    existing file untouched.
 
     Args:
         directory: Where to scaffold (the CLI passes the working directory).
         name: The project name; None derives it from the directory name.
+        template: The template name.
 
     Raises:
-        ConfigurationError: When a cmakelessfile.py already exists there.
+        ConfigurationError: When a cmakelessfile.py already exists there, or
+            the template is unknown.
     """
     project_name = name if name is not None else _sanitize_name(directory.name)
-    script = directory / BUILD_SCRIPT_NAME
-    if script.exists():
+    if (directory / BUILD_SCRIPT_NAME).exists():
         raise ConfigurationError(
             f"A {BUILD_SCRIPT_NAME} already exists in {directory}; refusing to "
             f"overwrite it. Delete it first if you really want to start over."
         )
-    (directory / "src").mkdir(exist_ok=True)
-    script.write_text(_INIT_BUILD_PY.format(name=project_name), encoding="utf-8", newline="\n")
-    main_cpp = directory / "src" / "main.cpp"
-    if not main_cpp.exists():
-        main_cpp.write_text(_INIT_MAIN_CPP, encoding="utf-8", newline="\n")
-    gitignore = directory / ".gitignore"
-    if not gitignore.exists():
-        gitignore.write_text(_INIT_GITIGNORE, encoding="utf-8", newline="\n")
+    written = write_template(directory, render_template(template, project_name))
     typer.secho(
-        f"[cmakeless] Scaffolded project {project_name!r} in {directory}",
+        f"[cmakeless] Scaffolded {template} project {project_name!r} in {directory} "
+        f"({len(written)} files)",
         fg=typer.colors.GREEN,
     )
-    typer.echo(
-        "[cmakeless] Next: run 'cmakeless build' (or 'python cmakelessfile.py'), then "
-        "./build/" + project_name
-    )
+    typer.echo("[cmakeless] Next: run 'cmakeless build', then 'cmakeless test'.")
 
 
 def _sanitize_name(raw: str) -> str:
