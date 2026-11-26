@@ -18,9 +18,21 @@ from cmakeless._constants import (
     CMAKE_MINIMUM_VERSION,
     CMAKELESS_SYSTEM_NAME_VAR,
     CMAKELESS_SYSTEM_PROCESSOR_VAR,
+    CPS_MINIMUM_VERSION,
     CXX_MODULES_MINIMUM_VERSION,
 )
+from cmakeless.emitter.flags import needs_x86_detection, syntax_preamble
+from cmakeless.emitter.install_emitter import (
+    PKG_CONFIG_TEMPLATE_SUFFIX,
+    SIGNING_SCRIPT_NAME,
+    cpack_sections,
+    install_sections,
+    pkg_config_template,
+    signing_script,
+)
+from cmakeless.emitter.instrumentation import instrumentation_section
 from cmakeless.emitter.presets_emitter import emit_presets
+from cmakeless.emitter.quoting import quote_argument
 from cmakeless.emitter.sanitizers import (
     MSVC_SUPPORTED_SANITIZERS,
     SANITIZE_CACHE_VARIABLE,
@@ -28,20 +40,35 @@ from cmakeless.emitter.sanitizers import (
     preset_sanitizer_union,
     static_sanitize_lines,
 )
+from cmakeless.emitter.target_settings import (
+    c_std_block,
+    compile_option_lines,
+    define_lines,
+    effective_profile,
+    effective_warnings,
+    extension_blocks,
+    ipo_block,
+    link_option_lines,
+    post_build_block,
+    property_block,
+    qt_resource_block,
+)
+from cmakeless.emitter.tests_emitter import framework_includes, registration_block
 from cmakeless.emitter.toolchain_emitter import emit_toolchain
-from cmakeless.emitter.when_emitter import guarded
+from cmakeless.emitter.when_emitter import guarded, render_if_condition
+from cmakeless.model.languages import languages_for
 from cmakeless.model.nodes import (
     BUILD_TYPE_BY_OPTIMIZE,
-    CPACK_GENERATOR_BY_FORMAT,
     CommandModel,
     CompiledModel,
     CompileOptionsModel,
     CustomTargetModel,
     DependencyModel,
     ExecutableModel,
-    InstallModel,
     LibraryKind,
     LibraryModel,
+    LinkKind,
+    LinkModel,
     LinkOptionsModel,
     ModuleKind,
     ModuleModel,
@@ -52,48 +79,22 @@ from cmakeless.model.nodes import (
     TestModel,
 )
 
-# Warning presets translated per compiler family; "default" emits nothing and
-# leaves the compiler's own defaults in charge.
-_STRICT_WARNINGS_MSVC: tuple[str, ...] = ("/W4", "/permissive-")
-_STRICT_WARNINGS_OTHER: tuple[str, ...] = (
-    "-Wall",
-    "-Wextra",
-    "-Wconversion",
-    "-Wsign-conversion",
-    "-pedantic",
-)
-_NO_WARNINGS_MSVC: tuple[str, ...] = ("/W0",)
-_NO_WARNINGS_OTHER: tuple[str, ...] = ("-w",)
-
-# Per-framework discovery-module setup, emitted once per framework in use.
-# The guards make one file serve both worlds: an installed package provides
-# the module on the module path, a source fetch keeps it in its own tree.
-_INTEGRATION_BY_FRAMEWORK = {
-    "catch2": (
-        "# Catch2's per-case discovery module (extras/ when fetched from source).\n"
-        "if(catch2_SOURCE_DIR)\n"
-        "    list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)\n"
-        "endif()\n"
-        "include(Catch)"
-    ),
-    "gtest": "include(GoogleTest)",
-    "doctest": (
-        "# doctest's per-case discovery module (scripts/cmake when fetched from source).\n"
-        "if(doctest_SOURCE_DIR)\n"
-        "    include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)\n"
-        "else()\n"
-        "    include(doctest)\n"
-        "endif()"
-    ),
+# add_library() keywords by library kind; header-only libraries take their
+# own INTERFACE path and never reach this table.
+_LIBRARY_KEYWORD_BY_KIND: dict[LibraryKind, str] = {
+    LibraryKind.STATIC: "STATIC",
+    LibraryKind.SHARED: "SHARED",
+    LibraryKind.OBJECT: "OBJECT",
+    LibraryKind.PLUGIN: "MODULE",
 }
 
-# The CTest registration command per framework; {name} is the test target.
-_DISCOVERY_BY_FRAMEWORK = {
-    "catch2": "catch_discover_tests({name})",
-    "gtest": "gtest_discover_tests({name})",
-    "doctest": "doctest_discover_tests({name})",
-    "none": "add_test(NAME {name} COMMAND {name})",
-}
+# The Apple platforms a framework link is valid on; everywhere else it
+# renders to nothing, so a cross-platform description needs no guard.
+_APPLE_PLATFORMS = "$<PLATFORM_ID:Darwin,iOS,tvOS,watchOS,visionOS>"
+
+# The policy floor set around each fetched dependency, so packages that still
+# declare cmake_minimum_required() below 3.5 configure under CMake 4.
+_LEGACY_POLICY_FLOOR = "3.5"
 
 
 def emit_cmakelists(model: ProjectModel, *, tool_version: str) -> str:
@@ -108,6 +109,20 @@ def emit_cmakelists(model: ProjectModel, *, tool_version: str) -> str:
         The full CMakeLists.txt text, newline-terminated.
     """
     return _CMakeListsVisitor(model, tool_version).emit()
+
+
+def emit_target_section(model: ProjectModel, name: str, *, tool_version: str) -> str | None:
+    """Generate exactly the CMake one target contributes, for 'cmakeless explain'.
+
+    Args:
+        model: The frozen project that owns the target.
+        name: The target name.
+        tool_version: The cmakeless version, as for emit_cmakelists().
+
+    Returns:
+        The target's section text, or None when this node has no such target.
+    """
+    return _CMakeListsVisitor(model, tool_version).target_section(name)
 
 
 def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
@@ -137,6 +152,11 @@ def emit_tree(model: ProjectModel, *, tool_version: str) -> dict[Path, str]:
             )
     if model.installs:
         files[Path("cmake") / f"{model.name}Config.cmake.in"] = _config_template(model.name)
+        if model.export.pkg_config:
+            template = Path("cmake") / f"{model.name}{PKG_CONFIG_TEMPLATE_SUFFIX}"
+            files[template] = pkg_config_template(model)
+        if model.signing is not None:
+            files[Path("cmake") / SIGNING_SCRIPT_NAME] = signing_script(model)
     for subproject in sorted(model.subprojects, key=lambda node: node.directory.as_posix()):
         subtree = emit_tree(subproject.project, tool_version=tool_version)
         for relative_path, text in subtree.items():
@@ -174,6 +194,11 @@ class _CMakeListsVisitor:
         """
         self._model = model
         self._tool_version = tool_version
+        self._languages = languages_for(
+            source
+            for target in model.all_targets()
+            for source in (*target.sources, *target.cxx_modules)
+        )
 
     def emit(self) -> str:
         """Walk the project and assemble the full file.
@@ -185,6 +210,7 @@ class _CMakeListsVisitor:
             self._header(),
             self._preamble(),
             self._reflection_preamble(),
+            *self._toolchain_checks(),
             *self._default_build_config(),
             *self._options_section(),
             *self._raw_cmake_file_includes(),
@@ -195,18 +221,132 @@ class _CMakeListsVisitor:
             sections.append("enable_testing()")
         sections.extend(self._python_preamble())
         sections.extend(self._preset_sanitize_preamble())
+        sections.extend(self._platform_packages())
         sections.extend(
             self._visit_dependency(dependency)
             for dependency in sorted(self._model.dependencies, key=lambda dep: dep.name)
         )
-        subdirectories = sorted(node.directory.as_posix() for node in self._model.subprojects)
-        sections.extend(f"add_subdirectory({directory})" for directory in subdirectories)
+        sections.extend(self._subproject_sections())
         sections.extend(self._command_sections())
         sections.extend(self._target_sections())
         sections.extend(self._custom_target_sections())
-        sections.extend(self._install_sections())
-        sections.extend(self._cpack_section())
+        sections.extend(install_sections(self._model))
+        sections.extend(cpack_sections(self._model))
         return "\n\n".join(sections) + "\n"
+
+    def target_section(self, name: str) -> str | None:
+        """Emit the section of one target, found by name across every kind.
+
+        Args:
+            name: The target name.
+
+        Returns:
+            The section text, or None when no target of this node has it.
+        """
+        visitors = (
+            (self._model.libraries, self._visit_library),
+            (self._model.executables, self._visit_executable),
+            (self._model.python_modules, self._visit_python_module),
+            (self._model.tests, self._visit_test),
+            (self._model.fuzz_targets, self._visit_fuzz_target),
+        )
+        for targets, visit in visitors:
+            for target in targets:
+                if target.name == name:
+                    return visit(target)  # type: ignore[arg-type]
+        return None
+
+    def _toolchain_checks(self) -> list[str]:
+        """Emit the one-time checks some flag lines and properties depend on.
+
+        Returns:
+            The syntax preamble, plus CheckPIESupported and CheckIPOSupported
+            when a profile asks for PIE or link-time optimization; empty for
+            a project that needs none, so its output is unchanged.
+        """
+        targets = self._model.all_targets()
+        profiles = [effective_profile(target, self._model) for target in targets]
+        sections: list[str] = []
+        if self._needs_syntax_preamble():
+            x86 = any(needs_x86_detection(profile) for profile in profiles)
+            sections.append(syntax_preamble(x86=x86))
+        if any(profile is not None and profile.position_independent for profile in profiles):
+            sections.append(
+                "# Link executables as PIE where the toolchain supports it.\n"
+                "include(CheckPIESupported)\n"
+                "check_pie_supported()"
+            )
+        if any(profile is not None and profile.ipo_release for profile in profiles):
+            sections.append(
+                "include(CheckIPOSupported)\n"
+                "check_ipo_supported(RESULT CMAKELESS_IPO_SUPPORTED OUTPUT CMAKELESS_IPO_OUTPUT)"
+            )
+        sections.extend(instrumentation_section(self._model))
+        return sections
+
+    def _needs_syntax_preamble(self) -> bool:
+        """Tell whether any flag line in this file refers to the syntax variables.
+
+        Returns:
+            True when a warning preset, sanitizer, CPU target, profile, or
+            instrumentation is active anywhere in this project node.
+        """
+        if preset_sanitizer_union(self._model) or self._model.instrumentation:
+            return True
+        for target in self._model.all_targets():
+            compiles = not (
+                isinstance(target, LibraryModel) and target.kind is LibraryKind.HEADER_ONLY
+            )
+            settings = (
+                effective_warnings(target, self._model) != "default",
+                bool(target.sanitize),
+                target.properties.cpu is not None,
+                effective_profile(target, self._model) is not None,
+                target.properties.map_file,
+                target.properties.linker_script is not None,
+            )
+            if compiles and any(settings):
+                return True
+        return False
+
+    def _platform_packages(self) -> list[str]:
+        """Find the platform packages typed links rely on: Threads and Qt.
+
+        Returns:
+            One find_package() section per package in use, in a fixed order.
+        """
+        sections: list[str] = []
+        targets = self._model.all_targets()
+        if any(link.kind is LinkKind.THREADS for target in targets for link in target.links):
+            sections.append(
+                "# The platform thread library: pthread on POSIX, nothing extra on Windows.\n"
+                "find_package(Threads REQUIRED)"
+            )
+        components_by_major: dict[int, set[str]] = {}
+        for target in targets:
+            if target.properties.qt is not None:
+                qt = target.properties.qt
+                components_by_major.setdefault(qt.major, set()).update(qt.components)
+        sections.extend(
+            f"find_package(Qt{major} REQUIRED COMPONENTS {' '.join(sorted(components))})"
+            for major, components in sorted(components_by_major.items())
+        )
+        return sections
+
+    def _subproject_sections(self) -> list[str]:
+        """Emit every add_subdirectory(), guarded by its configure-time condition.
+
+        Returns:
+            One section per subproject, sorted by directory.
+        """
+        sections: list[str] = []
+        for node in sorted(self._model.subprojects, key=lambda node: node.directory.as_posix()):
+            call = f"add_subdirectory({node.directory.as_posix()})"
+            if node.when is None:
+                sections.append(call)
+            else:
+                sections.append(f"if{render_if_condition(node.when)}\n    {call}\nendif()")
+        return sections
 
     def _target_sections(self) -> list[str]:
         """Emit every target, in the deterministic order the contract needs.
@@ -230,7 +370,11 @@ class _CMakeListsVisitor:
             self._visit_python_module(module)
             for module in sorted(self._model.python_modules, key=lambda target: target.name)
         )
-        sections.extend(self._framework_includes())
+        sections.extend(
+            self._visit_fuzz_target(target)
+            for target in sorted(self._model.fuzz_targets, key=lambda target: target.name)
+        )
+        sections.extend(framework_includes(self._model))
         sections.extend(
             self._visit_test(test)
             for test in sorted(self._model.tests, key=lambda target: target.name)
@@ -297,7 +441,7 @@ class _CMakeListsVisitor:
             The space-separated, individually quoted argument list.
         """
         anchored = (self._anchor_command_token(token, depends=depends) for token in argv)
-        return " ".join(_quote_cmake_argument(token) for token in anchored)
+        return " ".join(quote_argument(token) for token in anchored)
 
     def _visit_command(self, command: CommandModel) -> str:
         """Emit one build-time step as add_custom_command(OUTPUT ...).
@@ -316,7 +460,7 @@ class _CMakeListsVisitor:
             depends = " ".join(depend.as_posix() for depend in sorted(command.depends))
             lines.append(f"    DEPENDS {depends}")
         if command.comment is not None:
-            lines.append(f"    COMMENT {_quote_cmake_argument(command.comment)}")
+            lines.append(f"    COMMENT {quote_argument(command.comment)}")
         lines.append("    VERBATIM")
         lines.append(")")
         return "\n".join(lines)
@@ -357,11 +501,14 @@ class _CMakeListsVisitor:
             Zero or more include commands, in a fixed order.
         """
         includes: list[str] = []
-        if any(library.kind is LibraryKind.SHARED for library in self._model.libraries):
+        if any(
+            library.kind in (LibraryKind.SHARED, LibraryKind.PLUGIN)
+            for library in self._model.libraries
+        ):
             includes.append("include(GenerateExportHeader)")
         if self._model.dependencies and self._model.package_manager == "auto":
             includes.append("include(FetchContent)")
-        if self._model.installs:
+        if self._model.installs or self._model.install_files:
             includes.append("include(GNUInstallDirs)")
         return includes
 
@@ -390,20 +537,22 @@ class _CMakeListsVisitor:
             f"\n"
             f"project({self._model.name}\n"
             f"    VERSION {self._model.version}\n"
-            f"    LANGUAGES CXX\n"
+            f"    LANGUAGES {' '.join(self._languages)}\n"
             f")"
         )
 
     def _required_cmake_version(self) -> str:
         """Pick the CMake version floor this particular project needs.
 
-        Raised only for a project that declares C++20 module interfaces,
-        which need a newer CMake than everything else the emitter writes; a
-        project that declares none keeps the lower, wider floor.
+        Raised only for a project that declares C++20 module interfaces or
+        exports a CPS file, which need a newer CMake than everything else the
+        emitter writes; a project that uses neither keeps the lower floor.
 
         Returns:
             The version string for cmake_minimum_required.
         """
+        if self._model.export.cps and self._model.installs:
+            return CPS_MINIMUM_VERSION
         if any(target.cxx_modules for target in self._model.all_targets()):
             return CXX_MODULES_MINIMUM_VERSION
         return CMAKE_MINIMUM_VERSION
@@ -474,7 +623,8 @@ class _CMakeListsVisitor:
             project of plain static libraries and executables is unchanged.
         """
         builds_shared = bool(self._model.python_modules) or any(
-            library.kind is LibraryKind.SHARED for library in self._model.libraries
+            library.kind in (LibraryKind.SHARED, LibraryKind.PLUGIN)
+            for library in self._model.libraries
         )
         if not builds_shared:
             return []
@@ -616,21 +766,51 @@ class _CMakeListsVisitor:
             The commented fallback section.
         """
         name = _resolved_cmake_name(dependency)
-        assert dependency.url is not None, "the auto strategy must pin a URL"
-        assert dependency.sha256 is not None, "the auto strategy must pin a hash"
         assert dependency.link_targets, "validation guarantees imported targets"
+        fetch = self._fetch_lines(dependency)
+        if self._model.supply_chain == "strict" and dependency.name not in self._model.allow_system:
+            return (
+                f"# {dependency.name} {dependency.version}: pinned source fetch only "
+                f'(supply_chain="strict").\n'
+                f"if(NOT TARGET {dependency.link_targets[0]})\n"
+                f"{fetch}\n"
+                f"endif()"
+            )
         return (
             f"# {dependency.name} {dependency.version}: system package when "
             f"available, pinned source fetch otherwise.\n"
             f"find_package({name} {dependency.version} QUIET"
             f"{_components_suffix(dependency)})\n"
             f"if(NOT {name}_FOUND AND NOT TARGET {dependency.link_targets[0]})\n"
+            f"{fetch}\n"
+            f"endif()"
+        )
+
+    def _fetch_lines(self, dependency: DependencyModel) -> str:
+        """Write the FetchContent declaration for one pinned dependency.
+
+        SYSTEM keeps a dependency's own headers from tripping this project's
+        warning flags. The policy floor exists because CMake 4 refuses any
+        cmake_minimum_required() below 3.5, which many older packages still
+        declare; it only raises floors below 3.5, and CMake 3 ignores it.
+
+        Args:
+            dependency: The resolved dependency, fetch pin included.
+
+        Returns:
+            The indented declare-and-make-available lines.
+        """
+        assert dependency.url is not None, "the auto strategy must pin a URL"
+        assert dependency.sha256 is not None, "the auto strategy must pin a hash"
+        return (
             f"    FetchContent_Declare({dependency.name}\n"
             f"        URL {dependency.url}\n"
             f"        URL_HASH SHA256={dependency.sha256}\n"
+            f"        SYSTEM\n"
             f"    )\n"
+            f"    set(CMAKE_POLICY_VERSION_MINIMUM {_LEGACY_POLICY_FLOOR})\n"
             f"    FetchContent_MakeAvailable({dependency.name})\n"
-            f"endif()"
+            f"    unset(CMAKE_POLICY_VERSION_MINIMUM)"
         )
 
     def _cpp_std_for(self, target: CompiledModel) -> int:
@@ -663,6 +843,24 @@ class _CMakeListsVisitor:
         )
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         return "\n\n".join(blocks)
+
+    def _visit_fuzz_target(self, target: ExecutableModel) -> str:
+        """Emit one libFuzzer target, left out of the default build.
+
+        GCC ships no libFuzzer, so a fuzz target would fail to link there;
+        excluding it from "all" keeps every normal build green, and
+        'cmakeless fuzz' builds it by name.
+
+        Args:
+            target: The fuzz target to emit.
+
+        Returns:
+            The target's complete section text.
+        """
+        return (
+            f"{self._visit_executable(target)}\n\n"
+            f"set_target_properties({target.name} PROPERTIES EXCLUDE_FROM_ALL ON)"
+        )
 
     def _python_preamble(self) -> list[str]:
         """Find the Python development headers when modules need them.
@@ -740,8 +938,7 @@ class _CMakeListsVisitor:
         """
         if target.kind is LibraryKind.HEADER_ONLY:
             return self._visit_header_only_library(target)
-        keyword = "STATIC" if target.kind is LibraryKind.STATIC else "SHARED"
-        blocks = [f"add_library({target.name} {keyword})"]
+        blocks = [f"add_library({target.name} {_LIBRARY_KEYWORD_BY_KIND[target.kind]})"]
         blocks.extend(self._input_blocks(target, "PRIVATE"))
         private_include_dirs = self._private_include_dirs_block(target, "PRIVATE")
         if private_include_dirs is not None:
@@ -755,7 +952,7 @@ class _CMakeListsVisitor:
         blocks.append(
             f"set_target_properties({target.name} PROPERTIES POSITION_INDEPENDENT_CODE ON)"
         )
-        if target.kind is LibraryKind.SHARED:
+        if target.kind in (LibraryKind.SHARED, LibraryKind.PLUGIN):
             blocks.append(self._export_header_block(target))
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         return "\n\n".join(blocks)
@@ -780,21 +977,8 @@ class _CMakeListsVisitor:
         blocks.extend(self._settings_blocks(target, "PRIVATE"))
         if self._links_shared_library(target):
             blocks.append(self._runtime_dll_copy_block(target))
-        blocks.append(_DISCOVERY_BY_FRAMEWORK[target.framework].format(name=target.name))
+        blocks.append(registration_block(target))
         return "\n\n".join(blocks)
-
-    def _framework_includes(self) -> list[str]:
-        """Emit the discovery-module includes for every framework in use.
-
-        A source fetch keeps each framework's CMake module inside its own
-        source tree, so the include is guarded to work both with installed
-        packages and with the FetchContent fallback.
-
-        Returns:
-            One include block per framework, sorted by framework name.
-        """
-        frameworks = sorted({test.framework for test in self._model.tests} - {"none"})
-        return [_INTEGRATION_BY_FRAMEWORK[framework] for framework in frameworks]
 
     def _links_shared_library(self, target: TestModel) -> bool:
         """Tell whether a test transitively links a shared library of this project.
@@ -815,7 +999,7 @@ class _CMakeListsVisitor:
                 continue
             seen.add(name)
             library = libraries_by_name[name]
-            if library.kind is LibraryKind.SHARED:
+            if library.kind in (LibraryKind.SHARED, LibraryKind.PLUGIN):
                 return True
             stack.extend(link.target for link in library.links if not link.external)
         return False
@@ -980,22 +1164,25 @@ class _CMakeListsVisitor:
         lines.append(")")
         return "\n".join(lines)
 
-    def _link_options_block(self, target: CompiledModel, visibility: str) -> str | None:
-        """Write a target_link_options command, if any link options were requested.
+    def _link_options_block(
+        self, target: CompiledModel, visibility: str, *, extra: bool
+    ) -> str | None:
+        """Write a target_link_options command, if any link options apply.
 
         Args:
             target: The target whose link options to list.
             visibility: The CMake visibility keyword to use.
+            extra: True to include the CPU, profile, map-file, and
+                linker-script lines alongside the user's own options.
 
         Returns:
             The command text, or None when the target has no link options.
         """
-        if not target.link_options:
+        lines = link_option_lines(target, self._model, self._languages) if extra else []
+        lines.extend(self._link_option_line(options) for options in target.link_options)
+        if not lines:
             return None
-        lines = [f"target_link_options({target.name} {visibility}"]
-        lines.extend(f"    {self._link_option_line(options)}" for options in target.link_options)
-        lines.append(")")
-        return "\n".join(lines)
+        return _command_block("target_link_options", target.name, visibility, lines)
 
     def _pch_block(self, target: CompiledModel, visibility: str) -> str | None:
         """Write a target_precompile_headers command, if any headers were requested.
@@ -1051,6 +1238,8 @@ class _CMakeListsVisitor:
             properties.append(f'CXX_CLANG_TIDY "{";".join(clang_tidy)}"')
         if iwyu:
             properties.append(f'CXX_INCLUDE_WHAT_YOU_USE "{";".join(iwyu)}"')
+        if self._model.lint_cppcheck:
+            properties.append(f'CXX_CPPCHECK "{";".join(self._model.lint_cppcheck)}"')
         if not properties:
             return None
         lines = [f"set_target_properties({target.name} PROPERTIES"]
@@ -1105,42 +1294,79 @@ class _CMakeListsVisitor:
         Args:
             target: The target whose defines, options, and links to emit.
             visibility: The CMake visibility keyword for defines and options.
-            warnings: Whether the project warning preset applies (it does
-                not for INTERFACE targets, which compile nothing).
+            warnings: Whether compile-affecting settings apply (they do not
+                for INTERFACE targets, which compile nothing).
 
         Returns:
             Zero or more command blocks, in skeleton order.
         """
         blocks: list[str] = []
-        if target.defines:
-            blocks.append(self._defines_block(target, visibility))
-        option_lines = []
-        if warnings:
-            option_lines.extend(self._warning_option_lines())
-        option_lines.extend(
-            self._compile_option_line(options) for options in target.compile_options
-        )
-        if option_lines:
-            lines = [f"target_compile_options({target.name} {visibility}"]
-            lines.extend(f"    {line}" for line in option_lines)
-            lines.append(")")
-            blocks.append("\n".join(lines))
+        defines = self._defines_block(target, visibility, profile=warnings)
+        if defines is not None:
+            blocks.append(defines)
+        compile_options = self._compile_options_block(target, visibility, extra=warnings)
+        if compile_options is not None:
+            blocks.append(compile_options)
         blocks.extend(
             block
             for block in (
-                self._link_options_block(target, visibility),
+                self._link_options_block(target, visibility, extra=warnings),
                 self._pch_block(target, visibility),
                 self._unity_block(target),
+                c_std_block(target, self._model, visibility) if warnings else None,
+                qt_resource_block(target),
             )
             if block is not None
         )
         if warnings:
             blocks.extend(self._warned_blocks(target, visibility))
+        blocks.extend(self._property_blocks(target, warnings=warnings))
         if target.links:
             blocks.append(self._links_block(target))
+        blocks.extend(extension_blocks(target))
         if target.raw_cmake:
             blocks.append(self._raw_cmake_block(target))
         return blocks
+
+    def _compile_options_block(
+        self, target: CompiledModel, visibility: str, *, extra: bool
+    ) -> str | None:
+        """Write a target_compile_options command, if any compile options apply.
+
+        Args:
+            target: The target whose compile options to list.
+            visibility: The CMake visibility keyword to use.
+            extra: True to include the warning, CPU, profile, and
+                instrumentation lines ahead of the user's own options.
+
+        Returns:
+            The command text, or None when nothing applies.
+        """
+        lines = compile_option_lines(target, self._model, self._languages) if extra else []
+        lines.extend(self._compile_option_line(options) for options in target.compile_options)
+        if not lines:
+            return None
+        return _command_block("target_compile_options", target.name, visibility, lines)
+
+    def _property_blocks(self, target: CompiledModel, *, warnings: bool) -> list[str]:
+        """Emit the property, link-time-optimization, and post-build blocks.
+
+        Args:
+            target: The compiled target.
+            warnings: False for INTERFACE targets, which have no properties
+                of their own to set.
+
+        Returns:
+            Zero to three blocks.
+        """
+        if not warnings:
+            return []
+        candidates = (
+            property_block(target, self._model),
+            ipo_block(target, self._model),
+            post_build_block(target),
+        )
+        return [block for block in candidates if block is not None]
 
     def _warned_blocks(self, target: CompiledModel, visibility: str) -> list[str]:
         """Emit the settings that do not apply to warning-free INTERFACE targets.
@@ -1190,8 +1416,10 @@ class _CMakeListsVisitor:
             Zero to three command blocks: an MSVC rejection for unsupported
             requests, then the compile options, then the link options.
         """
-        static_compile, static_link = static_sanitize_lines(target.sanitize)
-        preset_compile, preset_link = preset_sanitize_lines(preset_sanitizer_union(self._model))
+        static_compile, static_link = static_sanitize_lines(target.sanitize, self._languages)
+        preset_compile, preset_link = preset_sanitize_lines(
+            preset_sanitizer_union(self._model), self._languages
+        )
         compile_lines = [*static_compile, *preset_compile]
         link_lines = [*static_link, *preset_link]
         blocks: list[str] = []
@@ -1216,169 +1444,28 @@ class _CMakeListsVisitor:
                 blocks.append("\n".join(rendered))
         return blocks
 
-    def _install_sections(self) -> list[str]:
-        """Emit every install rule plus the export set that ships them.
-
-        Returns:
-            One section per installed target (sorted by name), then the
-            export/Config.cmake section; empty without install rules.
-        """
-        if not self._model.installs:
-            return []
-        sections = [
-            self._visit_install(install)
-            for install in sorted(self._model.installs, key=lambda rule: rule.target)
-        ]
-        sections.append(self._export_section())
-        return sections
-
-    def _visit_install(self, install: InstallModel) -> str:
-        """Emit one install rule: the target, and its headers when asked.
-
-        Args:
-            install: The install rule to emit.
-
-        Returns:
-            The rule's complete section text.
-        """
-        lines = [
-            f"install(TARGETS {install.target}",
-            f"    EXPORT {self._model.name}Targets",
-            "    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}",
-            "    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}",
-            "    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}",
-        ]
-        if install.headers:
-            # INCLUDES DESTINATION teaches the exported target where its
-            # headers land, replacing the BUILD_INTERFACE-only build path.
-            lines.append("    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}")
-        lines.append(")")
-        blocks = ["\n".join(lines)]
-        if install.headers:
-            blocks.extend(self._header_install_blocks(install.target))
-        return "\n\n".join(blocks)
-
-    def _header_install_blocks(self, target_name: str) -> list[str]:
-        """Emit the header installs for one installed library.
-
-        Args:
-            target_name: The installed target's name.
-
-        Returns:
-            One install command per public header directory, plus the
-            generated export header for shared libraries; empty when the
-            target is not a library of this project.
-        """
-        library = next(
-            (candidate for candidate in self._model.libraries if candidate.name == target_name),
-            None,
-        )
-        if library is None:
-            return []
-        blocks = [
-            f"install(DIRECTORY {directory.as_posix()}/ DESTINATION ${{CMAKE_INSTALL_INCLUDEDIR}})"
-            for directory in sorted(library.public_include_dirs)
-        ]
-        if library.kind is LibraryKind.SHARED:
-            blocks.append(
-                f"install(FILES ${{CMAKE_CURRENT_BINARY_DIR}}/{library.name}_export.h "
-                f"DESTINATION ${{CMAKE_INSTALL_INCLUDEDIR}})"
-            )
-        return blocks
-
-    def _export_section(self) -> str:
-        """Emit the export set and Config.cmake generation for find_package.
-
-        Returns:
-            The complete export section: install(EXPORT), the version and
-            config files, and their installation.
-        """
-        name = self._model.name
-        destination = f"${{CMAKE_INSTALL_LIBDIR}}/cmake/{name}"
-        return (
-            f"install(EXPORT {name}Targets\n"
-            f"    FILE {name}Targets.cmake\n"
-            f"    NAMESPACE {name}::\n"
-            f"    DESTINATION {destination}\n"
-            f")\n"
-            f"\n"
-            f"include(CMakePackageConfigHelpers)\n"
-            f"\n"
-            f"configure_package_config_file(\n"
-            f"    ${{CMAKE_CURRENT_SOURCE_DIR}}/cmake/{name}Config.cmake.in\n"
-            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}Config.cmake\n"
-            f"    INSTALL_DESTINATION {destination}\n"
-            f")\n"
-            f"\n"
-            f"write_basic_package_version_file(\n"
-            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}ConfigVersion.cmake\n"
-            f"    VERSION ${{PROJECT_VERSION}}\n"
-            f"    COMPATIBILITY SameMajorVersion\n"
-            f")\n"
-            f"\n"
-            f"install(FILES\n"
-            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}Config.cmake\n"
-            f"    ${{CMAKE_CURRENT_BINARY_DIR}}/{name}ConfigVersion.cmake\n"
-            f"    DESTINATION {destination}\n"
-            f")"
-        )
-
-    def _cpack_section(self) -> list[str]:
-        """Emit the CPack configuration for the requested package formats.
-
-        Returns:
-            The settings block and the include(CPack) that must come last;
-            empty when packaging was not requested.
-        """
-        if not self._model.package_formats:
-            return []
-        generators = ";".join(
-            CPACK_GENERATOR_BY_FORMAT[format_name]
-            for format_name in sorted(self._model.package_formats)
-        )
-        lines = [
-            f"set(CPACK_PACKAGE_NAME {self._model.name})",
-            f"set(CPACK_PACKAGE_VERSION {self._model.version})",
-        ]
-        if "deb" in self._model.package_formats:
-            # Debian packages refuse to build without a maintainer contact.
-            lines.append(f'set(CPACK_PACKAGE_CONTACT "{self._model.name} maintainers")')
-        lines.append(f'set(CPACK_GENERATOR "{generators}")')
-        return ["\n".join(lines), "include(CPack)"]
-
-    def _defines_block(self, target: CompiledModel, visibility: str) -> str:
+    def _defines_block(
+        self, target: CompiledModel, visibility: str, *, profile: bool
+    ) -> str | None:
         """Write a target_compile_definitions command with sorted defines.
 
         Args:
             target: The target whose defines to list.
             visibility: The CMake visibility keyword to use.
+            profile: True to append the target's profile definitions.
 
         Returns:
-            The command text.
+            The command text, or None when there is nothing to define.
         """
-        lines = [f"target_compile_definitions({target.name} {visibility}"]
+        lines = []
         for define in sorted(target.defines, key=lambda define: define.name):
             token = define.name if define.value is None else f"{define.name}={define.value}"
-            lines.append(f"    {guarded(token, define.when)}")
-        lines.append(")")
-        return "\n".join(lines)
-
-    def _warning_option_lines(self) -> list[str]:
-        """Translate the project warning preset into per-compiler flags.
-
-        Returns:
-            Generator-expression-guarded flag lines; empty for "default".
-        """
-        if self._model.warnings == "strict":
-            msvc_flags, other_flags = _STRICT_WARNINGS_MSVC, _STRICT_WARNINGS_OTHER
-        elif self._model.warnings == "none":
-            msvc_flags, other_flags = _NO_WARNINGS_MSVC, _NO_WARNINGS_OTHER
-        else:
-            return []
-        return [
-            f"$<$<CXX_COMPILER_ID:MSVC>:{';'.join(msvc_flags)}>",
-            f"$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:{';'.join(other_flags)}>",
-        ]
+            lines.append(guarded(token, define.when))
+        if profile:
+            lines.extend(define_lines(target, self._model))
+        if not lines:
+            return None
+        return _command_block("target_compile_definitions", target.name, visibility, lines)
 
     def _compile_option_line(self, options: CompileOptionsModel) -> str:
         """Render one compile_options() call as a single flag line.
@@ -1414,8 +1501,8 @@ class _CMakeListsVisitor:
             The command text; header-only libraries use INTERFACE because
             it is the only correct visibility for them.
         """
-        public = sorted(link.target for link in target.links if link.public)
-        private = sorted(link.target for link in target.links if not link.public)
+        public = sorted(_link_item(link) for link in target.links if link.public)
+        private = sorted(_link_item(link) for link in target.links if not link.public)
         is_interface = isinstance(target, LibraryModel) and target.kind is LibraryKind.HEADER_ONLY
         lines = [f"target_link_libraries({target.name}"]
         if is_interface:
@@ -1427,23 +1514,36 @@ class _CMakeListsVisitor:
         return "\n".join(lines)
 
 
-def _quote_cmake_argument(token: str) -> str:
-    """Render one string as a single quoted CMake argument.
-
-    Backslashes and quotes are escaped so a Windows path or an argument
-    containing a quote cannot end the argument early or be read as a CMake
-    escape sequence. Dollar signs are deliberately left alone, so a caller
-    can still pass a reference such as ${CMAKE_COMMAND} and have CMake
-    expand it.
+def _command_block(command: str, target: str, visibility: str, lines: list[str]) -> str:
+    """Render one target_* command with one item per indented line.
 
     Args:
-        token: The argument text.
+        command: The CMake command name, for example target_compile_options.
+        target: The target name.
+        visibility: The visibility keyword.
+        lines: The items, already rendered.
 
     Returns:
-        The argument, escaped and wrapped in double quotes.
+        The command text.
     """
-    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
-    return f'"{escaped}"'
+    body = "\n".join(f"    {line}" for line in lines)
+    return f"{command}({target} {visibility}\n{body}\n)"
+
+
+def _link_item(link: LinkModel) -> str:
+    """Render one link edge as a target_link_libraries item.
+
+    Args:
+        link: The link edge.
+
+    Returns:
+        The item, an Apple framework wrapped so it is a no-op elsewhere, and
+        any When guard applied last.
+    """
+    item = link.target
+    if link.kind is LinkKind.FRAMEWORK:
+        item = f"$<{_APPLE_PLATFORMS}:$<LINK_LIBRARY:FRAMEWORK,{link.target}>>"
+    return guarded(item, link.when)
 
 
 def _tree_has_tests(model: ProjectModel) -> bool:
