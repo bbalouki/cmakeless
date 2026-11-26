@@ -602,6 +602,190 @@ output uses, so an IDE extension or a CI log formatter is a listener, not a spec
 
 ---
 
+## Languages, Linking, and Platforms
+
+### Mix C, assembly, and CUDA with C++
+
+```python
+project = Project("fw", cpp_std=20, c_std=11)
+project.add_executable("fw", sources=["src/main.cpp", "src/hal.c", "src/startup.S", "src/k.cu"])
+```
+
+Languages are inferred from suffixes; `c_std` applies only to targets that compile C. Set `target.cuda_architectures = ["86", "90"]` for CUDA.
+
+### Link threads, OS libraries, and frameworks
+
+```python
+from cmakeless import Imported, System, When
+
+app.link(System.threads())
+app.link(System.library("ws2_32"), when=When.platform("windows"))
+app.link(System.framework("Cocoa"))
+app.link(Imported("Vulkan::Vulkan"))
+```
+
+### Build a Qt application
+
+```python
+ui = project.add_executable("trader_ui", sources=["ui/*.cpp"])
+ui.gui = True
+ui.use_qt(6, components=["Widgets", "Charts"], resources=["ui/icons.qrc"])
+```
+
+### Make firmware: linker script, map file, hex output
+
+```python
+from cmakeless import Cpu, Profile
+
+fw = project.add_executable("fw", sources=["src/*.c", "src/startup.S"])
+fw.profile = Profile.embedded()
+fw.cpu = Cpu.arm(core="cortex-m7", fpu="fpv5-d16", float_abi="hard")
+fw.linker_script = "boards/stm32f7.ld"
+fw.post_build("arm-none-eabi-objcopy", "-O", "ihex", fw.file, "fw.hex")
+```
+
+### Pin the CPU a binary may assume
+
+```python
+engine.cpu = Cpu.x86_64(level="v3")  # never -march=native in shipped code
+```
+
+## Profiles and Warnings
+
+### Harden a release, reproducibly
+
+```python
+project = Project("svc", cpp_std=23, profile=Profile.hardened() | Profile.reproducible())
+project.warnings = "max"
+project.warnings_as_errors = True
+```
+
+Relax warnings-as-errors locally with `cmakeless build -D CMAKE_COMPILE_WARNING_AS_ERROR=OFF`, or
+for one target with `target.warnings_as_errors = False`.
+
+## Shipping
+
+### Ship a versioned shared library with its runtime DLLs
+
+```python
+lib = project.add_library(
+    "core",
+    sources=["src/*.cpp"],
+    public_headers="include/",
+    kind="shared",
+    version="2.3.1",
+    soversion="2",
+)
+lib.visibility = "hidden"
+project.install(app, component="runtime", rpath="relative", runtime_dependencies=True)
+project.install(lib, headers=True, component="dev")
+project.export(cmake=True, pkg_config=True)
+project.package(
+    formats=["zip", "deb"], vendor="Acme", contact="ops@acme.com", license_file="LICENSE"
+)
+```
+
+### Sign installed binaries in CI
+
+```python
+from cmakeless import Signing
+
+project.sign(
+    windows=Signing.signtool(cert_env="WIN_CERT"),
+    macos=Signing.codesign(identity_env="APPLE_IDENTITY"),
+)
+```
+
+Signing runs at install time and is skipped, with a message, when the variables are unset.
+
+## Supply Chain and Evidence
+
+### Refuse unreviewed dependencies
+
+```python
+project = Project("ledger", cpp_std=20, supply_chain="strict")
+project.allow_system("openssl")
+```
+
+```console
+$ cmakeless audit                 # what needs review
+$ cmakeless audit --approve fmt   # after checking the hash against the upstream release
+```
+
+### Produce release evidence
+
+```console
+$ cmakeless evidence --preset release -o release-evidence/
+$ cmakeless verify
+```
+
+## Quality
+
+### Measure coverage, fuzz, and optimize with profiles
+
+```console
+$ pip install gcovr && cmakeless coverage
+$ cmakeless fuzz fuzz_parse --time 120
+$ cmakeless pgo --train "build/pgo-generate/bench --quick"
+```
+
+### Report static analysis to GitHub code scanning
+
+```python
+from cmakeless import Rules
+
+project.lint(clang_tidy=Rules.cert() | Rules.core_guidelines(), cppcheck=True)
+```
+
+```console
+$ cmakeless lint --report sarif -o lint.sarif
+```
+
+### Find out why the build is slow
+
+```console
+$ cmakeless profile
+```
+
+## Repositories and Tooling
+
+### Convert an existing CMake project
+
+```console
+$ cmakeless import --check
+```
+
+### Build several projects against one lockfile
+
+```python
+# cmakelessworkspace.py
+from cmakeless import Workspace
+
+ws = Workspace()
+ws.add("engine")
+ws.add("services/pricing")
+ws.build()
+```
+
+```console
+$ cmakeless build --affected-since origin/main
+```
+
+### Share a compiler cache across CI machines
+
+```python
+from cmakeless import Cache
+
+project.cache = Cache.sccache(backend="s3", bucket_env="SCCACHE_BUCKET")
+```
+
+### Feed an IDE or CI dashboard
+
+```console
+$ cmakeless build --json        # one JSON object per progress event
+$ cmakeless test --junit report.xml
+```
+
 ## The Escape Hatch
 
 ### Drop to raw CMake for the 1%
