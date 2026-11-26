@@ -29,6 +29,8 @@ Start wherever your energy is, every rung matters:
 5. **Teach the emitter a trick.** Pick a CMake construct we generate suboptimally and make the output more idiomatic. The Visitor structure ([ARCHITECTURE](docs/ARCHITECTURE.md#design-patterns-named)) keeps these changes local.
 6. **Build an adapter.** A dependency provider (vcpkg, Conan), a test framework integration, a toolchain helper. The Strategy interfaces are designed to make this a contained, satisfying project.
 7. **Take a roadmap item.** Phase items in [ROADMAP](docs/ROADMAP.md) are deliberately scoped to be ownable by one motivated person.
+8. **Write a plugin.** Toolchains, templates, registry entries, and target extensions all load from entry points (`cmakeless.toolchains`, `cmakeless.templates`, `cmakeless.registry`, `cmakeless.extensions`), so an industry-specific integration can ship without waiting for a release.
+9. **Propose a change to the public API.** Open an RFC (see [docs/rfcs](https://github.com/bbalouki/cmakeless/tree/main/docs/rfcs)) before the code, so the design is reviewed once, in the open.
 
 ## The Values That Decide Arguments
 
@@ -52,7 +54,7 @@ $ pip install -e ".[dev]"
 $ pytest
 ```
 
-You need Python 3.13+ (3.14 free-threaded to exercise the parallel paths) and CMake 3.25+ on PATH for the driver tests; everything above the driver layer runs without CMake installed.
+You need Python 3.12+ (3.14t, the free-threaded build, to exercise the parallel paths) and CMake 3.25+ on PATH for the driver tests; everything above the driver layer runs without CMake installed.
 
 **Code standards:**
 
