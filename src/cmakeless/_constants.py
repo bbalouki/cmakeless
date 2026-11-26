@@ -13,6 +13,10 @@ CMAKE_MINIMUM_VERSION = "3.25"
 # so a project that declares no modules keeps emitting the lower floor.
 CXX_MODULES_MINIMUM_VERSION = "3.28"
 
+# The floor a project exporting a Common Package Specification file needs:
+# install(PACKAGE_INFO ...) became stable in CMake 4.3.
+CPS_MINIMUM_VERSION = "4.3"
+
 # The default find_package(Python ...) floor for add_python_module() targets
 # that do not pass python_version=. Keep in sync with pyproject.toml's own
 # requires-python floor: CMakeless itself needs at least this version to run.
