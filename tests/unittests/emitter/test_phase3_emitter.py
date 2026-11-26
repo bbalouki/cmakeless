@@ -120,13 +120,13 @@ def test_sanitizers_pair_compile_and_link_flags() -> None:
     text = emit_cmakelists(make_model(executables=(app,)), tool_version=FIXED_VERSION)
     assert (
         "target_compile_options(app PRIVATE\n"
-        "    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=address;-fno-omit-frame-pointer>\n"
-        "    $<$<CXX_COMPILER_ID:MSVC>:/fsanitize=address>\n"
+        "    $<$<NOT:${CMAKELESS_MSVC_SYNTAX}>:-fsanitize=address;-fno-omit-frame-pointer>\n"
+        "    $<${CMAKELESS_MSVC_SYNTAX}:/fsanitize=address>\n"
         ")"
     ) in text
     assert (
         "target_link_options(app PRIVATE\n"
-        "    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-fsanitize=address>\n"
+        "    $<$<NOT:${CMAKELESS_MSVC_SYNTAX}>:-fsanitize=address>\n"
         ")"
     ) in text
 
@@ -148,7 +148,7 @@ def test_preset_sanitizers_ride_the_cache_variable() -> None:
     )
     assert 'set(CMAKELESS_SANITIZE "" CACHE STRING' in text
     assert (
-        "$<$<AND:$<IN_LIST:address,${CMAKELESS_SANITIZE}>,$<NOT:$<CXX_COMPILER_ID:MSVC>>>:"
+        "$<$<AND:$<IN_LIST:address,${CMAKELESS_SANITIZE}>,$<NOT:${CMAKELESS_MSVC_SYNTAX}>>:"
         "-fsanitize=address;-fno-omit-frame-pointer>"
     ) in text
     assert "target_link_options(app PRIVATE" in text
