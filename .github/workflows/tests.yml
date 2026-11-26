@@ -142,7 +142,7 @@ jobs:
         if: matrix.cc == 'clang-cl'
         shell: pwsh
         run: |
-          $clang = Join-Path $env:VCINSTALLDIR "Tools\Llvmdin\clang-cl.exe"
+          $clang = Join-Path $env:VCINSTALLDIR "Tools\Llvm\x64\bin\clang-cl.exe"
           if (-not (Test-Path $clang)) { throw "Visual Studio's clang-cl is not installed at $clang" }
           "CLANG_CL=$clang" | Out-File -FilePath $env:GITHUB_ENV -Append
 
