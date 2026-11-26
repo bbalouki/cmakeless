@@ -9,7 +9,15 @@ so `from cmakeless.deps import ...` reaches the whole provider surface.
 """
 
 from cmakeless.deps.conan import CONAN_MANIFEST_NAME, ConanAdapter
-from cmakeless.deps.fetchcontent import AutoAdapter
+from cmakeless.deps.download import (
+    DOWNLOAD_TIMEOUT_SECONDS,
+    FETCHABLE_SCHEMES,
+    INSECURE_SCHEMES,
+    check_url,
+    stream_sha256,
+    stream_to_file,
+)
+from cmakeless.deps.fetchcontent import AutoAdapter, Pin
 from cmakeless.deps.find_package import FindPackageAdapter, fill_metadata, link_targets
 from cmakeless.deps.lockfile import (
     LOCK_SCHEMA_VERSION,
@@ -38,12 +46,20 @@ from cmakeless.deps.registry import (
 )
 from cmakeless.deps.registry import register as register_dependency
 from cmakeless.deps.resolver import provider_for, resolve_dependencies
-from cmakeless.deps.sbom import SBOM_FORMATS, generate_cyclonedx, generate_spdx
+from cmakeless.deps.sbom import (
+    SBOM_FORMATS,
+    generate_cyclonedx,
+    generate_spdx,
+    reproducible_timestamp,
+)
 from cmakeless.deps.vcpkg import VCPKG_MANIFEST_NAME, VcpkgAdapter, vcpkg_root
 from cmakeless.deps.vendor import vendor_packages
 
 __all__ = [
     "CONAN_MANIFEST_NAME",
+    "DOWNLOAD_TIMEOUT_SECONDS",
+    "FETCHABLE_SCHEMES",
+    "INSECURE_SCHEMES",
     "LOCKFILE_NAME",
     "LOCK_SCHEMA_VERSION",
     "MIRROR_FILE_NAME",
@@ -57,9 +73,11 @@ __all__ = [
     "FindPackageAdapter",
     "LockData",
     "LockedPackage",
+    "Pin",
     "RegistryEntry",
     "ResolutionContext",
     "VcpkgAdapter",
+    "check_url",
     "collect_tree_dependencies",
     "fill_metadata",
     "generate_cyclonedx",
@@ -71,7 +89,10 @@ __all__ = [
     "read_mirror_map",
     "register_dependency",
     "registry_entry",
+    "reproducible_timestamp",
     "resolve_dependencies",
+    "stream_sha256",
+    "stream_to_file",
     "vcpkg_root",
     "vendor_packages",
     "write_lockfile",
