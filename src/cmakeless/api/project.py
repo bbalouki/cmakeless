@@ -10,6 +10,7 @@ import dataclasses
 import os
 import runpy
 import shutil
+import sys
 import sysconfig
 from collections.abc import Sequence
 from pathlib import Path
@@ -1661,6 +1662,7 @@ class Project:
             if provider is not None
             else ()
         )
+        extra = (*extra, *_python_hint(model))
         backend = model.cache_backend
         return CMakeDriver(
             source_dir=self._root,
@@ -1674,6 +1676,40 @@ class Project:
             cache_tool=backend.tool if backend is not None else None,
             cache_env=_expand_cache_env(backend.env) if backend is not None else None,
         )
+
+
+def _python_hint(model: ProjectModel) -> tuple[str, ...]:
+    """Point CMake's FindPython at the interpreter running cmakeless.
+
+    Without the hint FindPython takes whichever Python it finds first, which
+    can build an extension against the wrong ABI: a GIL build's module
+    segfaults when a free-threaded interpreter imports it. The hint is a
+    configure argument, so the generated CMakeLists.txt stays standalone.
+
+    Args:
+        model: The resolved project, subprojects included.
+
+    Returns:
+        The -DPython_EXECUTABLE argument, or nothing for a tree without
+        Python modules.
+    """
+    if not _tree_has_python_modules(model):
+        return ()
+    return (f"-DPython_EXECUTABLE={Path(sys.executable).as_posix()}",)
+
+
+def _tree_has_python_modules(model: ProjectModel) -> bool:
+    """Tell whether a project or any subproject builds a Python module.
+
+    Args:
+        model: The project node.
+
+    Returns:
+        True when an extension module exists anywhere in the tree.
+    """
+    return bool(model.python_modules) or any(
+        _tree_has_python_modules(node.project) for node in model.subprojects
+    )
 
 
 def _source_owners(model: ProjectModel) -> dict[str, str]:
