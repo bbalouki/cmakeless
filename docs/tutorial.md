@@ -417,6 +417,16 @@ rules, and a packaged archive, described in well under fifty lines of plain Pyth
 delete CMakeless entirely. That is the whole model: describe the build in Python, let CMakeless
 generate and drive real CMake.
 
+## Going further
+
+Three commands worth knowing on day two:
+
+```console
+$ cmakeless explain tutorial      # where a target was declared and the CMake it produced
+$ cmakeless test --label unit     # run a subset; add --junit report.xml for CI
+$ cmakeless init --list           # templates for libraries, games, embedded, and more
+```
+
 ## Where next
 
 - [Cookbook](cookbook.md): task-oriented recipes for everything you'll want next, organized the
