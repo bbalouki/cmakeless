@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cmakeless import ConfigurationError, Project
+from cmakeless.emitter import emit_cmakelists
 
 
 @pytest.fixture
@@ -110,12 +111,13 @@ def test_a_file_cannot_be_both_a_source_and_a_module(modules_project: Project) -
         modules_project.freeze()
 
 
-def test_installing_a_module_target_is_refused(modules_project: Project) -> None:
-    """Installing a module target is refused."""
+def test_installing_a_module_target_ships_its_interfaces(modules_project: Project) -> None:
+    """Installing a module library installs its interface file set and exports it."""
     engine = modules_project.add_library("engine", modules=["src/geometry.cppm"])
     modules_project.install(engine)
-    with pytest.raises(ConfigurationError, match="still experimental"):
-        modules_project.freeze()
+    text = emit_cmakelists(modules_project.freeze(), tool_version="1.2.3")
+    assert "FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/engine" in text
+    assert "CXX_MODULES_DIRECTORY cxx-modules" in text
 
 
 def test_a_project_without_modules_is_unchanged(project_dir: Path) -> None:
