@@ -1,9 +1,10 @@
-"""WhenModel to CMake generator expressions.
+"""WhenModel to CMake syntax: generator expressions and if() conditions.
 
-Only the compile-level rendering (define/compile_options/link_options) is
-implemented so far; a structural if()-block renderer for link()/
-add_subproject() is a deliberate follow-up (see ROADMAP.md), since those call
-sites need new model fields and validation this batch does not add.
+Settings that CMake evaluates per configuration (flags, defines, link items)
+render as generator expressions. Structure that must be decided at configure
+time (whether a subdirectory exists at all) renders as an if() condition,
+which is why a build-configuration test is rejected there: a multi-config
+generator has no single configuration while it configures.
 """
 
 from __future__ import annotations
@@ -73,3 +74,60 @@ def guarded(value: str, when: WhenModel | None) -> str:
     if when is None:
         return value
     return f"$<{render_generator_expression(when)}:{value}>"
+
+
+def render_if_condition(when: WhenModel) -> str:
+    """Render a WhenModel as the argument list of a CMake if() command.
+
+    Args:
+        when: The condition to render; validation guarantees it contains no
+            CONFIG leaf, which has no configure-time meaning.
+
+    Returns:
+        A parenthesized if() condition, for example
+        '(CMAKE_SYSTEM_NAME STREQUAL "Linux")'.
+    """
+    if when.kind is WhenKind.PLATFORM:
+        # $<PLATFORM_ID:...> reports CMAKE_SYSTEM_NAME, so the stored names compare as-is.
+        return _any_equal("CMAKE_SYSTEM_NAME", list(when.names))
+    if when.kind is WhenKind.COMPILER:
+        return _any_equal("CMAKE_CXX_COMPILER_ID", list(when.names))
+    if when.kind is WhenKind.OPTION:
+        return _render_if_option(when)
+    if when.kind is WhenKind.NOT:
+        return f"(NOT {render_if_condition(when.operands[0])})"
+    assert when.kind in (WhenKind.AND, WhenKind.OR), "CONFIG never reaches if() rendering"
+    joiner = " AND " if when.kind is WhenKind.AND else " OR "
+    return "(" + joiner.join(render_if_condition(operand) for operand in when.operands) + ")"
+
+
+def _any_equal(variable: str, values: list[str]) -> str:
+    """Render "variable equals any of these values" as an if() condition.
+
+    Args:
+        variable: The CMake variable to compare.
+        values: The accepted values.
+
+    Returns:
+        The parenthesized OR of STREQUAL tests.
+    """
+    tests = [f'{variable} STREQUAL "{value}"' for value in values]
+    return "(" + " OR ".join(tests) + ")"
+
+
+def _render_if_option(when: WhenModel) -> str:
+    """Render an OPTION leaf as an if() condition on its cache variable.
+
+    Args:
+        when: The OPTION-kind condition to render.
+
+    Returns:
+        The parenthesized test, matching the option's declared type.
+    """
+    assert when.option_name is not None, "OPTION leaves always carry a name"
+    if isinstance(when.option_equals, bool):
+        test = when.option_name if when.option_equals else f"NOT {when.option_name}"
+        return f"({test})"
+    if isinstance(when.option_equals, int):
+        return f"({when.option_name} EQUAL {when.option_equals})"
+    return f'({when.option_name} STREQUAL "{when.option_equals}")'
