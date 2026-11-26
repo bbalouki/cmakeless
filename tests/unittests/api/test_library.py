@@ -110,7 +110,7 @@ def test_link_to_foreign_library_rejected(
 def test_link_rejects_non_library(library_project: Project) -> None:
     """Link rejects non library."""
     app = library_project.add_executable("app", sources=["src/main.cpp"])
-    with pytest.raises(ConfigurationError, match="can only link Library"):
+    with pytest.raises(ConfigurationError, match="can only link a Library"):
         app.link("engine")  # type: ignore[arg-type]
 
 

@@ -17,7 +17,12 @@ from cmakeless.api import _context
 from cmakeless.deps.find_package import fill_metadata
 from cmakeless.deps.lockfile import LOCKFILE_NAME, read_lockfile
 from cmakeless.deps.resolver import resolve_dependencies
-from cmakeless.deps.sbom import SBOM_FORMATS, generate_cyclonedx, generate_spdx
+from cmakeless.deps.sbom import (
+    SBOM_FORMATS,
+    generate_cyclonedx,
+    generate_spdx,
+    reproducible_timestamp,
+)
 from cmakeless.deps.vendor import vendor_packages
 from cmakeless.errors import ConfigurationError, DependencyError
 from cmakeless.model.nodes import DependencyModel
@@ -201,7 +206,10 @@ class Dependencies:
         return existing
 
     def lock(self) -> Path:
-        """Refresh cmakeless.lock: re-resolve every pin, ignoring old entries.
+        """Refresh cmakeless.lock: re-resolve pins, ignoring old entries.
+
+        'cmakeless lock --package fmt' refreshes only the named packages and
+        keeps every other pin exactly as locked.
 
         Returns:
             The lockfile path; the file is only (re)written when the
@@ -212,9 +220,14 @@ class Dependencies:
             DependencyError: When a package cannot be resolved.
         """
         model = self._project.freeze()
-        lock_path = self._project.root / LOCKFILE_NAME
+        lock_path = self._project.lock_path
+        packages = _context.active_run_options().lock_packages
         resolve_dependencies(
-            model, lock_path=lock_path, force=True, offline=_context.active_offline()
+            model,
+            lock_path=lock_path,
+            force=True,
+            offline=_context.active_offline(),
+            only=frozenset(packages) if packages else None,
         )
         return lock_path
 
@@ -241,7 +254,7 @@ class Dependencies:
         if format not in SBOM_FORMATS:
             known = ", ".join(repr(name) for name in sorted(SBOM_FORMATS))
             raise ConfigurationError(f"Unknown SBOM format {format!r}. Pick one of: {known}.")
-        lock_path = self._project.root / LOCKFILE_NAME
+        lock_path = self._project.lock_path
         if not lock_path.is_file():
             raise DependencyError(
                 f"No {LOCKFILE_NAME} found at {lock_path}. Run `cmakeless lock` "
@@ -249,14 +262,16 @@ class Dependencies:
                 f"materials."
             )
         lock = read_lockfile(lock_path)
+        moment = reproducible_timestamp(self._project.root)
+        name, version = self._project.name, self._project._version
         if format == "cyclonedx":
             document = generate_cyclonedx(
-                lock, project_name=self._project.name, project_version=self._project._version
+                lock, project_name=name, project_version=version, timestamp=moment
             )
             suffix = "cdx.json"
         else:
             document = generate_spdx(
-                lock, project_name=self._project.name, project_version=self._project._version
+                lock, project_name=name, project_version=version, created=moment
             )
             suffix = "spdx.json"
         out_path = (
@@ -264,7 +279,9 @@ class Dependencies:
             if output is not None
             else self._project.root / f"{self._project.name}.{suffix}"
         )
-        out_path.write_text(json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        out_path.write_text(
+            json.dumps(document, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n"
+        )
         return out_path
 
     def vendor(self, *, directory: str | Path | None = None) -> Path:
@@ -285,7 +302,7 @@ class Dependencies:
                 fails, or a downloaded archive's hash does not match its
                 locked pin.
         """
-        lock_path = self._project.root / LOCKFILE_NAME
+        lock_path = self._project.lock_path
         if not lock_path.is_file():
             raise DependencyError(
                 f"No {LOCKFILE_NAME} found at {lock_path}. Run `cmakeless lock` "

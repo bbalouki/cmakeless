@@ -108,9 +108,9 @@ def test_strict_warnings_are_translated_per_compiler() -> None:
     text = emit_cmakelists(
         make_model(warnings="strict", executables=(app,)), tool_version=FIXED_VERSION
     )
-    assert "$<$<CXX_COMPILER_ID:MSVC>:/W4;/permissive->" in text
+    assert "$<${CMAKELESS_MSVC_SYNTAX}:/W4;/permissive->" in text
     assert (
-        "$<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>"
+        "$<$<NOT:${CMAKELESS_MSVC_SYNTAX}>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>"
     ) in text
 
 

@@ -2,6 +2,18 @@
 
 You do not have to rewrite a working `CMakeLists.txt` in one sitting to start using CMakeless. This guide covers the incremental path, a mapping table from common raw-CMake idioms to their CMakeless equivalent, and what to do about the parts that do not have one yet.
 
+## The fast path: let CMakeless convert it
+
+```console
+$ cmakeless import --check
+[cmakeless] wrote ./cmakelessfile.py (14 targets, 6 TODO(import))
+[cmakeless] check: 0 difference(s)
+```
+
+Review every `# TODO(import)` line, then build. If you would rather migrate by
+hand, one concern at a time, the bridge below gets you there with zero
+behavior change at every step.
+
 ## The bridge: keep your CMakeLists.txt, add cmakelessfile.py alongside
 
 Start by including your existing file verbatim from a new `cmakelessfile.py`, using the project-level escape hatch:
@@ -50,6 +62,14 @@ Each loop through the diagram is deliberately small and independently verifiable
 | `install(TARGETS app ...)` | `project.install(app)` |
 | `include(CheckCXXCompilerFlag)` | `project.include_module("CheckCXXCompilerFlag")` |
 | A hand-written toolchain file | `Toolchain.from_file("cmake/rpi4.toolchain.cmake")`, or the curated gallery (`Toolchain.arm_none_eabi()`, `.ios()`, ...) |
+| `find_package(Threads)` + `Threads::Threads` | `app.link(System.threads())` |
+| `target_link_libraries(app PRIVATE ws2_32)` | `app.link(System.library("ws2_32"))` |
+| `set_target_properties(lib PROPERTIES VERSION 2.3.1 SOVERSION 2)` | `add_library(..., version="2.3.1", soversion="2")` |
+| `set(CMAKE_CXX_VISIBILITY_PRESET hidden)` | `lib.visibility = "hidden"` |
+| `add_custom_command(TARGET fw POST_BUILD ...)` | `fw.post_build("objcopy", ..., fw.file, ...)` |
+| `install(TARGETS app RUNTIME_DEPENDENCY_SET ...)` | `project.install(app, runtime_dependencies=True)` |
+| `set_tests_properties(t PROPERTIES TIMEOUT 30 LABELS unit)` | `add_test(..., timeout=30, labels=["unit"])` |
+| `if(BUILD_GUI) add_subdirectory(gui) endif()` | `project.add_subproject("gui", when=When.option(gui))` |
 | Anything else, verbatim | `target.raw_cmake("...")` / `project.raw_cmake_file("...")` |
 
 ## A worked example
@@ -91,9 +111,9 @@ Notice what disappeared: `cmake_minimum_required`, the `project()` boilerplate, 
 
 ## What does not have a direct equivalent yet
 
-- **A fully automated importer.** There is no `cmake-to-cmakeless` tool that converts an arbitrary `CMakeLists.txt` for you; the mapping table above is manual by design, so you understand what each line becomes. A convert-for-me importer is tracked as unscheduled, post-1.0 work (see [ROADMAP](ROADMAP.md#beyond-10-unscheduled-honestly)).
+- **Fully automatic conversion of everything.** `cmakeless import` converts targets, sources, include directories, definitions, flags, and the link graph by reading the File API codemodel of your configured project, and `cmakeless import --check` proves the result builds the same targets from the same sources. It cannot see intent the codemodel does not record (which include directories are public, which link items came from `find_package()`, `add_test()` registrations), so it marks those lines `# TODO(import)` for you to finish by hand with the table above.
 - **Directory-scoped variables and `include_directories()`.** CMakeless's emitter never generates these on purpose (see [ARCHITECTURE](ARCHITECTURE.md#what-the-emitter-must-guarantee)); a raw file relying on directory-level state needs its target-centric equivalent written by hand, same as any modern-CMake migration.
-- **Installing and exporting C++20 module interfaces.** Building and consuming modules inside a project is fully modelled (`modules=[...]`), but shipping a module interface to other projects is refused rather than emitted, because CMake's own support for it is still experimental. `import std` is deferred for the same reason.
+- **`import std`.** Building, installing, and exporting C++20 module interfaces is fully modelled, but `import std` is still behind CMake's experimental gate, so CMakeless does not emit it yet.
 - **Bespoke `.cmake` modules with heavy macro logic.** `project.include(...)` reflects what a file defines (functions, variables, targets) and lets you call into it, but very unusual control flow inside the file itself still lives in the file, not in Python.
 
 When in doubt, `raw_cmake()`/`raw_cmake_file()` are not a failure state. They are the permanent, explicit escape hatch for the parts CMakeless does not model yet; using them is how the project finds out what to build next (see [CONTRIBUTING](https://github.com/bbalouki/cmakeless/blob/main/CONTRIBUTING.md)).

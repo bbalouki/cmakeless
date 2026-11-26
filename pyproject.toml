@@ -29,9 +29,12 @@ keywords = [
     "cpp",
     "build-system",
     "frontend",
-    "cmake-alternative",
+    "cmake-frontend",
     "cmake-generator",
-    "meson-alternative",
+    "sbom",
+    "supply-chain",
+    "embedded",
+    "cross-compilation",
     "pybind11",
     "nanobind",
     "python-bindings",
@@ -55,15 +58,19 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Free Threading :: 3 - Stable",
     "Programming Language :: C++",
     "Topic :: Software Development :: Build Tools",
+    "Topic :: Software Development :: Compilers",
+    "Topic :: Security",
     "Typing :: Typed",
 ]
 
 [project.urls]
 Homepage = "https://github.com/bbalouki/cmakeless"
 Repository = "https://github.com/bbalouki/cmakeless"
-Documentation = "https://github.com/bbalouki/cmakeless/blob/main/README.md"
+Documentation = "https://bbalouki.github.io/cmakeless/"
 Changelog = "https://github.com/bbalouki/cmakeless/blob/main/CHANGELOG.md"
 Issues = "https://github.com/bbalouki/cmakeless/issues"
 

@@ -8,6 +8,8 @@ rather than special cases inside the driver.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -64,6 +66,40 @@ class StepFailed(BuildEvent):
     diagnostics: tuple[Diagnostic, ...] = field(default_factory=tuple)
 
 
+@dataclass(frozen=True, slots=True)
+class DependencyResolved(BuildEvent):
+    """One dependency was pinned during resolution.
+
+    Attributes:
+        name: The package name.
+        version: The resolved version.
+        pin_source: How its pin was obtained ("registry", "user", "tofu",
+            "reviewed"), or None for backends that do not fetch.
+    """
+
+    name: str = ""
+    version: str = ""
+    pin_source: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TestFinished(BuildEvent):
+    """One test case finished, as CTest's JUnit report recorded it.
+
+    Attributes:
+        name: The test case name.
+        status: "passed", "failed", or "skipped".
+        seconds: The case's run time.
+    """
+
+    # Tell pytest this event is not a test case, despite the Test* name.
+    __test__ = False
+
+    name: str = ""
+    status: str = "passed"
+    seconds: float = 0.0
+
+
 @runtime_checkable
 class Observer(Protocol):
     """A consumer of build progress events.
@@ -108,3 +144,22 @@ def publish(observers: Sequence[Observer], event: BuildEvent) -> None:
     """
     for observer in observers:
         observer.on_event(event)
+
+
+class JsonObserver:
+    """Streams every event as one JSON object per line, for IDEs and CI tools.
+
+    Each line carries an "event" field naming the event class, then the
+    event's own fields; the shape is part of the stability promise.
+    """
+
+    def on_event(self, event: BuildEvent) -> None:
+        """Print the event as a single JSON line.
+
+        Args:
+            event: The event to serialize.
+        """
+        fields = {f.name: getattr(event, f.name) for f in dataclasses.fields(event)}
+        if "diagnostics" in fields:
+            fields["diagnostics"] = [str(item) for item in fields["diagnostics"]]
+        print(json.dumps({"event": type(event).__name__, **fields}, default=str), flush=True)

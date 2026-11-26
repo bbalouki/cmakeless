@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -357,3 +358,124 @@ def active_vendor_directory() -> str | None:
         The innermost overridden path, or None when unset.
     """
     return _vendor_directory_override[-1] if _vendor_directory_override else None
+
+
+@dataclass(frozen=True, slots=True)
+class RunOptions:
+    """Every per-run CLI knob added after 1.0, carried as one value.
+
+    The older flags each have their own override above and keep it, so
+    nothing that reads them changes; new flags land here instead of growing
+    one more stack per flag.
+
+    Attributes:
+        target: Build only this target, or None for everything.
+        jobs: Parallel build or test jobs, or None for the tool default.
+        config: The configuration for multi-config generators, or None.
+        verbose: True to show the real compiler and linker command lines.
+        fresh: True to discard the CMake cache before configuring.
+        defines: Extra -D cache settings as (name, value) pairs.
+        test_filter: A CTest -R regular expression, or None.
+        test_label: A CTest -L label expression, or None.
+        test_repeat: Run each test until it fails, up to this many times.
+        junit: Where CTest writes JUnit XML, or None.
+        instrumentation: Instrumentation names active for this run.
+        program_args: Arguments for 'cmakeless run'.
+        lock_packages: Packages 'cmakeless lock --package' refreshes.
+        subject: What 'explain' explains or 'fuzz' fuzzes, or None.
+        fuzz_seconds: How long 'cmakeless fuzz' runs.
+        train: The training command line 'cmakeless pgo' runs.
+        presets: The presets 'cmakeless matrix' builds; empty for all.
+        report: The report format a verb writes ("text", "json", "sarif").
+        output: Where a verb writes its report or bundle, or None.
+        exit_code: True when 'cmakeless diff' should fail on any change.
+        approve: Packages 'cmakeless audit --approve' marks as reviewed.
+        workspace_project: The one workspace member to run, or None for all.
+        affected_since: A git revision; only workspace members changed
+            since it run.
+        json_events: True to stream every progress event as JSON lines
+            instead of the console display.
+    """
+
+    target: str | None = None
+    jobs: int | None = None
+    config: str | None = None
+    verbose: bool = False
+    fresh: bool = False
+    defines: tuple[tuple[str, str], ...] = ()
+    test_filter: str | None = None
+    test_label: str | None = None
+    test_repeat: int | None = None
+    junit: str | None = None
+    instrumentation: tuple[str, ...] = ()
+    program_args: tuple[str, ...] = ()
+    lock_packages: tuple[str, ...] = ()
+    subject: str | None = None
+    fuzz_seconds: int = 60
+    train: str | None = None
+    presets: tuple[str, ...] = ()
+    report: str = "text"
+    output: str | None = None
+    exit_code: bool = False
+    approve: tuple[str, ...] = ()
+    workspace_project: str | None = None
+    affected_since: str | None = None
+    json_events: bool = False
+
+
+_run_options_override: list[RunOptions] = []
+
+
+@contextmanager
+def run_options_override(options: RunOptions) -> Generator[None]:
+    """Make the given run options visible to the pipeline.
+
+    Args:
+        options: The options the CLI parsed for this run.
+
+    Yields:
+        Nothing; the options are active for the duration of the context.
+    """
+    _run_options_override.append(options)
+    try:
+        yield
+    finally:
+        _run_options_override.pop()
+
+
+def active_run_options() -> RunOptions:
+    """Look up the run options set by the CLI.
+
+    Returns:
+        The innermost options, or the defaults outside the CLI.
+    """
+    return _run_options_override[-1] if _run_options_override else RunOptions()
+
+
+_lock_path_override: list[Path] = []
+
+
+@contextmanager
+def lock_path_override(path: Path) -> Generator[None]:
+    """Make every project share one lockfile, as a workspace does.
+
+    Args:
+        path: The shared lockfile.
+
+    Yields:
+        Nothing; the override is active for the duration of the context.
+    """
+    _lock_path_override.append(path)
+    try:
+        yield
+    finally:
+        _lock_path_override.pop()
+
+
+def active_lock_path() -> Path | None:
+    """Look up the shared lockfile, if a workspace set one.
+
+    Returns:
+        The innermost override, or None for each project's own lockfile.
+    """
+    return _lock_path_override[-1] if _lock_path_override else None

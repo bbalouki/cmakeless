@@ -11,17 +11,18 @@ from __future__ import annotations
 
 import hashlib
 import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import replace
 
+from cmakeless.deps.download import check_url, stream_sha256
 from cmakeless.deps.find_package import FindPackageAdapter
 from cmakeless.deps.provider import DependencyProvider, ResolutionContext
 from cmakeless.deps.registry import registry_entry
 from cmakeless.errors import DependencyError
 from cmakeless.model.nodes import DependencyModel
 
-_DOWNLOAD_TIMEOUT_SECONDS = 60.0
+# A pin is (url, sha256, how it was obtained).
+type Pin = tuple[str, str, str]
 
 
 class AutoAdapter(DependencyProvider):
@@ -42,7 +43,7 @@ class AutoAdapter(DependencyProvider):
                 to keep resolution offline; None uses the real network.
         """
         self._find_package = FindPackageAdapter()
-        self._download = download if download is not None else _download_archive
+        self._download = download
 
     def resolve(self, dependency: DependencyModel, context: ResolutionContext) -> DependencyModel:
         """Fill metadata and the fetch pin for one dependency.
@@ -52,21 +53,29 @@ class AutoAdapter(DependencyProvider):
             context: Lockfile contents and resolution flags.
 
         Returns:
-            The dependency with cmake_name, link_targets, url, and sha256
-            filled.
+            The dependency with cmake_name, link_targets, url, sha256, and
+            pin_source filled.
 
         Raises:
-            DependencyError: When the package is unknown, not fetchable, or
-                its archive cannot be downloaded for hashing.
+            DependencyError: When the package is unknown, not fetchable, its
+                archive cannot be downloaded for hashing, or strict mode
+                refuses its pin.
         """
         completed = self._find_package.resolve(dependency, context)
-        locked = _locked_pin(completed, context)
-        if locked is not None:
-            return replace(completed, url=locked[0], sha256=locked[1])
-        url, sha256 = self._pin(completed, context)
-        return replace(completed, url=url, sha256=sha256)
+        pin = _locked_pin(completed, context) or self._pin(completed, context)
+        url, sha256, source = pin
+        check_url(url, name=completed.name, strict=context.strict)
+        if context.strict and source == "tofu":
+            raise DependencyError(
+                f"Package {completed.name!r} {completed.version} is pinned by trust on "
+                f"first use (its hash is whatever the first download produced), which "
+                f'supply_chain="strict" refuses. Pass sha256= to depends() from the '
+                f"upstream release notes, or review the pin and approve it with "
+                f"`cmakeless audit --approve {completed.name}`."
+            )
+        return replace(completed, url=url, sha256=sha256, pin_source=source)
 
-    def _pin(self, dependency: DependencyModel, context: ResolutionContext) -> tuple[str, str]:
+    def _pin(self, dependency: DependencyModel, context: ResolutionContext) -> Pin:
         """Produce the fetch pin from overrides, the registry, or a download.
 
         The mirror map is deliberately not consulted here: it only ever
@@ -81,7 +90,7 @@ class AutoAdapter(DependencyProvider):
                 --offline setting.
 
         Returns:
-            The (url, sha256) pair to emit and lock.
+            The (url, sha256, pin source) to emit and lock.
 
         Raises:
             DependencyError: When the package is not fetchable, offline
@@ -90,11 +99,11 @@ class AutoAdapter(DependencyProvider):
         """
         url = dependency.url if dependency.url is not None else _registry_url(dependency)
         if dependency.sha256 is not None:
-            return (url, dependency.sha256)
+            return (url, dependency.sha256, "user")
         if dependency.url is None:
             entry = registry_entry(dependency.name)
             if entry is not None and dependency.version in entry.sha256_by_version:
-                return (url, entry.sha256_by_version[dependency.version])
+                return (url, entry.sha256_by_version[dependency.version], "registry")
         if context.offline:
             raise DependencyError(
                 f"Cannot resolve package {dependency.name!r} offline (--offline): "
@@ -102,7 +111,8 @@ class AutoAdapter(DependencyProvider):
                 f"`cmakeless lock` once with network access first, or drop "
                 f"--offline."
             )
-        return (url, self._download_and_hash(dependency, url))
+        check_url(url, name=dependency.name, strict=context.strict)
+        return (url, self._download_and_hash(dependency, url), "tofu")
 
     def _download_and_hash(self, dependency: DependencyModel, url: str) -> str:
         """Download an archive once and hash it, trust-on-first-use.
@@ -121,17 +131,19 @@ class AutoAdapter(DependencyProvider):
             DependencyError: When the download fails.
         """
         try:
-            payload = self._download(url)
+            if self._download is not None:
+                return hashlib.sha256(self._download(url)).hexdigest()
+            return stream_sha256(url)
         except (urllib.error.URLError, OSError) as error:
             raise DependencyError(
                 f"Could not download {url} to pin package {dependency.name!r} "
-                f"({error}). Check the URL and your network, or pass url= and "
-                f"sha256= to depends() explicitly."
+                f"({error}). Check the URL and your network (HTTPS_PROXY and "
+                f"SSL_CERT_FILE configure a proxy or a custom certificate "
+                f"authority), or pass url= and sha256= to depends() explicitly."
             ) from error
-        return hashlib.sha256(payload).hexdigest()
 
 
-def _locked_pin(dependency: DependencyModel, context: ResolutionContext) -> tuple[str, str] | None:
+def _locked_pin(dependency: DependencyModel, context: ResolutionContext) -> Pin | None:
     """Look for a reusable pin in the lockfile.
 
     Args:
@@ -139,17 +151,19 @@ def _locked_pin(dependency: DependencyModel, context: ResolutionContext) -> tupl
         context: Lockfile contents and resolution flags.
 
     Returns:
-        The locked (url, sha256) when the lock has a matching, complete
-        entry and the user did not force a refresh; None otherwise.
+        The locked (url, sha256, pin source) when the lock has a matching,
+        complete entry and the user did not force a refresh of this
+        package; None otherwise. A lockfile written before provenance was
+        recorded counts as "tofu", since nothing says otherwise.
     """
-    if context.force:
+    if context.force and (context.only is None or dependency.name in context.only):
         return None
     locked = context.lock.packages.get(dependency.name)
     if locked is None or locked.version != dependency.version or locked.backend != "auto":
         return None
     if locked.url is None or locked.sha256 is None:
         return None
-    return (locked.url, locked.sha256)
+    return (locked.url, locked.sha256, locked.pin_source or "tofu")
 
 
 def _registry_url(dependency: DependencyModel) -> str:
@@ -174,16 +188,3 @@ def _registry_url(dependency: DependencyModel) -> str:
             f"archive."
         )
     return entry.url_template.format(version=dependency.version)
-
-
-def _download_archive(url: str) -> bytes:
-    """Download one archive over HTTPS.
-
-    Args:
-        url: The archive URL.
-
-    Returns:
-        The raw archive bytes.
-    """
-    with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT_SECONDS) as response:
-        return bytes(response.read())

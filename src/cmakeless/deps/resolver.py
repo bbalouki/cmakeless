@@ -25,7 +25,7 @@ from cmakeless.deps.provider import (
     collect_tree_dependencies,
 )
 from cmakeless.deps.vcpkg import VcpkgAdapter
-from cmakeless.model.nodes import DependencyModel, ProjectModel, SubprojectModel
+from cmakeless.model.nodes import DependencyModel, ProjectModel
 
 
 def provider_for(package_manager: str) -> DependencyProvider:
@@ -53,6 +53,7 @@ def resolve_dependencies(
     force: bool = False,
     provider: DependencyProvider | None = None,
     offline: bool = False,
+    only: frozenset[str] | None = None,
 ) -> ProjectModel:
     """Resolve every dependency in the tree and write the lockfile.
 
@@ -67,6 +68,7 @@ def resolve_dependencies(
             see AutoAdapter._pin()), after which a mirror-map entry (from
             'cmakeless vendor') swaps in the local URL a build actually
             fetches from, if the package has one.
+        only: With force, the package names to refresh; None refreshes all.
 
     Returns:
         The model with every dependency completed; the same model when the
@@ -87,6 +89,8 @@ def resolve_dependencies(
         force=force,
         offline=offline,
         mirror=read_mirror_map(lock_path.parent),
+        strict=model.supply_chain == "strict",
+        only=only,
     )
     resolved = _resolve_parallel(provider, dependencies, context)
     packages = {
@@ -161,6 +165,7 @@ def _locked_package(dependency: DependencyModel, backend: str) -> LockedPackage:
         targets=dependency.link_targets,
         url=dependency.url,
         sha256=dependency.sha256,
+        pin_source=dependency.pin_source,
     )
 
 
@@ -181,10 +186,7 @@ def _replace_dependencies(
         model,
         dependencies=tuple(resolved[dependency.name] for dependency in model.dependencies),
         subprojects=tuple(
-            SubprojectModel(
-                directory=subproject.directory,
-                project=_replace_dependencies(subproject.project, resolved),
-            )
+            replace(subproject, project=_replace_dependencies(subproject.project, resolved))
             for subproject in model.subprojects
         ),
     )

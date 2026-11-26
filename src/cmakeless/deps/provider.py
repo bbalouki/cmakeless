@@ -31,6 +31,9 @@ class ResolutionContext:
         mirror: Package name to local/mirror URL, from cmakeless.mirror.json
             ('cmakeless vendor' populates it); consulted before falling back
             to a package's registry/upstream URL.
+        strict: True in supply_chain="strict" mode: trust-on-first-use pins
+            and plain-HTTP URLs are refused.
+        only: With force, the package names to refresh; None refreshes all.
     """
 
     root_dir: Path
@@ -38,6 +41,8 @@ class ResolutionContext:
     force: bool = False
     offline: bool = False
     mirror: Mapping[str, str] = field(default_factory=dict)
+    strict: bool = False
+    only: frozenset[str] | None = None
 
 
 class DependencyProvider:

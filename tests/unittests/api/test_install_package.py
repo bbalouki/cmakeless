@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from cmakeless import ConfigurationError, Project
+from cmakeless.model.nodes import InstallModel
 
 
 @pytest.fixture
@@ -49,7 +50,7 @@ def test_installing_a_test_target_is_rejected(project: Project) -> None:
     (project.root / "tests").mkdir()
     (project.root / "tests" / "t.cpp").write_text("int main() { return 0; }\n", encoding="utf-8")
     tests = project.add_test("engine_tests", sources=["tests/t.cpp"], framework="none")
-    project._installs.append((tests.name, False))
+    project._installs.append(InstallModel(target=tests.name))
     with pytest.raises(ConfigurationError, match="development tools"):
         project.freeze()
 

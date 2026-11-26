@@ -20,8 +20,11 @@ if(NOT fmt_FOUND AND NOT TARGET fmt::fmt)
     FetchContent_Declare(fmt
         URL https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz
         URL_HASH SHA256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        SYSTEM
     )
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     FetchContent_MakeAvailable(fmt)
+    unset(CMAKE_POLICY_VERSION_MINIMUM)
 endif()
 
 add_executable(app)

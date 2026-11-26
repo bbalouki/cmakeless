@@ -244,3 +244,98 @@ def _read_target(reply_dir: Path, entry: dict[str, str]) -> TargetInfo:
         sources=sources,
         dependencies=dependencies,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class TargetDetail:
+    """Everything one configured target's compile and link steps use.
+
+    Attributes:
+        name: The target name.
+        type: The CMake target type ("EXECUTABLE", "STATIC_LIBRARY", ...).
+        sources: Source-relative paths of compiled and listed sources.
+        include_dirs: Absolute include directories, in order.
+        defines: Preprocessor definitions as NAME or NAME=VALUE.
+        compile_flags: Extra compile flag fragments, excluding the flags
+            CMake derives from the build type and standard.
+        dependencies: Names of other project targets this one depends on.
+        link_libraries: Link items that are not project targets.
+        cxx_standard: The C++ standard CMake compiles with, or None.
+        generated: True for targets CMake or a generator created itself.
+    """
+
+    name: str
+    type: str
+    sources: tuple[Path, ...] = ()
+    include_dirs: tuple[Path, ...] = ()
+    defines: tuple[str, ...] = ()
+    compile_flags: tuple[str, ...] = ()
+    dependencies: tuple[str, ...] = ()
+    link_libraries: tuple[str, ...] = ()
+    cxx_standard: int | None = None
+    generated: bool = False
+
+
+def read_target_details(build_dir: Path) -> tuple[tuple[str, str], tuple[TargetDetail, ...]]:
+    """Read the project identity and every target's full compile and link inputs.
+
+    Args:
+        build_dir: The build directory that was configured.
+
+    Returns:
+        ((project name, project version), targets sorted by name); an empty
+        name and no targets when no reply exists.
+    """
+    reply_dir = build_dir / _API_DIR / "reply"
+    index = _load_index(reply_dir)
+    codemodel = None if index is None else _load_reply_object(reply_dir, index, kind="codemodel")
+    cache = None if index is None else _load_reply_object(reply_dir, index, kind="cache")
+    if codemodel is None or index is None:
+        return (("", ""), ())
+    configuration = (codemodel.get("configurations") or [{}])[0]
+    projects = configuration.get("projects") or [{}]
+    entries = {
+        str(entry.get("name")): str(entry.get("value"))
+        for entry in (cache or {}).get("entries", [])
+    }
+    identity = (str(projects[0].get("name", "")), entries.get("CMAKE_PROJECT_VERSION", ""))
+    targets: list[dict[str, str]] = [
+        *configuration.get("targets", []),
+        *configuration.get("abstractTargets", []),
+    ]
+    details = [_read_detail(reply_dir, entry) for entry in targets]
+    return (identity, tuple(sorted(details, key=lambda detail: detail.name)))
+
+
+def _read_detail(reply_dir: Path, entry: dict[str, str]) -> TargetDetail:
+    """Load one target's detail file into a TargetDetail.
+
+    Args:
+        reply_dir: The File API reply directory.
+        entry: The codemodel's target entry (name and jsonFile).
+
+    Returns:
+        The target's compile and link inputs.
+    """
+    target: dict[str, Any] = json.loads((reply_dir / entry["jsonFile"]).read_text(encoding="utf-8"))
+    groups: list[dict[str, Any]] = target.get("compileGroups", [])
+    includes = dict.fromkeys(Path(i["path"]) for g in groups for i in g.get("includes", []))
+    defines = dict.fromkeys(str(d["define"]) for g in groups for d in g.get("defines", []))
+    flags = dict.fromkeys(
+        str(f["fragment"]).strip() for g in groups for f in g.get("compileCommandFragments", [])
+    )
+    standards = [g.get("languageStandard", {}).get("standard") for g in groups]
+    fragments = target.get("link", {}).get("commandFragments", [])
+    libraries = [str(f["fragment"]) for f in fragments if f.get("role") == "libraries"]
+    return TargetDetail(
+        name=target["name"],
+        type=target.get("type", "UNKNOWN"),
+        sources=tuple(Path(item["path"]) for item in target.get("sources", [])),
+        include_dirs=tuple(includes),
+        defines=tuple(defines),
+        compile_flags=tuple(flag for flag in flags if flag),
+        dependencies=tuple(str(d["id"]).split("::@")[0] for d in target.get("dependencies", [])),
+        link_libraries=tuple(libraries),
+        cxx_standard=next((int(s) for s in standards if s and str(s).isdigit()), None),
+        generated=bool(target.get("isGeneratorProvided", False)),
+    )

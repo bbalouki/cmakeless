@@ -24,6 +24,7 @@ from cmakeless.model.nodes import (
     DependencyModel,
     LibraryKind,
     LibraryModel,
+    LinkKind,
     ModuleKind,
     OptionModel,
     OptionType,
@@ -33,6 +34,7 @@ from cmakeless.model.nodes import (
     WhenKind,
     WhenModel,
 )
+from cmakeless.model.validate_settings import validate_settings
 
 # CMake target and project names: conservative subset that never needs quoting.
 _VALID_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.+-]*$")
@@ -81,6 +83,7 @@ def validate_project(model: ProjectModel) -> None:
     _check_raw_cmake_files(model)
     _check_subprojects(model)
     _check_dependency_versions(model)
+    validate_settings(model)
 
 
 def _check_name(name: str, *, kind: str, script: str) -> None:
@@ -560,6 +563,10 @@ def _check_links(model: ProjectModel) -> None:
     Args:
         model: The frozen project to check.
 
+    Typed system links (System.threads(), System.library(), frameworks)
+    and explicitly Imported(...) targets come from outside depends(), so
+    only dependency-provided edges are checked against the dependencies.
+
     Raises:
         ConfigurationError: When a target links something that is neither
             one of the project's own libraries (subprojects are isolated by
@@ -571,6 +578,8 @@ def _check_links(model: ProjectModel) -> None:
     }
     for target in model.all_targets():
         for link in target.links:
+            if link.kind is not LinkKind.TARGET:
+                continue
             if link.external and link.target not in imported_names:
                 raise ConfigurationError(
                     f"Target {target.name!r} in {model.source_script} links imported "
@@ -1019,7 +1028,7 @@ def _check_installs(model: ProjectModel) -> None:
         ConfigurationError: When an install rule names an unknown target,
             a test target, or repeats a target.
     """
-    installable = {target.name for target in model.targets()}
+    installable = {target.name for target in (*model.targets(), *model.python_modules)}
     test_names = {test.name for test in model.tests}
     seen: set[str] = set()
     for install in model.installs:
@@ -1033,39 +1042,15 @@ def _check_installs(model: ProjectModel) -> None:
             raise ConfigurationError(
                 f"Cannot install {install.target!r} in {model.source_script}: it "
                 f"is not a target of this project. Install only targets created "
-                f"by this project's add_executable() or add_library()."
+                f"by this project's add_executable(), add_library(), or "
+                f"add_python_module()."
             )
         if install.target in seen:
             raise ConfigurationError(
                 f"Target {install.target!r} is installed twice in "
                 f"{model.source_script}. Remove the duplicate install() call."
             )
-        _check_install_has_no_cxx_modules(install.target, model)
         seen.add(install.target)
-
-
-def _check_install_has_no_cxx_modules(name: str, model: ProjectModel) -> None:
-    """Refuse to install a target whose interface is a C++20 module.
-
-    Exporting a module interface means shipping built module interface
-    files, and CMake's own support for that is still behind an experimental
-    flag, so failing here beats emitting CMake that fails later.
-
-    Args:
-        name: The target named by an install rule.
-        model: The owning project, for message context.
-
-    Raises:
-        ConfigurationError: When that target declares module interfaces.
-    """
-    for target in model.targets():
-        if target.name == name and target.cxx_modules:
-            raise ConfigurationError(
-                f"Cannot install target {name!r} in {model.source_script}: it exports "
-                f"C++20 module interfaces, and installing those requires CMake support "
-                f"that is still experimental. Build and consume the module inside this "
-                f"project, or drop the install() call until that support is stable."
-            )
 
 
 def _check_package_formats(model: ProjectModel) -> None:
@@ -1085,7 +1070,7 @@ def _check_package_formats(model: ProjectModel) -> None:
                 f"Unknown package format {format_name!r} in {model.source_script}. "
                 f"Pick from: {formats}."
             )
-    if model.package_formats and not model.installs:
+    if model.package_formats and not model.installs and not model.install_files:
         raise ConfigurationError(
             f"project.package() in {model.source_script} has nothing to package: "
             f"no install() rules exist, so the archive would be empty. Add "

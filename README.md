@@ -3,6 +3,7 @@
 [![Lint](https://github.com/bbalouki/cmakeless/actions/workflows/lint.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/lint.yml)
 [![Tests](https://github.com/bbalouki/cmakeless/actions/workflows/tests.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/tests.yml)
 [![Docs](https://github.com/bbalouki/cmakeless/actions/workflows/docs.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/docs.yml)
+[![Security](https://github.com/bbalouki/cmakeless/actions/workflows/security.yml/badge.svg)](https://github.com/bbalouki/cmakeless/actions/workflows/security.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/bbalouki/cmakeless/badge)](https://www.codefactor.io/repository/github/bbalouki/cmakeless)
 [![codecov](https://codecov.io/github/bbalouki/cmakeless/graph/badge.svg?token=BZ4416XX4I)](https://codecov.io/github/bbalouki/cmakeless)
 [![PyPI - Status](https://img.shields.io/pypi/status/cmakeless)](https://pypi.org/project/cmakeless/)
@@ -46,6 +47,7 @@ No `cmake_minimum_required`, no `PARENT_SCOPE`, no semicolon-lists, no guessing 
 - [Install](#install)
 - [A concrete, end-to-end workflow](#a-concrete-end-to-end-workflow)
 - [Feature tour](#feature-tour)
+- [Built for every industry](#built-for-every-industry)
 - [Where CMakeless fits in the ecosystem](#where-cmakeless-fits-in-the-c-build-ecosystem)
 - [What CMakeless will not do](#what-cmakeless-will-not-do)
 - [FAQ](#faq)
@@ -238,6 +240,16 @@ project.lto = True
 | `cmakeless sbom` / `cmakeless vendor` / `--offline`                            | a CycloneDX/SPDX bill of materials, dependency vendoring, and zero-network builds                   |
 | `cmakeless doctor`                                                             | one command checking cmake/generator/modules/ccache/vcpkg/Conan/network, no project needed          |
 | `project.add_library(..., modules=["src/*.cppm"])`                              | `target_sources(... FILE_SET CXX_MODULES ...)`, import-graph scanning, a per-project CMake 3.28 floor |
+| `sources=["main.cpp", "hal.c", "startup.S", "k.cu"]`                         | `LANGUAGES CXX C ASM CUDA` inferred from suffixes; `c_std=` only where C compiles                    |
+| `app.link(System.threads())` / `System.library(...)` / `Imported(...)`        | `find_package(Threads)`, OS libraries, Apple frameworks, imported targets, `when=` guards           |
+| `Project(profile=Profile.hardened() \| Profile.reproducible())`               | OpenSSF hardening flags, reproducible paths, per syntax and linker family, clang-cl included        |
+| `target.cpu = Cpu.x86_64(level="v3")`                                         | `-march=x86-64-v3` / `/arch:AVX2`, never an accidental `-march=native`                              |
+| `project.install(app, component=, rpath="relative", runtime_dependencies=True)` | components, `$ORIGIN` RPATH, bundled DLLs/.so files, CPS and pkg-config exports, CPack metadata     |
+| `Project(supply_chain="strict")` / `cmakeless audit`                          | no trust-on-first-use pins, no plain HTTP, recorded pin provenance, reproducible SBOMs              |
+| `cmakeless coverage` / `fuzz` / `pgo` / `profile` / `lint --report sarif`      | instrumented build trees, libFuzzer, two-stage PGO, Perfetto traces, code-scanning SARIF            |
+| `cmakeless evidence` / `cmakeless verify`                                      | manifest, toolchain, SBOM, SLSA provenance, hashes, JUnit; a bit-for-bit rebuild check              |
+| `cmakeless import --check` / `init --template embedded`                        | an existing CMakeLists.txt converted from the File API codemodel; six project templates             |
+| `Workspace()` / `Cache.sccache(backend="s3")` / `target.extend(...)`           | monorepos with one lockfile, shared compiler caches, plugin extensions                              |
 | `target.raw_cmake("...")` / `project.raw_cmake_file("...")`                    | the escape hatch: verbatim CMake, fenced with its `cmakelessfile.py` origin                         |
 
 Watch progress through the Observer API, read the configured build as Python objects via the CMake File API, and query any CMake variable before you have emitted a single line:
@@ -269,6 +281,18 @@ if hasattr(cmake, "ANDROID"):  # mirrors CMake's if(DEFINED ANDROID)
 
 The full before/after catalog lives in [FEATURES](docs/FEATURES.md), and what the 1.0 version number promises is in [STABILITY](docs/stability.md).
 
+## Built for every industry
+
+| You build | What CMakeless gives you |
+| --- | --- |
+| **Games** | clang-cl and MSVC treated correctly, unity builds and PCH, shader and asset pipelines (`add_shaders`, `add_assets`), plugin DLLs (`kind="plugin"`), Windows GUI and macOS bundles (`gui=True`), Qt (`use_qt`), runtime DLLs bundled into the ZIP |
+| **Finance** | `Profile.low_latency()` and `hardened()`, pinned CPU levels, two-stage PGO, `supply_chain="strict"`, pin audits, SLSA provenance, signed installers |
+| **Engineering and HPC** | C, CUDA, HIP, ISPC, and Fortran sources in one project, `cuda_architectures`, Intel oneAPI and NVHPC in `When.compiler()`, coverage and profiling verbs |
+| **Aerospace, automotive, medical** | `Profile.safety_critical()` and `reproducible()`, `cmakeless verify`, `cmakeless evidence` bundles, MISRA-, AUTOSAR-, and CERT-oriented clang-tidy rule sets, SARIF reports, linker scripts and map files, bare-metal and QNX toolchains |
+| **Embedded** | ASM startup files, `object` libraries, `Profile.embedded()`, `post_build("objcopy", ...)`, `Cpu.arm(core=...)`, the `embedded` template |
+
+None of this needed a new engine: every feature is ordinary CMake, written for you.
+
 ## Where CMakeless fits in the C++ build ecosystem
 
 | Tool                             | Approach                                   | You keep the CMake ecosystem? |
@@ -292,7 +316,7 @@ Boundaries, stated as promises, not limitations we hope to lift later:
 ## FAQ
 
 **Is this production-ready?**
-Yes. CMakeless is 1.0: the public API is frozen behind a Semantic Versioning promise, enforced by a golden-file test that fails CI on any unannounced signature change. Breaking changes mean 2.0, and anything removed gets a deprecation warning naming its replacement for at least one minor version first. The full contract is in the [stability policy](docs/stability.md).
+Yes. CMakeless 1.x keeps a frozen public API behind a Semantic Versioning promise (1.1 only added to it), enforced by a golden-file test that fails CI on any unannounced signature change. Breaking changes mean 2.0, and anything removed gets a deprecation warning naming its replacement for at least one minor version first. The full contract is in the [stability policy](docs/stability.md).
 
 **Why not just use Meson, Bazel, or xmake?**
 Because you would be leaving the CMake ecosystem behind: vcpkg, Conan, every IDE, every CI action, every existing library's build. CMakeless keeps all of that and only replaces the part everyone actually hates: writing the CMake language by hand.
@@ -319,6 +343,8 @@ Delete it. The generated `CMakeLists.txt` is standalone, readable, modern CMake 
   Projects that declare C++20 module interfaces need CMake 3.28+, and only
   then: CMakeless raises the generated floor per project, never globally.
 - One runtime dependency, [Typer](https://typer.tiangolo.com/), for the CLI.
+- Optional, per feature: `gcovr` for `cmakeless coverage`, `clang-tidy` for `cmakeless lint`,
+  `llvm-profdata` for Clang PGO, CMake 4.3+ for CPS exports.
 
 ## Learn more
 

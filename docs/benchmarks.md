@@ -26,10 +26,16 @@ The Windows/CPython 3.13 row was last refreshed by a real local run on
 Linux, macOS, and the free-threaded (`3.14t`) rows are sourced from
 the [`benchmarks.yml`](https://github.com/bbalouki/cmakeless/blob/main/.github/workflows/benchmarks.yml) GitHub Actions
 workflow (`workflow_dispatch`, run manually): triggering it runs the matrix
-and opens a pull request with any `_to fill_` cells it can resolve, ready to
-review and merge. They are left as `_to fill_` here because no run has been
-recorded yet; the standard-build rows already show that most of the win is
-I/O overlap the GIL does not block.
+and opens a pull request with the cells it measured, ready to review and
+merge. Those rows come from that workflow; the standard-build rows already
+show that most of the win is I/O overlap the GIL does not block.
+
+**Read the resolution numbers for what they are.** That benchmark sleeps a
+fixed 0.05 seconds per package to stand in for network latency, so it
+measures how well the thread pool overlaps waiting, not how fast real
+resolution is. The multi-preset configure row runs real CMake. To see where
+your own build spends its time, use `cmakeless profile`, which reads Ninja's
+log and Clang's time traces from a real build.
 
 | Benchmark                   | OS      | Interpreter   | GIL | Serial    | Parallel  | Speedup   |
 | --------------------------- | ------- | ------------- | --- | --------- | --------- | --------- |

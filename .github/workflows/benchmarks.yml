@@ -16,6 +16,9 @@ on:
       - "benchmarks/bench_resolution.py"
       - "benchmarks/bench_presets.py"
 
+permissions:
+  contents: read
+
 jobs:
   bench:
     name: ${{ matrix.os }} / py${{ matrix.python-version }}
@@ -30,19 +33,19 @@ jobs:
         # of 3.14, see docs/ARCHITECTURE.md).
         python-version: ["3.13", "3.14t"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           python-version: ${{ matrix.python-version }}
 
       - name: Install Ninja
-        uses: seanmiddleditch/gha-setup-ninja@v5
+        uses: seanmiddleditch/gha-setup-ninja@96bed6edff20d1dd61ecff9b75cc519d516e6401 # v5
 
       - name: Set up MSVC environment
         if: runner.os == 'Windows'
-        uses: ilammy/msvc-dev-cmd@v1
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
       - name: Install package with dev dependencies
         run: uv pip install -e ".[dev]"
@@ -64,7 +67,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload result JSON
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bench-results-${{ matrix.os }}-${{ matrix.python-version }}
           path: "*.json"
@@ -77,16 +80,16 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           pattern: bench-results-*
           path: artifacts
           merge-multiple: true
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
         with:
           python-version: "3.13"
 
@@ -94,7 +97,7 @@ jobs:
         run: uv run python benchmarks/update_benchmarks_table.py artifacts/
 
       - name: Open PR with refreshed numbers
-        uses: peter-evans/create-pull-request@v8
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8
         with:
           commit-message: "docs: refresh benchmark numbers"
           title: "docs: refresh benchmark numbers"

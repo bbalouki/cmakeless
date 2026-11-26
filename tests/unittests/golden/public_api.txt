@@ -34,7 +34,15 @@ class CMakeModule
     variable(self, name: 'str') -> 'str'
     variables: property
 
+CPS_MINIMUM_VERSION: str
+
 CXX_MODULES_MINIMUM_VERSION: str
+
+class Cache
+    __init__(self, model: 'CacheModel') -> 'None'
+    ccache: classmethod
+    sccache: classmethod
+    tool: property
 
 class CmakelessError(Exception)
 
@@ -52,6 +60,12 @@ class ConfigurationError(CmakelessError)
 
 class ConsoleObserver
     on_event(self, event: 'BuildEvent') -> 'None'
+
+class Cpu
+    __init__(self, model: 'CpuModel') -> 'None'
+    arm: classmethod
+    native: classmethod
+    x86_64: classmethod
 
 class CustomTarget
     __init__(self, name: 'str', *, command: 'Sequence[str]', depends: 'Sequence[str | Command]' = (), script: 'str') -> 'None'
@@ -82,29 +96,45 @@ class Executable(_Target)
     add_module_sources(self, *modules: 'str') -> 'None'
     add_sources(self, *sources: 'str | Command') -> 'None'
     compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    declared_line: property
     define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
-    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False, when: 'WhenArgument' = None) -> 'Dependency'
+    extend(self, name: 'str', **options: 'object') -> 'None'
+    file: property
     include_dirs(self, *dirs: 'str') -> 'None'
-    link(self, library: 'Library') -> 'None'
+    link(self, library: 'Linkable', *, when: 'WhenArgument' = None) -> 'None'
     link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
     lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
     name: property
+    post_build(self, *argv: 'str') -> 'None'
     raw_cmake(self, snippet: 'str') -> 'None'
+    use_qt(self, major: 'int' = 6, *, components: 'Sequence[str]', resources: 'Sequence[str]' = ()) -> 'None'
+
+class Extension(Protocol)
+    __init__(self, *args, **kwargs)
+    emit(self, target: 'str', options: 'Mapping[str, object]') -> 'str'
+
+def Imported(name: 'str') -> 'SystemLibrary'
 
 class Library(_Target)
-    __init__(self, name: 'str', sources: 'Sequence[str]', *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = (), script: 'str', dependencies: 'Dependencies') -> 'None'
+    __init__(self, name: 'str', sources: 'Sequence[str]', *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = (), version: 'str | None' = None, soversion: 'str | None' = None, script: 'str', dependencies: 'Dependencies') -> 'None'
     add_module_sources(self, *modules: 'str') -> 'None'
     add_sources(self, *sources: 'str | Command') -> 'None'
     compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    declared_line: property
     define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
-    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False, when: 'WhenArgument' = None) -> 'Dependency'
+    extend(self, name: 'str', **options: 'object') -> 'None'
+    file: property
     include_dirs(self, *dirs: 'str') -> 'None'
     kind: property
-    link(self, library: 'Library', *, public: 'bool' = False) -> 'None'
+    link(self, library: 'Linkable', *, public: 'bool' = False, when: 'WhenArgument' = None) -> 'None'
     link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
     lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
     name: property
+    post_build(self, *argv: 'str') -> 'None'
     raw_cmake(self, snippet: 'str') -> 'None'
+    use_qt(self, major: 'int' = 6, *, components: 'Sequence[str]', resources: 'Sequence[str]' = ()) -> 'None'
 
 MIN_PYTHON_VERSION: str
 
@@ -120,18 +150,31 @@ class Preset
     __init__(self, name: 'str', *, optimize: 'str' = 'debug', sanitize: 'Sequence[str]' = (), lto: 'bool' = False, toolchain: 'str | Toolchain | None' = None, options: 'Mapping[str, bool | int | str] | None' = None, env: 'Mapping[str, str] | None' = None, inherits: 'str | Preset | None' = None) -> 'None'
     name: property
 
+class Profile
+    __init__(self, model: 'ProfileModel') -> 'None'
+    embedded: classmethod
+    hardened: classmethod
+    low_latency: classmethod
+    names: property
+    reproducible: classmethod
+    safety_critical: classmethod
+
 class Project
-    __init__(self, name: 'str', *, version: 'str' = '0.1.0', cpp_std: 'int' = 17, warnings: 'str' = 'default', root: 'str | Path | None' = None) -> 'None'
+    __init__(self, name: 'str', *, version: 'str' = '0.1.0', cpp_std: 'int' = 17, warnings: 'str' = 'default', root: 'str | Path | None' = None, c_std: 'int | None' = None, profile: 'Profile | None' = None, supply_chain: 'str' = 'default') -> 'None'
+    add_assets(self, directory: 'str', *, cook: 'Sequence[str]', into: 'str', name: 'str | None' = None) -> 'CustomTarget'
     add_command(self, output: 'Sequence[str]', command: 'Sequence[str]', *, depends: 'Sequence[str | Command]' = (), comment: 'str | None' = None) -> 'Command'
     add_custom_target(self, name: 'str', *, command: 'Sequence[str]', depends: 'Sequence[str | Command]' = ()) -> 'CustomTarget'
     add_executable(self, name: 'str', sources: 'Sequence[str]', *, modules: 'Sequence[str]' = ()) -> 'Executable'
-    add_library(self, name: 'str', sources: 'Sequence[str]' = (), *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = ()) -> 'Library'
+    add_fuzz_target(self, name: 'str', sources: 'Sequence[str]') -> 'Executable'
+    add_library(self, name: 'str', sources: 'Sequence[str]' = (), *, public_headers: 'str | Sequence[str]' = (), kind: 'LibraryKindName' = 'static', modules: 'Sequence[str]' = (), version: 'str | None' = None, soversion: 'str | None' = None) -> 'Library'
     add_observer(self, observer: 'Observer') -> 'Observer'
     add_preset(self, preset: 'Preset') -> 'Preset'
     add_python_module(self, name: 'str', sources: 'Sequence[str]', *, binding: 'PythonBindingName' = 'pybind11', stubs: 'bool' = True, install: 'bool' = True, python_version: 'str | None' = None) -> 'PythonModule'
-    add_subproject(self, path: 'str | Path') -> 'Project'
-    add_test(self, name: 'str', sources: 'Sequence[str]', *, framework: 'TestFrameworkName' = 'gtest') -> 'Test'
+    add_shaders(self, pattern: 'str', *, compiler: 'str', output: 'str', profile: 'str | None' = None) -> 'tuple[Command, ...]'
+    add_subproject(self, path: 'str | Path', *, when: 'When | None' = None) -> 'Project'
+    add_test(self, name: 'str', sources: 'Sequence[str]', *, framework: 'TestFrameworkName' = 'gtest', timeout: 'int | None' = None, labels: 'Sequence[str]' = ()) -> 'Test'
     add_toolchain(self, toolchain: 'Toolchain') -> 'Toolchain'
+    allow_system(self, *names: 'str') -> 'None'
     build(self) -> 'None'
     clean(self) -> 'None'
     cmake_globals(self, *, toolchain: 'Toolchain | None' = None) -> 'CMakeGlobals'
@@ -139,18 +182,22 @@ class Project
     configure(self) -> 'None'
     configure_presets(self) -> 'None'
     dependencies: property
+    export(self, *, cmake: 'bool' = True, cps: 'bool' = False, pkg_config: 'bool' = False) -> 'None'
     freeze(self) -> 'ProjectModel'
     generate(self) -> 'list[Path]'
     include(self, path: 'str | Path') -> 'CMakeModule'
     include_module(self, name: 'str', *, module_path: 'str | Path | None' = None) -> 'CMakeModule'
-    install(self, target: 'Executable | Library', *, headers: 'bool' = False) -> 'None'
-    lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
+    install(self, target: 'Executable | Library | PythonModule', *, headers: 'bool' = False, component: 'str | None' = None, rpath: 'str | None' = None, destination: 'str | None' = None, runtime_dependencies: 'bool' = False) -> 'None'
+    install_files(self, *paths: 'str', destination: 'str', component: 'str | None' = None) -> 'None'
+    lint(self, *, clang_tidy: 'bool | Sequence[str] | Rules' = False, iwyu: 'bool | Sequence[str]' = False, cppcheck: 'bool | Sequence[str]' = False) -> 'None'
+    lock_path: property
     name: property
     option(self, name: 'str', *, default: 'bool | int | str', help: 'str' = '', type: 'type[bool] | type[int] | type[str] | None' = None) -> 'Option'
-    package(self, *, formats: 'Sequence[str]' = ('zip',)) -> 'None'
+    package(self, *, formats: 'Sequence[str]' = ('zip',), vendor: 'str | None' = None, contact: 'str | None' = None, description: 'str | None' = None, homepage: 'str | None' = None, license_file: 'str | None' = None, deb_depends: 'Sequence[str]' = (), rpm_requires: 'Sequence[str]' = ()) -> 'None'
     raw_cmake_file(self, path: 'str | Path') -> 'None'
     root: property
     set_generator(self, generator: 'str | None') -> 'None'
+    sign(self, *, windows: 'WindowsSigning | None' = None, macos: 'MacSigning | None' = None) -> 'None'
     targets_info(self) -> 'tuple[TargetInfo, ...]'
     test(self) -> 'None'
 
@@ -160,14 +207,19 @@ class PythonModule(_Target)
     add_sources(self, *sources: 'str | Command') -> 'None'
     binding: property
     compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    declared_line: property
     define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
-    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False, when: 'WhenArgument' = None) -> 'Dependency'
+    extend(self, name: 'str', **options: 'object') -> 'None'
+    file: property
     include_dirs(self, *dirs: 'str') -> 'None'
-    link(self, library: 'Library') -> 'None'
+    link(self, library: 'Linkable', *, when: 'WhenArgument' = None) -> 'None'
     link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
     lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
     name: property
+    post_build(self, *argv: 'str') -> 'None'
     raw_cmake(self, snippet: 'str') -> 'None'
+    use_qt(self, major: 'int' = 6, *, components: 'Sequence[str]', resources: 'Sequence[str]' = ()) -> 'None'
 
 class RegistryEntry
     __init__(self, cmake_name: 'str', targets: 'tuple[str, ...]', component_target_template: 'str | None' = None, url_template: 'str | None' = None, sha256_by_version: 'Mapping[str, str]' = <factory>, vcpkg_name: 'str' = '', conan_name: 'str' = '') -> None
@@ -178,6 +230,20 @@ class RegistryEntry
     targets: member_descriptor
     url_template: member_descriptor
     vcpkg_name: member_descriptor
+
+class Rules
+    __init__(self, names: 'tuple[str, ...]', checks: 'tuple[str, ...]') -> 'None'
+    autosar: classmethod
+    cert: classmethod
+    checks: property
+    command(self) -> 'tuple[str, ...]'
+    core_guidelines: classmethod
+    misra_cpp_2023: classmethod
+    modern: classmethod
+
+class Signing
+    codesign(*, identity_env: 'str') -> 'MacSigning'
+    signtool(*, cert_env: 'str', timestamp: 'str' = 'http://timestamp.digicert.com') -> 'WindowsSigning'
 
 class StepFailed(BuildEvent)
     __init__(self, step: 'str', exit_code: 'int' = 1, diagnostics: 'tuple[Diagnostic, ...]' = <factory>) -> None
@@ -195,6 +261,16 @@ class StepStarted(BuildEvent)
     command: member_descriptor
     step: member_descriptor
 
+class System
+    framework(name: 'str') -> 'SystemLibrary'
+    library(name: 'str') -> 'SystemLibrary'
+    threads() -> 'SystemLibrary'
+
+class SystemLibrary
+    __init__(self, name: 'str', kind: 'LinkKind') -> None
+    kind: member_descriptor
+    name: member_descriptor
+
 class TargetInfo
     __init__(self, name: 'str', type: 'str', artifacts: 'tuple[Path, ...]' = (), sources: 'tuple[Path, ...]' = (), dependencies: 'tuple[str, ...]' = <factory>) -> None
     artifacts: member_descriptor
@@ -208,15 +284,20 @@ class Test(_Target)
     add_module_sources(self, *modules: 'str') -> 'None'
     add_sources(self, *sources: 'str | Command') -> 'None'
     compile_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
+    declared_line: property
     define(self, name: 'str', value: 'str | int | None' = None, *, when: 'WhenArgument' = None) -> 'None'
-    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False) -> 'Dependency'
+    depends(self, spec: 'str', *, components: 'Sequence[str]' = (), url: 'str | None' = None, sha256: 'str | None' = None, cmake_name: 'str | None' = None, targets: 'Sequence[str]' = (), public: 'bool' = False, when: 'WhenArgument' = None) -> 'Dependency'
+    extend(self, name: 'str', **options: 'object') -> 'None'
+    file: property
     framework: property
     include_dirs(self, *dirs: 'str') -> 'None'
-    link(self, library: 'Library') -> 'None'
+    link(self, library: 'Linkable', *, when: 'WhenArgument' = None) -> 'None'
     link_options(self, *flags: 'str', when: 'WhenArgument' = None) -> 'None'
     lint(self, *, clang_tidy: 'bool | Sequence[str]' = False, iwyu: 'bool | Sequence[str]' = False) -> 'None'
     name: property
+    post_build(self, *argv: 'str') -> 'None'
     raw_cmake(self, snippet: 'str') -> 'None'
+    use_qt(self, major: 'int' = 6, *, components: 'Sequence[str]', resources: 'Sequence[str]' = ()) -> 'None'
 
 class Toolchain
     __init__(self, name: 'str', *, compiler: 'str | None' = None, system_name: 'str | None' = None, system_processor: 'str | None' = None) -> 'None'
@@ -229,12 +310,22 @@ class Toolchain
 
 class ToolchainError(CmakelessError)
 
+WORKSPACE_SCRIPT_NAME: str
+
 class When
     __init__(self, model: 'WhenModel') -> 'None'
     compiler: classmethod
     config: classmethod
     option: classmethod
     platform: classmethod
+
+class Workspace
+    __init__(self, *, lockfile: 'str' = 'cmakeless.lock', root: 'str | Path | None' = None) -> 'None'
+    add(self, directory: 'str', *, presets: 'Sequence[str]' = ()) -> 'None'
+    build(self) -> 'None'
+    projects: property
+    root: property
+    select(self, *, project: 'str | None' = None, affected_since: 'str | None' = None) -> 'list[Path]'
 
 __version__: str
 
@@ -245,5 +336,7 @@ def gil_enabled() -> 'bool'
 def parallel_map(function: 'Callable[[T], R]', items: 'Sequence[T]') -> 'list[R]'
 
 def register_dependency(name: 'str', entry: 'RegistryEntry') -> 'None'
+
+def register_extension(name: 'str', extension: 'Extension') -> 'None'
 
 def warn_deprecated_argument(name: 'str', *, owner: 'str', replacement: 'str', removed_in: 'str') -> 'None'
