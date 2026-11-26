@@ -13,11 +13,18 @@ Versioning follows Semantic Versioning 2.0.0 throughout: breaking API changes bu
 | 2     | v0.2    | Dependencies                                                                      |
 | 3     | v0.3    | Quality of life: tests, presets, install                                          |
 | 4     | v0.4    | Interop and parallelism                                                           |
-| 5–5.2 | v0.5    | The language unlock: mechanical fixes, options and conditions, custom build steps |
+| 5.0 to 5.2 | v0.5 | The language unlock: mechanical fixes, options and conditions, custom build steps |
 | 5.3   | v0.5.3  | The interop unlock                                                                |
 | 5.4   | v0.5.4  | The portability release                                                           |
 | 5.5   | v0.5.5  | Documentation and quality debt                                                    |
 | 5.6   | v1.0    | Stability promise: C++20 modules, frozen API, Apache-2.0, Typer CLI               |
+| 6     | v1.1    | Every language, every linker                                                      |
+| 7     | v1.1    | Ship it                                                                           |
+| 8     | v1.1    | Evidence                                                                          |
+| 9     | v1.1    | A way in                                                                          |
+| 10    | v1.1    | Quality verbs                                                                     |
+| 11    | v1.1    | Scale                                                                             |
+| 12    | v1.1    | Ecosystem formats                                                                 |
 
 Scope is the fixed variable, order is the promise.
 
@@ -34,6 +41,13 @@ flowchart LR
     P53 --> P54["Phase 5.4 · v0.5.4<br/>Portability"]
     P54 --> P55["Phase 5.5 · v0.5.5<br/>Docs & quality debt"]
     P55 --> P56["Phase 5.6 · v1.0<br/>Stability promise"]
+    P56 --> P6["Phase 6<br/>Every language"]
+    P6 --> P7["Phase 7<br/>Ship it"]
+    P7 --> P8["Phase 8<br/>Evidence"]
+    P8 --> P9["Phase 9<br/>A way in"]
+    P9 --> P10["Phase 10<br/>Quality verbs"]
+    P10 --> P11["Phase 11<br/>Scale"]
+    P11 --> P12["Phase 12 · v1.1<br/>Ecosystem formats"]
 ```
 
 Every phase gates the next: nothing in Phase _N_ + 1 starts until Phase _N_'s exit criterion is met, so the diagram above is also the dependency graph, not just a calendar.
@@ -111,7 +125,7 @@ Bugs and gaps in what already shipped, closed before any new language surface la
 - Dynamic Python version in generated `find_package(Python ...)` calls, tracking the interpreter that is actually running CMakeless instead of a hard-coded constant.
 - ccache/sccache wired for every generator family where `CMAKE_CXX_COMPILER_LAUNCHER` actually works (Makefiles, Ninja, Ninja Multi-Config), plus new generator shorthands (`"ninja-multi"`, `"make"`, `"xcode"`) alongside `"ninja"`/`"vs"`.
 - The Conan adapter derives its build type from the active preset or `project.optimize`, instead of always installing Release dependencies.
-- A public dependency-registry registration API (`cmakeless.register_dependency(...)`) and installed-plugin discovery via the `"cmakeless.registry"` entry-point group; the curated list itself stays ten packages for now (growing it at scale is Phase 4.4).
+- A public dependency-registry registration API (`cmakeless.register_dependency(...)`) and installed-plugin discovery via the `"cmakeless.registry"` entry-point group; the curated list itself stays ten packages for now (Phase 5.3 grew it).
 - Private include directories (`target.include_dirs(...)`) and a per-target C++ standard override (`target.cpp_std`), closing two of the four target-vocabulary gaps.
 - The Python floor drops to 3.12 (not 3.10, to keep the PEP 695 syntax already in `api/targets.py` and `_parallel.py` unrewritten); CI tests 3.12 and 3.13 across all three OSes.
 
@@ -128,7 +142,7 @@ The `When` condition object and everything it powers, the highest-leverage addit
 
 **Exit criterion:** a mixed-standard, mixed-configuration project (a vendored C++17 core, a C++23 app, a Debug-only sanitizer flag, an optional GUI target gated on a cache variable) is describable without `raw_cmake()`.
 
-**Deferred from this phase:** a structural `if()`-block renderer for `When` so `link()`/`add_subproject()` can accept `when=` directly (only the compile-level generator-expression form shipped in 4.2). Blocked on new `LinkModel`/`SubprojectModel` fields and on resolving how `When.config(...)` behaves under multi-config generators, where `CMAKE_BUILD_TYPE` is not set at configure time (Visual Studio, Xcode, Ninja Multi-Config); tracked for a future release once that design is settled.
+**Deferred from this phase:** a structural `if()`-block renderer for `When` so `link()`/`add_subproject()` can accept `when=` directly (only the compile-level generator-expression form shipped in 5.1). Blocked on new `LinkModel`/`SubprojectModel` fields and on resolving how `When.config(...)` behaves under multi-config generators, where `CMAKE_BUILD_TYPE` is not set at configure time (Visual Studio, Xcode, Ninja Multi-Config); Phase 9 shipped `link(when=)`, `depends(when=)`, and `add_subproject(when=)`; a build-configuration test on a subproject is refused for exactly that reason.
 
 ## Phase 5.2: Custom Build Steps, v0.5.2
 
@@ -189,11 +203,74 @@ v1.0 is a social contract, not a feature list. Declaring it required:
 
 Two supporting changes landed with it: the license moved from MPL-2.0 to Apache-2.0, and the CLI moved from `argparse` to [Typer](https://typer.tiangolo.com/), which makes Typer CMakeless's one runtime dependency, confined to `cli.py` so that importing `cmakeless` in a build description still pulls in nothing but the standard library.
 
-**Deferred from this phase:** installing and exporting C++20 module interfaces is refused at freeze time rather than emitted, because CMake's own support for shipping built module interfaces is still behind an experimental flag; `import std` is deferred for the same reason, since its gate is a UUID upstream rotates every release. Both land when that ground stops moving.
+**Deferred from this phase:** installing and exporting C++20 module interfaces was refused at freeze time; Phase 12 lifted that once CMake's documentation showed it was no longer experimental. `import std` is still deferred: in CMake 4.4 it remains behind the `CMAKE_EXPERIMENTAL_CXX_IMPORT_STD` gate, whose UUID upstream rotates every release.
+
+## Phases 6 to 12: the industry release, v1.1.0
+
+Seven phases, planned in IMPROVEMENTS.md and SUGGESTIONS.md, shipped together
+in 1.1.0. Each kept the rule that it ends with something a real user can
+run; the exit criteria below are covered by unit tests, the
+`tests/integration/` example builds, or both.
+
+### Phase 6: Every language, every linker
+
+- Language inference from source suffixes (C, ASM, ASM_MASM, CUDA, HIP, ISPC, Fortran, OBJC, OBJCXX), `c_std`, and an unknown-suffix notice.
+- Typed links: `System.threads()`, `System.library()`, `System.framework()`, `Imported()`, and `when=` on `link()`/`depends()`.
+- Frontend-aware flags: warning and sanitizer syntax keyed on `CMAKE_CXX_COMPILER_FRONTEND_VARIANT`, so clang-cl gets `/W4`, never `-Weverything`; linker flags through `LINKER:` per linker family.
+- CMake 4 compatibility for fetched dependencies, `SYSTEM` dependencies, scheme checks on every URL, and a CI matrix over CMake 3.25, 3.28, and latest with GCC, Clang, and clang-cl.
+
+**Exit criterion:** a mixed C and C++ project linking `Threads::Threads` builds under `warnings="max"` with warnings as errors, with both Clang and clang-cl (example 14).
+
+### Phase 7: Ship it
+
+- `object` and `plugin` libraries, ABI `version`/`soversion`, `output_name`, `visibility`, `gui`, `msvc_runtime`, linker scripts, map files, and `post_build()`.
+- `install()` components, relative RPATH, runtime-dependency bundling, Python-module installs, and `install_files()`; CPack metadata and six more formats.
+- CTest properties (timeout, labels, environment, fixtures, serial, will-fail) and `cmakeless test --filter/--label/--repeat/--junit`.
+- `--target`, `--jobs`, `--config`, `--verbose`, `--fresh`, `-D`; `Cpu` targeting; `init --template` with six templates.
+
+**Exit criterion:** an ABI-versioned shared library installs into a layout that runs on a clean machine, and packages with vendor, description, and license (example 16).
+
+### Phase 8: Evidence
+
+- Pin provenance in `cmakeless.lock`, `supply_chain="strict"`, `allow_system()`, `cmakeless audit` with `--approve`, and `lock --package`.
+- Reproducible bills of materials; streamed, retried downloads.
+- `Profile.hardened()`, `.reproducible()`, `.low_latency()`, `.embedded()`, `.safety_critical()`.
+- `cmakeless evidence` (manifest, toolchain, SBOM, SLSA provenance, hashes, JUnit) and `cmakeless verify`.
+
+**Exit criterion:** two SBOM runs over one lockfile are byte-identical, strict mode refuses a trust-on-first-use pin, and the evidence bundle is written for a built project.
+
+### Phase 9: A way in
+
+- `cmakeless import` reads an existing project's File API codemodel and writes `cmakelessfile.py`; `--check` configures both and compares them.
+- `use_qt()`, `cmakeless explain`, `cmakeless diff --exit-code`, structural `When` for subprojects, and diagnostics naming the declaring line.
+
+**Exit criterion:** a real two-target CMake project imports and `--check` reports no difference.
+
+### Phase 10: Quality verbs
+
+- `cmakeless coverage`, `add_fuzz_target()` with `cmakeless fuzz`, `cmakeless pgo`, compliance rule sets, `lint(cppcheck=)`, `cmakeless lint --report sarif`, shader and asset pipelines, and `DependencyResolved`/`TestFinished`/`JsonObserver` with `--json`.
+
+**Exit criterion:** a labeled test, a fuzz target outside the default build, and an asset-cooking step build together (example 18).
+
+### Phase 11: Scale
+
+- The emitter split into `flags`, `target_settings`, `install_emitter`, `tests_emitter`, `instrumentation`, and `quoting` modules; per-target settings in one `TargetPropertiesModel`; new checks in `validate_settings`.
+- Plugin extensions (`cmakeless.extensions`, `register_extension()`, `target.extend()`) and template plugins (`cmakeless.templates`).
+- Workspaces with one shared lockfile, `--project`, and `--affected-since`; `Cache.ccache()`/`Cache.sccache()`; `cmakeless profile`.
+
+**Exit criterion:** a two-member workspace builds against one lockfile (example 17).
+
+### Phase 12: Ecosystem formats
+
+- Installing and exporting C++20 module interfaces; CPS export (floor 4.3 per project) and pkg-config files; `sign()`; `cmakeless matrix`.
+
+**Exit criterion:** a module library emits its `FILE_SET CXX_MODULES` install and `CXX_MODULES_DIRECTORY` export, and a CPS export raises only its own project's floor.
+
+**Deferred, honestly:** `import std` (still experimental upstream, see Phase 5.6); a VS Code extension (the `--json` event stream and `cmakeless explain` are the protocol it will build on); macOS notarization (`codesign` signing ships, `notarytool` submission needs Apple credentials a build tool should not hold); OSV vulnerability lookups in `cmakeless audit` (C++ packages have no consistent ecosystem identifier there yet, so `audit` reports provenance and curated versions instead); and whole-target `when=` gating, which would need every consumer to carry the same condition.
 
 ## Beyond 1.0 (unscheduled, honestly)
 
-Ideas we are deliberately _not_ promising dates for: a `cmake-to-cmakeless` importer for existing CMakeLists, workspace/monorepo support, a public emitter API for alternative outputs, remote build integration.
+Ideas we are deliberately _not_ promising dates for: a public emitter API for alternative outputs, remote build execution, and the deferred items above. The importer and workspaces, once listed here, shipped in 1.1.0.
 
 ## Non-Goals, Permanently
 
