@@ -119,6 +119,9 @@ ways, each listed under "Changed".
 
 - Rebuilding subprojects during dependency resolution no longer drops
   per-subproject settings.
+- Python modules are configured against the interpreter running cmakeless
+  (`-DPython_EXECUTABLE`), so a free-threaded 3.14t build no longer produces
+  a GIL-ABI extension that segfaults on import.
 
 ## [1.0.1]
 
