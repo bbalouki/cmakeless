@@ -12,10 +12,14 @@ Exactly three things:
    every public method on those classes. `cmakeless.__all__` is the
    authoritative list.
 2. **The generated file formats**: `CMakeLists.txt`, `CMakePresets.json`,
-   generated toolchain files, `cmakeless.lock`, `vcpkg.json`, `conanfile.txt`,
-   and the CycloneDX/SPDX bills of materials.
-3. **The command line**: verb names, flag names and their meanings, and the exit
-   codes (`0` success, `1` a CMakeless error, `2` a usage error).
+   generated toolchain files, `cmakeless.lock` (including its `pin_source`
+   field), `vcpkg.json`, `conanfile.txt`, the CycloneDX/SPDX bills of
+   materials, the pkg-config template, the signing script, and the files
+   `cmakeless evidence` writes.
+3. **The command line**: verb names, flag names and their meanings, the exit
+   codes (`0` success, `1` a CMakeless error or a failed check such as
+   `diff --exit-code`, `2` a usage error), and the shape of the `--json` event
+   lines (an `"event"` field naming the event class, then its fields).
 
 Anything else is implementation detail, including `cmakeless.model`,
 `cmakeless.emitter`, `cmakeless.driver`, and `cmakeless.deps`, every name
@@ -82,10 +86,14 @@ Not by good intentions. Three tests fail CI when the contract moves:
 - **CMake's own behavior.** We generate CMake; CMake and your compiler do the
   rest. A CMake release changing how it treats what we emit is outside anything
   we can version.
-- **Anything marked experimental in CMake itself.** C++20 module interfaces are
-  supported because `FILE_SET CXX_MODULES` is stable; installing and exporting
-  them is not, so CMakeless refuses it rather than emitting output that breaks
-  on the next CMake release.
+- **Anything marked experimental in CMake itself.** C++20 module interfaces,
+  including installing and exporting them, are supported because CMake no
+  longer gates them; `import std` still is gated, so CMakeless does not emit
+  it rather than emitting output that breaks on the next CMake release.
+- **Profiles as certification.** `Profile.safety_critical()`, the MISRA- and
+  AUTOSAR-oriented rule sets, and `cmakeless evidence` are configuration
+  hygiene and evidence collection; certification still needs a qualified
+  toolchain and process.
 - **Error message wording.** Messages are meant to be read by people and improved
   constantly. Match on exception types, never on text.
 
