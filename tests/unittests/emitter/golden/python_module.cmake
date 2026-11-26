@@ -12,6 +12,12 @@ project(mymath_demo
 set(CMAKELESS_SYSTEM_NAME "${CMAKE_SYSTEM_NAME}" CACHE INTERNAL "")
 set(CMAKELESS_SYSTEM_PROCESSOR "${CMAKE_SYSTEM_PROCESSOR}" CACHE INTERNAL "")
 
+# Flag syntax follows the compiler frontend (clang-cl speaks cl's command
+# line); linker flags follow the platform's linker.
+set(CMAKELESS_MSVC_SYNTAX "$<OR:$<CXX_COMPILER_ID:MSVC>,$<STREQUAL:${CMAKE_CXX_COMPILER_FRONTEND_VARIANT},MSVC>>")
+set(CMAKELESS_MSVC_LINKER "$<AND:$<PLATFORM_ID:Windows>,$<NOT:$<BOOL:${MINGW}>>>")
+set(CMAKELESS_APPLE_LINKER "$<PLATFORM_ID:Darwin,iOS,tvOS,watchOS,visionOS>")
+
 # This project links a shared object, so everything it links into
 # one, including dependencies built as subprojects, must be
 # position-independent.
@@ -34,8 +40,8 @@ target_compile_features(engine PUBLIC cxx_std_17)
 set_target_properties(engine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 target_compile_options(engine PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4;/permissive->
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>
+    $<${CMAKELESS_MSVC_SYNTAX}:/W4;/permissive->
+    $<$<NOT:${CMAKELESS_MSVC_SYNTAX}>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>
 )
 
 pybind11_add_module(mymath)
@@ -51,8 +57,8 @@ target_compile_definitions(mymath PRIVATE
 )
 
 target_compile_options(mymath PRIVATE
-    $<$<CXX_COMPILER_ID:MSVC>:/W4;/permissive->
-    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>
+    $<${CMAKELESS_MSVC_SYNTAX}:/W4;/permissive->
+    $<$<NOT:${CMAKELESS_MSVC_SYNTAX}>:-Wall;-Wextra;-Wconversion;-Wsign-conversion;-pedantic>
 )
 
 target_link_libraries(mymath
