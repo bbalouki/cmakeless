@@ -82,8 +82,12 @@ jobs:
       # system.
       - name: Build every example
         run: uv run pytest -m integration tests/integration
+        # The runner's bundled LLVM can lag the Visual Studio STL, which refuses
+        # older Clang (STL1000); Microsoft's documented override keeps clang-cl
+        # and clang-tidy usable until the image catches up.
         env:
           CMAKELESS_NETWORK_TESTS: "1"
+          CXXFLAGS: ${{ runner.os == 'Windows' && '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH' || '' }}
 
   # Flag syntax and linker families are only visible with more than one
   # compiler per platform (clang-cl speaks cl's command line), and the
@@ -141,3 +145,4 @@ jobs:
           CC: ${{ matrix.cc }}
           CXX: ${{ matrix.cxx }}
           CMAKELESS_NETWORK_TESTS: "1"
+          CXXFLAGS: ${{ runner.os == 'Windows' && '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH' || '' }}
