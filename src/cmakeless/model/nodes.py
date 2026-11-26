@@ -9,16 +9,37 @@ CMake syntax; translating concepts to syntax is the emitter's job.
 from __future__ import annotations
 
 import enum
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from cmakeless._constants import MIN_PYTHON_VERSION
+from cmakeless.model.properties import (
+    CacheModel,
+    ExportModel,
+    InstallFilesModel,
+    InstallOptionsModel,
+    PackageMetadataModel,
+    ProfileModel,
+    SigningModel,
+    TargetPropertiesModel,
+    TestPropertiesModel,
+)
 
 # The C++ standards CMake's cxx_std_NN compile feature knows about.
 SUPPORTED_CPP_STANDARDS: frozenset[int] = frozenset({11, 14, 17, 20, 23, 26})
 
-# The warning presets translated per compiler by the emitter.
-WARNING_PRESETS: frozenset[str] = frozenset({"strict", "default", "none"})
+# The warning presets translated per compiler by the emitter. "max" is the
+# widely agreed best-practice set on top of "strict".
+WARNING_PRESETS: frozenset[str] = frozenset({"max", "strict", "default", "none"})
+
+# How strictly dependency pins and download URLs are checked. "strict"
+# refuses trust-on-first-use pins, plain HTTP, and the system find_package
+# fallback for any package not explicitly allowed.
+SUPPLY_CHAIN_MODES: frozenset[str] = frozenset({"default", "strict"})
+
+# Build instrumentation the CLI can switch on for one run, each in its own
+# build tree so the normal build never changes.
+INSTRUMENTATIONS: frozenset[str] = frozenset({"coverage", "pgo-generate", "pgo-use", "time-trace"})
 
 # The dependency acquisition strategies a project can opt into. "auto" is the
 # find_package-then-FetchContent fallback; the others delegate to one backend.
@@ -51,6 +72,12 @@ CPACK_GENERATOR_BY_FORMAT: dict[str, str] = {
     "tgz": "TGZ",
     "deb": "DEB",
     "rpm": "RPM",
+    "txz": "TXZ",
+    "7z": "7Z",
+    "nsis": "NSIS",
+    "wix": "WIX",
+    "dmg": "DragNDrop",
+    "productbuild": "productbuild",
 }
 
 # Friendly compiler names accepted by When.compiler() (and the legacy
@@ -60,6 +87,8 @@ COMPILERS_BY_TOKEN: dict[str, tuple[str, ...]] = {
     "clang": ("clang", "appleclang"),
     "appleclang": ("appleclang",),
     "msvc": ("msvc",),
+    "intel": ("intelllvm",),
+    "nvhpc": ("nvhpc",),
 }
 
 # Canonical compiler identifiers (model vocabulary) to the CXX_COMPILER_ID
@@ -69,6 +98,8 @@ CMAKE_COMPILER_ID_BY_CANONICAL: dict[str, str] = {
     "clang": "Clang",
     "appleclang": "AppleClang",
     "msvc": "MSVC",
+    "intelllvm": "IntelLLVM",
+    "nvhpc": "NVHPC",
 }
 
 # Friendly platform names accepted by When.platform(), mapped to the values
@@ -77,6 +108,13 @@ CMAKE_PLATFORM_ID_BY_TOKEN: dict[str, str] = {
     "windows": "Windows",
     "linux": "Linux",
     "macos": "Darwin",
+    "ios": "iOS",
+    "android": "Android",
+    "emscripten": "Emscripten",
+    "freebsd": "FreeBSD",
+    "qnx": "QNX",
+    "vxworks": "VxWorks",
+    "bare_metal": "Generic",
 }
 
 
@@ -88,11 +126,17 @@ class LibraryKind(enum.Enum):
         SHARED: Compiled into a shared library (DLL/so/dylib).
         HEADER_ONLY: No compiled artifact; consumers get headers and usage
             requirements only.
+        OBJECT: Compiled objects linked directly into consumers, with no
+            archive in between (link-order control for embedded builds).
+        PLUGIN: A loadable module opened at runtime with dlopen() or
+            LoadLibrary(); never linked against.
     """
 
     STATIC = "static"
     SHARED = "shared"
     HEADER_ONLY = "header_only"
+    OBJECT = "object"
+    PLUGIN = "plugin"
 
 
 class WhenKind(enum.Enum):
@@ -186,22 +230,46 @@ class LinkOptionsModel:
     when: WhenModel | None = None
 
 
+class LinkKind(enum.Enum):
+    """What a link edge points at.
+
+    Attributes:
+        TARGET: A library of this project, or a dependency's imported target.
+        IMPORTED: An imported target named by the user (Imported(...)) or
+            implied by an integration (Qt), provided outside depends().
+        SYSTEM: A bare operating-system library, for example ws2_32.
+        FRAMEWORK: An Apple framework, linked only on Apple platforms.
+        THREADS: The platform thread library, through find_package(Threads).
+    """
+
+    TARGET = "target"
+    IMPORTED = "imported"
+    SYSTEM = "system"
+    FRAMEWORK = "framework"
+    THREADS = "threads"
+
+
 @dataclass(frozen=True, slots=True)
 class LinkModel:
     """An edge in the link graph, pointing at a library target by name.
 
     Attributes:
         target: Name of the linked library target; for external edges this
-            is the imported target name (for example ``fmt::fmt``).
+            is the imported target name (for example ``fmt::fmt``), a system
+            library name, or a framework name.
         public: True when consumers of the linking target also need the
             linked library (the linking target's headers expose it).
-        external: True when the target comes from an external dependency
-            rather than this project's own add_library() calls.
+        external: True when the target comes from outside this project's
+            own add_library() calls.
+        kind: What the edge points at.
+        when: A condition guarding the edge, or None to always link.
     """
 
     target: str
     public: bool = False
     external: bool = False
+    kind: LinkKind = LinkKind.TARGET
+    when: WhenModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -223,6 +291,9 @@ class DependencyModel:
         url: Source archive URL for `FetchContent`, or None when the backend
             does not fetch sources.
         sha256: SHA256 pin of the source archive, or None when unpinned.
+        pin_source: How the pin was obtained: "registry", "user",
+            "reviewed", or "tofu" (hashed on first download); None until
+            pinned or for backends that do not fetch.
     """
 
     name: str
@@ -232,6 +303,7 @@ class DependencyModel:
     link_targets: tuple[str, ...] = ()
     url: str | None = None
     sha256: str | None = None
+    pin_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -269,6 +341,7 @@ class ExecutableModel:
         cxx_modules: C++20 module interface units for this target,
             emitted as a FILE_SET CXX_MODULES so CMake scans them and
             orders compilation by their import graph.
+        properties: Output, ABI, platform, and tooling settings.
     """
 
     name: str
@@ -286,6 +359,7 @@ class ExecutableModel:
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
     cxx_modules: tuple[Path, ...] = ()
+    properties: TargetPropertiesModel = field(default_factory=TargetPropertiesModel)
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,6 +399,7 @@ class LibraryModel:
         cxx_modules: C++20 module interface units for this target,
             emitted as a FILE_SET CXX_MODULES so CMake scans them and
             orders compilation by their import graph.
+        properties: Output, ABI, platform, and tooling settings.
     """
 
     name: str
@@ -344,6 +419,7 @@ class LibraryModel:
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
     cxx_modules: tuple[Path, ...] = ()
+    properties: TargetPropertiesModel = field(default_factory=TargetPropertiesModel)
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,6 +431,7 @@ class TestModel:
         sources: Project-root-relative source files, globs already expanded.
         framework: The test framework ("catch2", "gtest", "doctest", or
             "none" for a plain executable whose exit code is the verdict).
+        test_properties: CTest properties applied to every case.
         defines: Preprocessor definitions for this target.
         compile_options: Extra compiler flags, possibly guarded by a When
             condition.
@@ -379,6 +456,7 @@ class TestModel:
         cxx_modules: C++20 module interface units for this target,
             emitted as a FILE_SET CXX_MODULES so CMake scans them and
             orders compilation by their import graph.
+        properties: Output, ABI, platform, and tooling settings.
     """
 
     # Tell pytest this model is not a test case, despite the Test* name.
@@ -387,6 +465,7 @@ class TestModel:
     name: str
     sources: tuple[Path, ...]
     framework: str = "none"
+    test_properties: TestPropertiesModel = field(default_factory=TestPropertiesModel)
     defines: tuple[DefineModel, ...] = ()
     compile_options: tuple[CompileOptionsModel, ...] = ()
     link_options: tuple[LinkOptionsModel, ...] = ()
@@ -400,6 +479,7 @@ class TestModel:
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
     cxx_modules: tuple[Path, ...] = ()
+    properties: TargetPropertiesModel = field(default_factory=TargetPropertiesModel)
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,6 +526,7 @@ class PythonModuleModel:
         cxx_modules: C++20 module interface units for this target,
             emitted as a FILE_SET CXX_MODULES so CMake scans them and
             orders compilation by their import graph.
+        properties: Output, ABI, platform, and tooling settings.
     """
 
     name: str
@@ -467,6 +548,7 @@ class PythonModuleModel:
     clang_tidy: tuple[str, ...] | None = None
     iwyu: tuple[str, ...] | None = None
     cxx_modules: tuple[Path, ...] = ()
+    properties: TargetPropertiesModel = field(default_factory=TargetPropertiesModel)
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,13 +650,16 @@ class InstallModel:
     """One install rule: ship a target (and optionally its headers).
 
     Attributes:
-        target: Name of the executable or library target to install.
+        target: Name of the target to install.
         headers: True to also install the target's public header
             directories.
+        options: Component, RPATH, destination, and runtime-dependency
+            settings.
     """
 
     target: str
     headers: bool = False
+    options: InstallOptionsModel = field(default_factory=InstallOptionsModel)
 
 
 @dataclass(frozen=True, slots=True)
@@ -675,10 +760,13 @@ class SubprojectModel:
     Attributes:
         directory: Parent-root-relative directory the child lives in.
         project: The child's own frozen build graph.
+        when: A configure-time condition guarding the whole subproject, or
+            None to always include it.
     """
 
     directory: Path
     project: ProjectModel
+    when: WhenModel | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -728,6 +816,20 @@ class ProjectModel:
             clang-tidy is off by default.
         lint_iwyu: The project-wide include-what-you-use command declared
             by project.lint(), same inheritance rule as lint_clang_tidy.
+        lint_cppcheck: The project-wide cppcheck command, same rule.
+        c_std: The C standard every C source compiles with, or None to
+            leave the compiler default.
+        warnings_as_errors: True to turn on COMPILE_WARNING_AS_ERROR.
+        profile: The project-wide profile, or None.
+        supply_chain: "default" or "strict" pin and URL checking.
+        allow_system: Packages strict mode may still take from the system.
+        install_files: Plain files and directories install() ships.
+        package_metadata: CPack metadata for project.package().
+        signing: Post-install code signing, or None.
+        cache_backend: An explicit compiler cache, or None to auto-detect.
+        export: Which package metadata formats install() exports.
+        instrumentation: Build instrumentation active for this run.
+        fuzz_targets: libFuzzer executables declared by add_fuzz_target().
     """
 
     name: str
@@ -757,6 +859,19 @@ class ProjectModel:
     raw_cmake_files: tuple[Path, ...] = ()
     lint_clang_tidy: tuple[str, ...] = ()
     lint_iwyu: tuple[str, ...] = ()
+    lint_cppcheck: tuple[str, ...] = ()
+    c_std: int | None = None
+    warnings_as_errors: bool = False
+    profile: ProfileModel | None = None
+    supply_chain: str = "default"
+    allow_system: tuple[str, ...] = ()
+    install_files: tuple[InstallFilesModel, ...] = ()
+    package_metadata: PackageMetadataModel = field(default_factory=PackageMetadataModel)
+    signing: SigningModel | None = None
+    cache_backend: CacheModel | None = None
+    export: ExportModel = field(default_factory=ExportModel)
+    instrumentation: tuple[str, ...] = ()
+    fuzz_targets: tuple[ExecutableModel, ...] = ()
 
     def targets(self) -> tuple[TargetModel, ...]:
         """Collect this project's own compiled targets (tests excluded).
@@ -770,7 +885,13 @@ class ProjectModel:
         """Collect every compiled target of this project, tests included.
 
         Returns:
-            Libraries, executables, tests, then Python modules; otherwise
-            unordered.
+            Libraries, executables, tests, Python modules, then fuzz
+            targets; otherwise unordered.
         """
-        return (*self.libraries, *self.executables, *self.tests, *self.python_modules)
+        return (
+            *self.libraries,
+            *self.executables,
+            *self.tests,
+            *self.python_modules,
+            *self.fuzz_targets,
+        )
