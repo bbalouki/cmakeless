@@ -7,6 +7,119 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
+## [1.1.0]
+
+The industry release (ROADMAP.md Phases 6 to 12). Every change is additive:
+a 1.0 build description keeps working unchanged, and the public API golden
+snapshot only gained names and keyword arguments with defaults. The
+generated CMake for an unchanged description changes in three deliberate
+ways, each listed under "Changed".
+
+### Added
+
+- **Every language, not just C++.** Source languages are inferred from
+  suffixes (`.c`, `.S`/`.s`, `.asm`, `.cu`, `.hip`, `.ispc`, Fortran, `.m`,
+  `.mm`), so `project()` enables `C`, `ASM`, `CUDA`, and the rest on its own.
+  `Project(c_std=11)` and `target.c_std` declare the C standard on targets
+  that compile C. An unknown suffix prints a notice instead of being silently
+  listed.
+- **Typed links**: `System.threads()`, `System.library("ws2_32")`,
+  `System.framework("Metal")` (a no-op off Apple platforms), and
+  `Imported("Vulkan::Vulkan")`, accepted by every `link()`. `link()` and
+  `depends()` take `when=`.
+- **Target vocabulary**: `kind="object"` and `kind="plugin"` libraries;
+  `version=`/`soversion=`; `output_name`, `visibility`, `gui`,
+  `msvc_runtime`, `linker_script`, `map_file`, `post_build(...)`,
+  `cuda_architectures`, per-target `warnings` and `warnings_as_errors`,
+  `target.file`, and `use_qt(6, components=[...], resources=[...])`.
+- **Profiles**: `Profile.hardened()`, `.reproducible()`, `.low_latency()`,
+  `.embedded()`, and `.safety_critical()`, composable with `|`, on the
+  project or per target.
+- **Typed CPU targeting**: `Cpu.x86_64(level="v3")`,
+  `Cpu.arm(core=..., fpu=..., float_abi=...)`, and `Cpu.native()`.
+- **Warnings**: a `"max"` preset (the cpp-best-practices set) and
+  `project.warnings_as_errors` through `COMPILE_WARNING_AS_ERROR`.
+- **Tests**: `timeout`, `labels`, `env`, `working_directory`, `serial`,
+  `will_fail`, and fixture attributes, forwarded to discovered cases.
+  `cmakeless test` gained `--filter/-R`, `--label/-L`, `--repeat`, `--junit`,
+  `--jobs`, and `--config`.
+- **Shipping**: `install()` takes `component=`, `rpath="relative"`,
+  `destination=`, and `runtime_dependencies=True`, and accepts Python
+  modules. Also new: `install_files(...)`, `export(cps=..., pkg_config=...)`
+  (CPS raises only that project's floor to CMake 4.3), CPack metadata on
+  `package(...)`, six more CPack formats, and `sign(windows=..., macos=...)`
+  with `Signing.signtool(...)`/`Signing.codesign(...)`.
+- **Installing C++20 module interfaces** (`FILE_SET CXX_MODULES` plus
+  `CXX_MODULES_DIRECTORY`), which CMake 4.4's documentation shows is no
+  longer experimental.
+- **Supply chain**: `Project(supply_chain="strict")` refuses
+  trust-on-first-use pins, plain HTTP, and system packages not named in
+  `project.allow_system(...)`. `cmakeless.lock` records each pin's
+  provenance (`pin_source`); `cmakeless audit` reports it, and
+  `--approve` records a review. `cmakeless lock --package NAME` refreshes
+  one pin, and `cmakeless search` queries the registry.
+- **Workflow verbs**: `run`, `explain`, `diff`, `audit`, `matrix`,
+  `coverage`, `fuzz` (with `project.add_fuzz_target(...)`), `pgo`, `profile`
+  (Ninja log plus Clang time traces, written as a Perfetto trace), `lint`
+  (`--report sarif`), `evidence` (manifest, toolchain, SBOM, SLSA
+  provenance, output hashes, JUnit), `verify` (two builds, bit-identical
+  check), `import` (an existing CMake project to `cmakelessfile.py`, read
+  from the File API codemodel; `--check` proves the conversion), and `init
+  --template` with six templates plus a `cmakeless.templates` plugin group.
+- **Build flags** on `build`/`configure`: `--target`, `--jobs/-j`,
+  `--config`, `--verbose/-v`, `--fresh`, `--define/-D`, and `--json` (every
+  progress event as a JSON line).
+- **Workspaces**: `cmakelessworkspace.py` with `Workspace(lockfile=...)` and
+  `ws.add(...)`, one shared lockfile, `--project`, and `--affected-since`.
+- **Compiler caches**: `Cache.ccache(remote=..., max_size=...)` and
+  `Cache.sccache(backend=..., bucket_env=...)` assigned to `project.cache`.
+- **Compliance lint**: `Rules.misra_cpp_2023()`, `.autosar()`, `.cert()`,
+  `.core_guidelines()`, and `.modern()` for `lint(clang_tidy=...)`, plus
+  `lint(cppcheck=True)`.
+- **Assets**: `project.add_shaders(...)` (dxc, glslc, glslangValidator,
+  slangc) and `project.add_assets(...)`.
+- **Plugins**: `cmakeless.register_extension(...)`, `target.extend(name,
+  ...)`, and the `cmakeless.extensions` entry-point group, with output fenced
+  by extension name and version.
+- **Observer events**: `DependencyResolved` and `TestFinished`, plus
+  `JsonObserver`.
+- **Diagnostics** name the target and `cmakelessfile.py` line that owns a
+  failing source, and emit GitHub Actions annotations in CI.
+- **Platforms and compilers**: `When.platform()` accepts `ios`, `android`,
+  `emscripten`, `freebsd`, `qnx`, `vxworks`, and `bare_metal`;
+  `When.compiler()` accepts `intel` and `nvhpc`. `add_subproject(when=...)`
+  renders an `if()` block.
+- Examples 14 to 18: mixed languages, profiles, shipping, a workspace, and
+  quality verbs.
+
+### Changed
+
+- **clang-cl gets MSVC-syntax flags.** Warning and sanitizer flags now key
+  on the compiler frontend through a `CMAKELESS_MSVC_SYNTAX` variable,
+  instead of `CXX_COMPILER_ID`. Before, clang-cl received `-Wall`, which it
+  reads as `-Weverything`. Projects with a warning preset or sanitizers now
+  emit a short syntax preamble.
+- **Fetched dependencies are `SYSTEM`**, so their headers never trip this
+  project's warning flags. They are also wrapped in
+  `CMAKE_POLICY_VERSION_MINIMUM 3.5`, so packages with an ancient floor
+  configure under CMake 4. CMake 3 ignores that variable.
+- **Bills of materials are reproducible**: identifiers derive from the
+  lockfile, and the timestamp honors `SOURCE_DATE_EPOCH`, then the git HEAD
+  commit time.
+- Archive downloads stream in 1 MiB chunks and retry transient failures,
+  and URL schemes are checked before any fetch. Plain HTTP warns by default
+  and fails in strict mode.
+- The driver picks its default generator when it runs rather than when it
+  is constructed, so the result follows the PATH at build time.
+- CI pins every action to a commit SHA, defaults to `contents: read`, and
+  tests Python 3.14 and 3.14t, CMake 3.25, 3.28, and latest, and Clang,
+  clang-cl, and GCC. A new security workflow runs pip-audit and bandit.
+
+### Fixed
+
+- Rebuilding subprojects during dependency resolution no longer drops
+  per-subproject settings.
+
 ## [1.0.1]
 
 A supply-chain fix for the `docs` extra. No change to the package itself:
@@ -388,7 +501,7 @@ covered (see ROADMAP.md Phase 5.3).
 
 ## [0.5.0]
 
-The language unlock: options, typed conditions, and custom build steps —
+The language unlock: options, typed conditions, and custom build steps:
 the last things standing between "a nicer way to write the easy 90% of
 CMake" and the full power of CMake, in Python, with types and a debugger.
 
@@ -460,8 +573,8 @@ depends=[...])` for always-run targets (lint, docs). A command's output
 
 ### Docs
 
-- `ROADMAP.md`'s Phase 4 is now followed by sub-phases 4.1–4.3 (this
-  release) and 4.4–4.6 (planned: the interop unlock, the portability
+- `ROADMAP.md`'s Phase 4 is now followed by sub-phases 4.1 to 4.3 (this
+  release) and 4.4 to 4.6 (planned: the interop unlock, the portability
   release, and documentation/quality debt, see ROADMAP.md for what each
   covers).
 - `FEATURES.md` and `README.md` updated throughout for the new surface.
