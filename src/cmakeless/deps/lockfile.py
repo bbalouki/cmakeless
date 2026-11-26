@@ -31,6 +31,9 @@ class LockedPackage:
         targets: The imported targets consumers link against.
         url: Source archive URL, or None when the backend does not fetch.
         sha256: Archive pin, or None when the backend does not fetch.
+        pin_source: How the pin was obtained ("registry", "user", "tofu",
+            or "reviewed" once a human approved a tofu pin); None for a
+            lockfile written before provenance was recorded.
     """
 
     name: str
@@ -40,6 +43,7 @@ class LockedPackage:
     targets: tuple[str, ...]
     url: str | None = None
     sha256: str | None = None
+    pin_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,6 +134,7 @@ def _locked_package(name: str, fields: dict[str, Any]) -> LockedPackage:
         targets=tuple(fields["targets"]),
         url=fields.get("url"),
         sha256=fields.get("sha256"),
+        pin_source=fields.get("pin_source"),
     )
 
 
@@ -149,4 +154,5 @@ def _package_fields(package: LockedPackage) -> dict[str, Any]:
         "targets": list(package.targets),
         "url": package.url,
         "sha256": package.sha256,
+        "pin_source": package.pin_source,
     }
