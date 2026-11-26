@@ -140,7 +140,7 @@ app.sanitize = ["address", "undefined"]
 project.lto = True
 ```
 
-**We handle:** the per-compiler translation tables. `warnings="strict"` becomes `/W4 /permissive-` on MSVC and `-Wall -Wextra -Wconversion -Wsign-conversion -pedantic` on GCC/Clang. Sanitizer flags are applied to both compile and link steps (the half-applied-sanitizer bug is not reproducible through this API), checked against the active compiler, and rejected with a clear `ToolchainError` where unsupported (for example ASan+MSVC edge cases). LTO maps to `INTERPROCEDURAL_OPTIMIZATION` with the CMake policy dance included.
+**We handle:** the per-compiler translation tables. `warnings="strict"` becomes `/W4 /permissive-` for MSVC-syntax compilers (cl and clang-cl, detected by frontend, not compiler id) and `-Wall -Wextra -Wconversion -Wsign-conversion -pedantic` for GCC/Clang; `warnings="max"` adds the cpp-best-practices set (`-Wshadow`, `-Wold-style-cast` on C++ only, `/w14242` and friends), and `project.warnings_as_errors = True` turns on `COMPILE_WARNING_AS_ERROR`, which `cmake --compile-no-warning-as-error` still relaxes locally. Fetched dependencies are `SYSTEM`, so their headers never trip your flags. Sanitizer flags are applied to both compile and link steps (the half-applied-sanitizer bug is not reproducible through this API), checked against the active compiler, and rejected with a clear `ToolchainError` where unsupported (for example ASan+MSVC edge cases). LTO maps to `INTERPROCEDURAL_OPTIMIZATION` with the CMake policy dance included.
 
 Escape hatches keep full control local and explicit:
 
@@ -519,12 +519,159 @@ what/where/what-next message: the target must compile as C++20 or later, a file
 cannot be declared as both a source and a module interface, and a header-only
 library cannot declare one at all (an `INTERFACE` library compiles nothing).
 
-**Deferred, honestly:** installing and exporting a module interface is refused
-rather than emitted. CMake's own support for shipping built module interfaces is
-still behind an experimental flag, and emitting output that breaks on the next
-CMake release would be worse than saying so. `import std` is deferred for the
-same reason. Build and consume modules inside your project today; both land when
-the ground stops moving.
+**Installing modules:** `project.install(geometry)` ships the interface units
+through `FILE_SET CXX_MODULES DESTINATION ...` and exports them with
+`CXX_MODULES_DIRECTORY`, so another project can `import geometry;` after
+`find_package()`. CMake supports this with Ninja (the Visual Studio generator
+cannot yet install module information).
+
+**Deferred, honestly:** `import std` is still behind CMake's
+`CMAKE_EXPERIMENTAL_CXX_IMPORT_STD` gate (checked against CMake 4.4), whose
+UUID changes every release; it lands when the gate is gone.
+
+---
+
+## 14. Every Language, Every Linker
+
+**You write:**
+
+```python
+from cmakeless import Imported, Project, System, When
+
+project = Project("fw", cpp_std=20, c_std=11)
+firmware = project.add_executable("fw", sources=["src/main.cpp", "src/hal.c", "src/startup.S"])
+firmware.link(System.threads())
+firmware.link(System.library("ws2_32"), when=When.platform("windows"))
+firmware.link(System.framework("Metal"))  # inert off Apple platforms
+firmware.link(Imported("Vulkan::Vulkan"))
+```
+
+**We handle:** `project(... LANGUAGES CXX C ASM)` inferred from suffixes (C, ASM, MASM, CUDA, HIP, ISPC, Fortran, Objective-C/C++), `c_std_11` only on targets that compile C, C-family flags kept away from CUDA and assembler sources, `find_package(Threads)`, and `$<LINK_LIBRARY:FRAMEWORK,...>` behind an Apple-platform guard. A misspelled suffix prints a notice instead of being silently ignored.
+
+---
+
+## 15. Profiles and CPU Targeting
+
+**You write:**
+
+```python
+from cmakeless import Cpu, Profile, Project
+
+project = Project("pricer", cpp_std=23, profile=Profile.hardened() | Profile.reproducible())
+engine = project.add_executable("engine", sources=["src/*.cpp"])
+engine.profile = Profile.low_latency()
+engine.cpu = Cpu.x86_64(level="v3")  # -march=x86-64-v3, /arch:AVX2
+```
+
+| Profile | What it turns on |
+| --- | --- |
+| `hardened()` | `_FORTIFY_SOURCE=3` (optimized configs), `-fstack-protector-strong`, `-fstack-clash-protection` and full RELRO on Linux, `-fcf-protection` and `/CETCOMPAT` on x86, `/sdl /guard:cf`, PIE |
+| `reproducible()` | `-ffile-prefix-map` for source and build trees, `-Wdate-time`, `/Brepro` |
+| `low_latency()` | `-O3`/`/O2 /Ob3` in optimized configs, frame pointers kept, `-fno-plt` on Linux, IPO where supported |
+| `embedded(exceptions=False, rtti=False)` | section garbage collection per linker family, `-Os`, a linker map file |
+| `safety_critical()` | `reproducible()` plus warnings as errors and no UB-exploiting aliasing optimizations |
+
+Every flag is plain data, visible in the generated file and in `cmakeless explain <target>`. Profiles are configuration hygiene, not certification.
+
+---
+
+## 16. A Product, Not Just a Binary
+
+```python
+lib = project.add_library(
+    "mathx",
+    sources=["src/*.cpp"],
+    public_headers="include/",
+    kind="shared",
+    version="1.2.0",
+    soversion="1",
+)
+lib.visibility = "hidden"
+project.install(app, component="runtime", rpath="relative", runtime_dependencies=True)
+project.install(lib, headers=True, component="dev")
+project.install_files("share/", destination="share/mathx")
+project.export(cmake=True, cps=True, pkg_config=True)
+project.package(
+    formats=["zip", "deb", "wix"],
+    vendor="Acme",
+    contact="ops@acme.com",
+    license_file="LICENSE",
+    deb_depends=["libc6"],
+)
+project.sign(
+    windows=Signing.signtool(cert_env="WIN_CERT"),
+    macos=Signing.codesign(identity_env="APPLE_IDENTITY"),
+)
+```
+
+**We handle:** `VERSION`/`SOVERSION`, hidden visibility, `INSTALL_RPATH` of `$ORIGIN`/`@loader_path`, `RUNTIME_DEPENDENCY_SET` (system DLLs excluded), a Common Package Specification file through `install(PACKAGE_INFO ...)` (floor raised to 4.3 for that project only), a `.pc` file, `CPACK_*` metadata, a stable WiX upgrade code derived from the project name, and an install-time signing script that only ever reads credentials from environment variables. Also: `kind="object"`, `kind="plugin"`, `output_name`, `gui`, `msvc_runtime`, `linker_script`, `map_file`, and `post_build(...)` with `target.file`.
+
+---
+
+## 17. Tests You Can Operate
+
+```python
+tests = project.add_test("engine_tests", sources=["tests/*.cpp"], timeout=60, labels=["unit"])
+tests.fixtures_required = ["database"]
+tests.serial = True  # a hardware-in-the-loop rig
+```
+
+```console
+$ cmakeless test --label unit --filter Physics --repeat 3 --junit report.xml
+```
+
+Properties reach every discovered case (escaped for the discovery functions), and JUnit results come back as `TestFinished` observer events.
+
+---
+
+## 18. Supply-Chain Evidence
+
+```python
+project = Project("ledger", cpp_std=20, supply_chain="strict")
+project.allow_system("openssl")
+```
+
+```console
+$ cmakeless audit                 # how every pin was obtained
+$ cmakeless audit --approve fmt   # record a human review of a first-use pin
+$ cmakeless lock --package fmt    # refresh one pin, keep the rest
+$ cmakeless evidence              # manifest, toolchain, SBOM, SLSA provenance, hashes, JUnit
+$ cmakeless verify                # build twice, compare every output bit for bit
+```
+
+**We handle:** `pin_source` in `cmakeless.lock` (`registry`, `user`, `tofu`, `reviewed`), strict mode refusing first-use pins, plain HTTP, and unlisted system packages; reproducible SBOMs (identifiers derived from the lock, `SOURCE_DATE_EPOCH` or the commit time); streamed, retried downloads that honor `HTTPS_PROXY` and `SSL_CERT_FILE`.
+
+---
+
+## 19. Quality Verbs
+
+```console
+$ cmakeless coverage                       # HTML and Cobertura via gcovr
+$ cmakeless fuzz fuzz_parse --time 60      # project.add_fuzz_target(...), libFuzzer
+$ cmakeless pgo --train "build/pgo-generate/bench"
+$ cmakeless profile                        # slowest steps, costliest headers, Perfetto trace
+$ cmakeless lint --report sarif -o lint.sarif
+$ cmakeless matrix --presets debug,release,asan
+```
+
+`project.lint(clang_tidy=Rules.misra_cpp_2023() | Rules.cert(), cppcheck=True)` wires compliance-oriented checks into the build; `project.add_shaders("shaders/*.hlsl", compiler="dxc", profile="ps_6_6", output="shaders")` and `project.add_assets(...)` build game content as ordinary validated build steps. Each instrumented run gets its own build tree.
+
+---
+
+## 20. A Way In, and a Way Around
+
+```console
+$ cmakeless import --check          # existing CMakeLists.txt to cmakelessfile.py, proven equal
+$ cmakeless init --template embedded
+$ cmakeless explain cmakelessfile.py:14
+$ cmakeless diff --exit-code        # fail CI when a committed CMakeLists.txt is stale
+$ cmakeless run app -- --flag
+$ cmakeless build --target app -j 8 --config Release -v --fresh -D FEATURE=ON --json
+```
+
+The importer reads the CMake File API codemodel (never CMake text) and marks what it cannot express with `# TODO(import)`. Templates: `app`, `library`, `game`, `embedded`, `python-ext`, `low-latency`, plus any installed `cmakeless.templates` plugin. `--json` streams every progress event as one JSON line for IDEs and CI.
+
+**Workspaces:** a `cmakelessworkspace.py` with `Workspace(lockfile=...)` and `ws.add("engine")` builds several projects against one lockfile, with `--project NAME` and `--affected-since origin/main`. **Caches:** `project.cache = Cache.sccache(backend="s3", bucket_env="SCCACHE_BUCKET")`. **Plugins:** `target.extend("name", ...)` runs an installed `cmakeless.extensions` plugin, its output fenced with the plugin's name and version.
 
 ---
 
