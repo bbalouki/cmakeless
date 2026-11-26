@@ -16,6 +16,7 @@ the docstrings on `cmakeless` and everything it re-exports.
   driver) and the design patterns behind them.
 - [Roadmap](ROADMAP.md): Where the project is going, phase by phase.
 - [Tutorial](tutorial.md): A ten-minute, linear walkthrough for a first project.
+- [Stability](stability.md): What the version number promises, and how CI enforces it.
 - [Cookbook](cookbook.md): Task-oriented recipes ("add an include dir",
   "cross-compile for ARM", "use a private dependency mirror").
 - [Migration guide](migration.md): Introducing CMakeless into an existing,
