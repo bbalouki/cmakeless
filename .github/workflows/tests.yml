@@ -136,13 +136,23 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
+      # The standalone LLVM on the image can lag the Visual Studio STL; the
+      # clang-cl Visual Studio ships is built against that same STL.
+      - name: Use the clang-cl that ships with Visual Studio
+        if: matrix.cc == 'clang-cl'
+        shell: pwsh
+        run: |
+          $clang = Join-Path $env:VCINSTALLDIR "Tools\Llvmdin\clang-cl.exe"
+          if (-not (Test-Path $clang)) { throw "Visual Studio's clang-cl is not installed at $clang" }
+          "CLANG_CL=$clang" | Out-File -FilePath $env:GITHUB_ENV -Append
+
       - name: Install package with dev dependencies
         run: uv pip install -e ".[dev]"
 
       - name: Build every example with this toolchain
         run: uv run pytest -m integration tests/integration
         env:
-          CC: ${{ matrix.cc }}
-          CXX: ${{ matrix.cxx }}
+          CC: ${{ env.CLANG_CL || matrix.cc }}
+          CXX: ${{ env.CLANG_CL || matrix.cxx }}
           CMAKELESS_NETWORK_TESTS: "1"
           CXXFLAGS: ${{ runner.os == 'Windows' && '-D_ALLOW_COMPILER_AND_STL_VERSION_MISMATCH' || '' }}
