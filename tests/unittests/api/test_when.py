@@ -25,8 +25,8 @@ def test_platform_condition_resolves_canonical_ids() -> None:
 
 def test_unknown_platform_rejected() -> None:
     """Unknown platform rejected."""
-    with pytest.raises(ConfigurationError, match="Unknown platform 'freebsd'"):
-        When.platform("freebsd")
+    with pytest.raises(ConfigurationError, match="Unknown platform 'plan9'"):
+        When.platform("plan9")
 
 
 def test_compiler_condition_expands_clang_to_both_ids() -> None:
