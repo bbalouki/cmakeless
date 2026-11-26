@@ -93,6 +93,10 @@ The user-facing surface is intentionally small, and the intent is that the class
 | `Command` / `CustomTarget`    | A custom build step or always-run target. Created via `project.add_command(...)`/`add_custom_target(...)`.  |
 | `CMakeModule`                 | A reflected `include()`/`include_module()`, with validated `.call()`/`.variable()` access.                   |
 | `CMakeGlobals`                | Every CMake variable a real configure defined, as attributes. Created via `project.cmake_globals()`.         |
+| `System` / `Imported`         | Typed link targets: the thread library, OS libraries, Apple frameworks, imported targets.                    |
+| `Profile` / `Cpu`             | Composable industry profiles and typed CPU targeting, on the project or per target.                          |
+| `Rules` / `Signing` / `Cache` | Compliance-oriented clang-tidy rule sets, install-time signing, shared compiler caches.                      |
+| `Workspace`                   | Several projects in one repository, built against one shared lockfile.                                       |
 
 Alongside these builders, the public surface also re-exports read-only result types (`CMakeInfo`, `CompilerInfo`, `TargetInfo`, `RegistryEntry`), the `Observer` event types (`StepStarted`, `StepFinished`, `StepFailed`, `BuildEvent`), the error hierarchy (see below), the version floors and conventions the emitter works to (`CMAKE_MINIMUM_VERSION`, `CXX_MODULES_MINIMUM_VERSION`, `MIN_PYTHON_VERSION`, `BUILD_SCRIPT_NAME`), the free-threading helpers (`gil_enabled`, `parallel_map`), and the deprecation helpers (`deprecated`, `warn_deprecated_argument`): data, diagnostics, and utilities you read or call, not classes you construct. Several of those are defined in underscore-prefixed modules, which is exactly why they are re-exported here: a user must never reach a public name through a submodule, and a test enforces that every public name in a private module appears in `__all__`. `cmakeless.__all__` is the authoritative, current list, and since 1.0 it is frozen: `tests/unittests/test_public_api.py` snapshots every exported name, its inherited methods, and their full signatures against a golden file, so drift fails CI rather than review. What that promise does and does not cover is spelled out in [STABILITY](stability.md).
 
@@ -129,7 +133,7 @@ Standard src-layout, so the installed package is what gets tested, not the worki
 
 ```text
 cmakeless/
-├── pyproject.toml            # PEP 621 metadata; zero runtime dependencies
+├── pyproject.toml            # PEP 621 metadata; one runtime dependency (Typer)
 ├── README.md
 ├── CONTRIBUTING.md
 ├── CHANGELOG.md
@@ -137,14 +141,16 @@ cmakeless/
 │   └── cmakeless/
 │       ├── __init__.py       # the ONLY public import surface
 │       ├── py.typed
-│       ├── cli.py            # Typer app; the only Typer importer
+│       ├── cli.py            # Typer entry point and the core verbs
+│       ├── _cli/             # shared CLI options and the workflow verbs
 │       ├── errors.py         # exception hierarchy (see below)
 │       ├── _deprecation.py   # one spelling for retiring public API
-│       ├── api/              # layer 1: Project, targets, deps, toolchains
-│       ├── model/            # layer 2: frozen dataclasses, validation
-│       ├── emitter/          # layer 3: model -> CMakeLists.txt
-│       ├── driver/           # layer 4: subprocess + CMake File API
-│       └── deps/             # dependency-provider strategies (see below)
+│       ├── api/              # layer 1: Project, targets, profiles, workflows, workspaces
+│       ├── model/            # layer 2: frozen dataclasses, languages, validation
+│       ├── emitter/          # layer 3: model -> CMake (flags, targets, install, tests)
+│       ├── driver/           # layer 4: subprocess, File API, profiling, SARIF
+│       ├── deps/             # dependency-provider strategies, downloads, SBOMs
+│       └── tools/            # above the layers: the CMake importer, templates
 ├── tests/
 │   ├── unittests/            # mirrors src/ structure; pytest
 │   └── integration/          # builds every examples/ project for real
@@ -179,6 +185,31 @@ CMakeless uses classic, [design patterns](https://github.com/bbalouki/DesignPatt
 - **Template Method.** Target emission shares a fixed skeleton (declare, inputs, properties, links, install) with per-target-type overrides, which is what keeps the generated CMake uniform and boring. The "inputs" step is why C++20 module interfaces cost one new block rather than a new traversal: every target kind asks for its sources and its module file set the same way, and only the visibility differs.
 - **Observer.** The driver publishes progress events (configure started, target compiled, test finished) to subscribers, so the CLI progress display, IDE integrations, and CI log formatting are listeners, not special cases inside the driver.
 
+## How 1.1 Kept the Layers Small
+
+The 1.1 release added a great deal of vocabulary without growing the files
+that already held the most logic:
+
+- **One properties node per target.** Output, ABI, platform, and tooling
+  settings live in `TargetPropertiesModel` (in `model/properties.py`), so the
+  four target models gained one field instead of a dozen each. New checks
+  live in `model/validate_settings.py`.
+- **Emission by concern.** `emitter/flags.py` owns compiler syntax and
+  linker families (the single place clang-cl is told apart from GCC),
+  `emitter/target_settings.py` owns per-target properties,
+  `emitter/install_emitter.py` owns install, export, CPack, and signing,
+  `emitter/tests_emitter.py` owns CTest registration, and
+  `emitter/instrumentation.py` owns coverage, PGO, and time traces. The
+  visitor only decides where each section lands.
+- **Workflows beside the facade.** `api/workflows.py`, `api/_quality.py`, and
+  `api/_evidence.py` hold the verbs beyond configure, build, and test, all
+  driving the same `Project` pipeline.
+- **Tools above the layers.** `cmakeless.tools` (the importer and templates)
+  may use every layer, and no layer imports it.
+- **Plugins at the edges.** Registry entries, toolchains, templates, and
+  target extensions load from entry points; extension output is fenced in the
+  generated file with the plugin's name and version.
+
 ## Error Handling: Errors Are a Feature
 
 The single biggest quality-of-life difference over raw CMake is _when_ and _how_ things fail. The rules:
@@ -205,7 +236,7 @@ Every message must say three things: what went wrong, where (file and target), a
 
 ## Free-Threaded Python: Parallelism Where It Pays
 
-CMakeless targets Python 3.12+ (CI also runs 3.13) and is designed for the free-threaded interpreter (PEP 703, supported non-experimentally since 3.14). The immutable model layer is what makes this safe and cheap: frozen dataclasses can be shared across threads with no locks and no copies.
+CMakeless targets Python 3.12+ (CI also runs 3.13, 3.14, and the free-threaded 3.14t) and is designed for the free-threaded interpreter (PEP 703, supported non-experimentally since 3.14). The immutable model layer is what makes this safe and cheap: frozen dataclasses can be shared across threads with no locks and no copies.
 
 Parallelism is applied only where wall-clock time actually lives:
 
