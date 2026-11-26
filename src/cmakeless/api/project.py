@@ -7,7 +7,7 @@ one verb.
 from __future__ import annotations
 
 import dataclasses
-import inspect
+import os
 import runpy
 import shutil
 import sysconfig
@@ -19,12 +19,19 @@ from cmakeless._constants import BUILD_SCRIPT_NAME
 from cmakeless._parallel import parallel_map
 from cmakeless._version import __version__
 from cmakeless.api import _context
+from cmakeless.api._callsite import calling_frame
+from cmakeless.api._runs import build_options, test_options
+from cmakeless.api.assets import shader_steps
+from cmakeless.api.cache import Cache
 from cmakeless.api.commands import Command, CustomTarget
 from cmakeless.api.dependencies import Dependencies
 from cmakeless.api.globals import CMakeGlobals
 from cmakeless.api.modules import CMakeModule, check_file_reference, check_module_path
 from cmakeless.api.options import Option
 from cmakeless.api.presets import Preset
+from cmakeless.api.profiles import Profile
+from cmakeless.api.rules import Rules
+from cmakeless.api.signing import MacSigning, WindowsSigning
 from cmakeless.api.targets import (
     Executable,
     Library,
@@ -35,6 +42,8 @@ from cmakeless.api.targets import (
     TestFrameworkName,
 )
 from cmakeless.api.toolchains import Toolchain
+from cmakeless.api.when import When
+from cmakeless.api.workflows import WORKFLOW_VERBS, run_workflow
 from cmakeless.deps import (
     LOCKFILE_NAME,
     DependencyProvider,
@@ -50,9 +59,12 @@ from cmakeless.driver.globals import probe_globals
 from cmakeless.driver.reflection import reflect, reflect_work_dir
 from cmakeless.emitter import emit_tree
 from cmakeless.errors import ConfigurationError
+from cmakeless.model.languages import NON_COMPILED_SUFFIXES, is_known_suffix
 from cmakeless.model.nodes import (
     BUILD_TYPE_BY_OPTIMIZE,
+    CompileOptionsModel,
     InstallModel,
+    LinkOptionsModel,
     ModuleKind,
     OptionType,
     PresetModel,
@@ -60,9 +72,23 @@ from cmakeless.model.nodes import (
     PythonModuleModel,
     SubprojectModel,
     ToolchainModel,
+    WhenModel,
+)
+from cmakeless.model.properties import (
+    ExportModel,
+    InstallFilesModel,
+    InstallOptionsModel,
+    PackageMetadataModel,
+    SigningModel,
 )
 from cmakeless.model.validate import validate_project
-from cmakeless.observer import ConsoleObserver, Observer
+from cmakeless.observer import (
+    ConsoleObserver,
+    DependencyResolved,
+    JsonObserver,
+    Observer,
+    publish,
+)
 
 DEFAULT_BUILD_DIR_NAME = "build"
 
@@ -103,6 +129,12 @@ _BINDING_SPECS: dict[str, str] = {
 }
 
 
+# libFuzzer supplies main() and instruments coverage; ASan and UBSan turn
+# silent memory corruption into a crash the fuzzer can minimize.
+_LIBFUZZER_FLAGS: tuple[str, ...] = ("-fsanitize=fuzzer,address,undefined",)
+_MSVC_FUZZER_FLAGS: tuple[str, ...] = ("/fsanitize=fuzzer", "/fsanitize=address")
+
+
 class Project:
     """The root build description and the facade over the whole pipeline.
 
@@ -121,6 +153,15 @@ class Project:
         lto: True to enable interprocedural optimization on the default
             build; a preset's own setting wins when one is active. Plain
             attribute, assign to change it.
+        warnings_as_errors: True to fail the build on any warning
+            (COMPILE_WARNING_AS_ERROR); 'cmake --compile-no-warning-as-error'
+            still relaxes it locally. Plain attribute.
+        c_std: The C standard C sources compile with, or None for the
+            compiler default. Plain attribute.
+        profile: The project-wide Profile, or None. Plain attribute.
+        supply_chain: "default", or "strict" to refuse trust-on-first-use
+            pins, plain-HTTP URLs, and unlisted system packages. Plain
+            attribute.
         name: The project name (read-only property).
         root: Absolute project root directory (read-only property).
         dependencies: The project's dependency collection (read-only
@@ -135,6 +176,9 @@ class Project:
         cpp_std: int = 17,
         warnings: str = "default",
         root: str | Path | None = None,
+        c_std: int | None = None,
+        profile: Profile | None = None,
+        supply_chain: str = "default",
     ) -> None:
         """Start describing a project.
 
@@ -142,21 +186,27 @@ class Project:
             name: The CMake project name.
             version: The project version string, passed to CMake.
             cpp_std: The C++ standard every target compiles with.
-            warnings: Warning preset ("strict", "default", or "none").
+            warnings: Warning preset ("max", "strict", "default", or "none").
             root: Project root directory; defaults to the directory of the
                 script that constructed the Project (usually cmakelessfile.py).
+            c_std: The C standard C sources compile with, or None.
+            profile: A Profile applied to every target, or None.
+            supply_chain: "default" or "strict" dependency checking.
         """
         self._name = name
         self._version = version
         self._cpp_std = cpp_std
         self.warnings = warnings
         self.package_manager = "auto"
-        self.cache = True
         self.optimize: str | None = None
         self.lto = False
-        self._lint_clang_tidy: tuple[str, ...] = ()
-        self._lint_iwyu: tuple[str, ...] = ()
-        script = _calling_script()
+        self.warnings_as_errors = False
+        self.c_std = c_std
+        self.profile = profile
+        self.supply_chain = supply_chain
+        self.cache: bool | Cache = True
+        frame = calling_frame()
+        script = frame[0] if frame is not None else None
         self._root = _resolve_root(root, script)
         self._source_script = script.name if script is not None else BUILD_SCRIPT_NAME
         self._dependencies = Dependencies(self)
@@ -168,6 +218,9 @@ class Project:
 
     def _init_collections(self) -> None:
         """Initialize the empty target, preset, and rule collections."""
+        self._lint_clang_tidy: tuple[str, ...] = ()
+        self._lint_iwyu: tuple[str, ...] = ()
+        self._lint_cppcheck: tuple[str, ...] = ()
         self._executables: list[Executable] = []
         self._libraries: list[Library] = []
         self._tests: list[Test] = []
@@ -175,10 +228,16 @@ class Project:
         self._presets: list[Preset] = []
         self._options: list[Option] = []
         self._toolchains: list[Toolchain] = []
-        self._installs: list[tuple[str, bool]] = []
+        self._installs: list[InstallModel] = []
+        self._install_files: list[InstallFilesModel] = []
         self._package_formats: tuple[str, ...] = ()
+        self._package_metadata = PackageMetadataModel()
+        self._signing: SigningModel | None = None
+        self._export = ExportModel()
+        self._allow_system: list[str] = []
+        self._fuzz_targets: list[Executable] = []
         self._raw_cmake_files: list[str] = []
-        self._subprojects: list[tuple[Path, Project]] = []
+        self._subprojects: list[tuple[Path, Project, WhenModel | None]] = []
         self._commands: list[Command] = []
         self._custom_targets: list[CustomTarget] = []
         self._modules: list[CMakeModule] = []
@@ -193,6 +252,12 @@ class Project:
     def root(self) -> Path:
         """Absolute path of the project root directory."""
         return self._root
+
+    @property
+    def lock_path(self) -> Path:
+        """Where this project's pins live: its own lockfile, or its workspace's."""
+        shared = _context.active_lock_path()
+        return shared if shared is not None else self._root / LOCKFILE_NAME
 
     @property
     def dependencies(self) -> Dependencies:
@@ -242,6 +307,8 @@ class Project:
         public_headers: str | Sequence[str] = (),
         kind: LibraryKindName = "static",
         modules: Sequence[str] = (),
+        version: str | None = None,
+        soversion: str | None = None,
     ) -> Library:
         """Declare a library target.
 
@@ -250,10 +317,13 @@ class Project:
             sources: Source files or glob patterns; empty for header-only.
             public_headers: Directory (or directories) whose headers
                 consumers may include.
-            kind: "static", "shared", or "header_only".
+            kind: "static", "shared", "object", "plugin", or "header_only".
             modules: C++20 module interface units this library exports, or
                 glob patterns matching them; consumers import them without
                 any include directory.
+            version: A shared library's full ABI version, for example "2.3.1".
+            soversion: A shared library's ABI compatibility version, for
+                example "2".
 
         Returns:
             The mutable Library builder, for further link()/define() calls.
@@ -267,13 +337,15 @@ class Project:
             public_headers=public_headers,
             kind=kind,
             modules=modules,
+            version=version,
+            soversion=soversion,
             script=self._source_script,
             dependencies=self._dependencies,
         )
         self._libraries.append(library)
         return library
 
-    def add_subproject(self, path: str | Path) -> Project:
+    def add_subproject(self, path: str | Path, *, when: When | None = None) -> Project:
         """Mount a self-contained child project at a directory under the root.
 
         The child directory must contain its own cmakelessfile.py describing
@@ -282,6 +354,8 @@ class Project:
 
         Args:
             path: Directory of the child project, relative to this root.
+            when: A configure-time condition (platform, compiler, or option;
+                never a build configuration) guarding the whole subproject.
 
         Returns:
             The captured child Project.
@@ -309,7 +383,7 @@ class Project:
                 f"subprojects."
             )
         child = captured[0]
-        self._subprojects.append((directory, child))
+        self._subprojects.append((directory, child, when._freeze() if when is not None else None))
         return child
 
     def add_test(
@@ -318,6 +392,8 @@ class Project:
         sources: Sequence[str],
         *,
         framework: TestFrameworkName = "gtest",
+        timeout: int | None = None,
+        labels: Sequence[str] = (),
     ) -> Test:
         """Declare a test executable registered with CTest.
 
@@ -330,6 +406,8 @@ class Project:
             sources: Source files or glob patterns, project-root-relative.
             framework: "gtest" (the default), "catch2", "doctest", or "none"
                 for a plain executable whose exit code is the verdict.
+            timeout: Seconds before CTest kills a case, or None.
+            labels: Labels for 'cmakeless test --label'.
 
         Returns:
             The mutable Test builder, for further link()/define() calls.
@@ -344,11 +422,42 @@ class Project:
             script=self._source_script,
             dependencies=self._dependencies,
         )
+        test.timeout = timeout
+        test.labels = list(labels)
         if framework in _FRAMEWORK_SPECS:
             dependency = self._dependencies.add(_FRAMEWORK_SPECS[framework])
-            test._dependency_links.append((dependency, False))
+            test._dependency_links.append((dependency, False, None))
         self._tests.append(test)
         return test
+
+    def add_fuzz_target(self, name: str, sources: Sequence[str]) -> Executable:
+        """Declare a libFuzzer target, built with the fuzzer and ASan runtimes.
+
+        The sources define LLVMFuzzerTestOneInput(); libFuzzer supplies
+        main(). Clang and MSVC (cl and clang-cl) are supported; GCC has no
+        libFuzzer, so the flags are inert there. Run it with 'cmakeless fuzz'.
+
+        Args:
+            name: Unique target name within the project.
+            sources: Source files or glob patterns, project-root-relative.
+
+        Returns:
+            The executable builder, for further link()/define() calls.
+        """
+        target = Executable(
+            name, sources, script=self._source_script, dependencies=self._dependencies
+        )
+        clang = When.compiler("clang")._freeze()
+        msvc = When.compiler("msvc")._freeze()
+        target._compile_options.extend(
+            (
+                CompileOptionsModel(flags=_LIBFUZZER_FLAGS, when=clang),
+                CompileOptionsModel(flags=_MSVC_FUZZER_FLAGS, when=msvc),
+            )
+        )
+        target._link_options.append(LinkOptionsModel(flags=_LIBFUZZER_FLAGS, when=clang))
+        self._fuzz_targets.append(target)
+        return target
 
     def add_python_module(
         self,
@@ -459,9 +568,13 @@ class Project:
         return toolchain
 
     def lint(
-        self, *, clang_tidy: bool | Sequence[str] = False, iwyu: bool | Sequence[str] = False
+        self,
+        *,
+        clang_tidy: bool | Sequence[str] | Rules = False,
+        iwyu: bool | Sequence[str] = False,
+        cppcheck: bool | Sequence[str] = False,
     ) -> None:
-        """Wire clang-tidy and/or include-what-you-use into every compiled target.
+        """Wire clang-tidy, include-what-you-use, and cppcheck into every compiled target.
 
         Applies to every executable, library, test, and Python module that
         has not called its own target.lint() (which always wins for that
@@ -476,40 +589,207 @@ class Project:
             iwyu: True to run include-what-you-use, a sequence for the
                 command and extra arguments, or False (the default) to
                 disable it.
+            cppcheck: True to run cppcheck alongside the compiler, a
+                sequence for the command and extra arguments, or False.
         """
-        self._lint_clang_tidy = _lint_tool_names(clang_tidy, tool="clang-tidy")
+        tidy = clang_tidy.command() if isinstance(clang_tidy, Rules) else clang_tidy
+        self._lint_clang_tidy = _lint_tool_names(tidy, tool="clang-tidy")
         self._lint_iwyu = _lint_tool_names(iwyu, tool="include-what-you-use")
+        self._lint_cppcheck = _lint_tool_names(cppcheck, tool="cppcheck")
 
-    def install(self, target: Executable | Library, *, headers: bool = False) -> None:
+    def install(
+        self,
+        target: Executable | Library | PythonModule,
+        *,
+        headers: bool = False,
+        component: str | None = None,
+        rpath: str | None = None,
+        destination: str | None = None,
+        runtime_dependencies: bool = False,
+    ) -> None:
         """Declare that a target ships: emitted as install and export rules.
 
         Installed libraries come with an export set and Config.cmake files,
         so other CMake users can find_package() this project.
 
         Args:
-            target: An executable or library created by this project.
+            target: An executable, library, or Python module of this project.
             headers: True to also install the target's public header
                 directories.
+            component: The CPack component ("runtime", "dev", ...), or None.
+            rpath: "relative" so the installed binary finds its sibling
+                libraries without LD_LIBRARY_PATH; None for CMake's default.
+            destination: An install-prefix-relative directory overriding the
+                GNUInstallDirs default.
+            runtime_dependencies: True to also install the shared libraries
+                (DLLs, .so, .dylib) the target loads, so an archive runs on a
+                clean machine.
 
         Raises:
             ConfigurationError: When ``target`` is not a target object.
         """
-        if not isinstance(target, Executable | Library):
+        if not isinstance(target, Executable | Library | PythonModule):
             raise ConfigurationError(
                 f"project.install() in {self._source_script} needs a target "
-                f"created by add_executable() or add_library(), got "
-                f"{type(target).__name__}."
+                f"created by add_executable(), add_library(), or "
+                f"add_python_module(), got {type(target).__name__}."
             )
-        self._installs.append((target.name, headers))
+        options = InstallOptionsModel(
+            component=component,
+            rpath=rpath,
+            destination=destination,
+            runtime_dependencies=runtime_dependencies,
+        )
+        self._installs.append(InstallModel(target=target.name, headers=headers, options=options))
 
-    def package(self, *, formats: Sequence[str] = ("zip",)) -> None:
+    def install_files(self, *paths: str, destination: str, component: str | None = None) -> None:
+        """Ship plain files or directories (configs, assets, licenses) on install.
+
+        A directory written with a trailing '/' installs its contents; without
+        it, the directory itself lands inside ``destination``.
+
+        Args:
+            *paths: Project-relative files or directories, all of one kind.
+            destination: Install-prefix-relative directory, for example
+                "share/mygame".
+            component: The CPack component, or None.
+
+        Raises:
+            ConfigurationError: When no path is given, or files and
+                directories are mixed in one call.
+        """
+        self._install_files.append(
+            _install_files_model(self._root, paths, destination, component, self._source_script)
+        )
+
+    def export(self, *, cmake: bool = True, cps: bool = False, pkg_config: bool = False) -> None:
+        """Choose which package metadata formats install() exports.
+
+        Args:
+            cmake: Classic Config.cmake files for find_package().
+            cps: A Common Package Specification file, readable by any
+                CPS-aware tool (raises this project's CMake floor to 4.3).
+            pkg_config: A .pc file, for Meson, Autotools, and pkg-config.
+        """
+        self._export = ExportModel(cmake=cmake, cps=cps, pkg_config=pkg_config)
+
+    def package(
+        self,
+        *,
+        formats: Sequence[str] = ("zip",),
+        vendor: str | None = None,
+        contact: str | None = None,
+        description: str | None = None,
+        homepage: str | None = None,
+        license_file: str | None = None,
+        deb_depends: Sequence[str] = (),
+        rpm_requires: Sequence[str] = (),
+    ) -> None:
         """Request CPack packaging of everything install() declared.
 
         Args:
-            formats: Package formats to produce: "zip", "tgz", "deb",
-                or "rpm".
+            formats: Package formats: "zip", "tgz", "txz", "7z", "deb",
+                "rpm", "nsis", "wix", "dmg", or "productbuild".
+            vendor: The organization shipping the package.
+            contact: Maintainer contact; Debian packages require one.
+            description: One-line package summary.
+            homepage: Project homepage URL.
+            license_file: Project-relative license file shown by installers.
+            deb_depends: Debian package dependencies, for example "libc6".
+            rpm_requires: RPM package requirements.
         """
         self._package_formats = tuple(formats)
+        self._package_metadata = PackageMetadataModel(
+            vendor=vendor,
+            contact=contact,
+            description=description,
+            homepage=homepage,
+            license_file=Path(license_file) if license_file is not None else None,
+            deb_depends=tuple(deb_depends),
+            rpm_requires=tuple(rpm_requires),
+        )
+
+    def sign(
+        self, *, windows: WindowsSigning | None = None, macos: MacSigning | None = None
+    ) -> None:
+        """Sign installed binaries at install time, reading credentials from the environment.
+
+        Args:
+            windows: Signing.signtool(...) settings, or None.
+            macos: Signing.codesign(...) settings, or None.
+        """
+        self._signing = SigningModel(
+            windows_cert_env=windows.cert_env if windows is not None else None,
+            windows_timestamp_url=windows.timestamp_url if windows is not None else None,
+            macos_identity_env=macos.identity_env if macos is not None else None,
+        )
+
+    def allow_system(self, *names: str) -> None:
+        """Let supply_chain="strict" take these packages from the system.
+
+        Args:
+            *names: Package names, as written in depends() specs.
+        """
+        self._allow_system.extend(names)
+
+    def add_shaders(
+        self,
+        pattern: str,
+        *,
+        compiler: str,
+        output: str,
+        profile: str | None = None,
+    ) -> tuple[Command, ...]:
+        """Compile shaders as build steps, one per source, rebuilt when they change.
+
+        Args:
+            pattern: A project-relative glob, for example "shaders/*.hlsl".
+            compiler: "dxc", "glslc", "glslangValidator", or "slangc".
+            output: Project-relative directory the compiled shaders land in,
+                under the build tree.
+            profile: The compiler's target profile (required for dxc, for
+                example "ps_6_6").
+
+        Returns:
+            One Command per shader; pass them to target.add_sources(*shaders).
+
+        Raises:
+            ConfigurationError: When the compiler is unknown, dxc has no
+                profile, or the pattern matches nothing.
+        """
+        sources = sorted(path.relative_to(self._root) for path in self._root.glob(pattern))
+        steps = shader_steps(sources, compiler=compiler, profile=profile, output=output)
+        return tuple(
+            self.add_command(
+                output=[compiled], command=argv, depends=[source], comment=f"Compiling {source}"
+            )
+            for compiled, argv, source in steps
+        )
+
+    def add_assets(
+        self, directory: str, *, cook: Sequence[str], into: str, name: str | None = None
+    ) -> CustomTarget:
+        """Cook a directory of assets with your own tool, as an always-run target.
+
+        Args:
+            directory: The project-relative asset directory.
+            cook: The cooking tool's argument vector; the source directory
+                and the output directory are appended.
+            into: The output directory, relative to the build tree.
+            name: The custom target name, or None for "cook_<directory>".
+
+        Returns:
+            The registered CustomTarget.
+        """
+        stem = Path(directory).name or "assets"
+        files = sorted(
+            path.relative_to(self._root).as_posix()
+            for path in (self._root / directory).rglob("*")
+            if path.is_file()
+        )
+        return self.add_custom_target(
+            name or f"cook_{stem}", command=[*cook, directory, into], depends=files
+        )
 
     def raw_cmake_file(self, path: str | Path) -> None:
         """Include an existing CMake file at the top of the generated build.
@@ -767,6 +1047,7 @@ class Project:
         model = _with_implicit_sanitize_preset(self._freeze_without_validation())
         validate_project(model)
         _warn_unused_command_outputs(model)
+        _warn_unknown_suffixes(model)
         return model
 
     def generate(self) -> list[Path]:
@@ -794,7 +1075,7 @@ class Project:
             ToolchainError: When cmake or the package manager is missing.
             CMakeError: When the configure step fails.
         """
-        self._prepare().driver.configure()
+        self._configure(self._prepare().driver)
 
     def targets_info(self) -> tuple[TargetInfo, ...]:
         """Configure the build and return its targets as Python objects.
@@ -813,7 +1094,7 @@ class Project:
             CMakeError: When the configure step fails.
         """
         driver = self._prepare().driver
-        driver.configure()
+        self._configure(driver)
         return driver.targets_info()
 
     def cmake_info(self) -> CMakeInfo:
@@ -835,7 +1116,7 @@ class Project:
             CMakeError: When the configure step fails.
         """
         prepared = self._prepare()
-        prepared.driver.configure()
+        self._configure(prepared.driver)
         raw = prepared.driver.cmake_info()
         declared = {option.name: option.value_type for option in prepared.model.options}
         coerced = tuple(
@@ -902,9 +1183,9 @@ class Project:
             CMakeError: When configuring, compiling, or a test fails.
         """
         driver = self._prepare().driver
-        driver.configure()
-        driver.build()
-        driver.test()
+        self._configure(driver)
+        driver.build(build_options())
+        driver.test(test_options(), build=build_options())
 
     def clean(self) -> None:
         """Delete this project's build directory, if it exists."""
@@ -948,10 +1229,12 @@ class Project:
             self.test()
         elif verb in ("install", "package"):
             self._run_post_build_verb(verb)
+        elif verb in WORKFLOW_VERBS:
+            run_workflow(self, verb)
         else:
             prepared = self._prepare()
-            prepared.driver.configure()
-            prepared.driver.build()
+            self._configure(prepared.driver)
+            prepared.driver.build(build_options())
             self._install_python_modules_into_environment(prepared.model, prepared.build_dir)
 
     def set_generator(self, generator: str | None) -> None:
@@ -986,12 +1269,22 @@ class Project:
             verb: "install" or "package".
         """
         driver = self._prepare().driver
-        driver.configure()
-        driver.build()
+        self._configure(driver)
+        driver.build(build_options())
         if verb == "install":
-            driver.install(prefix=_context.active_prefix())
+            config = _context.active_run_options().config
+            driver.install(prefix=_context.active_prefix(), config=config)
         else:
             driver.package()
+
+    def _configure(self, driver: CMakeDriver) -> None:
+        """Run the configure step with the CLI's --fresh and -D settings.
+
+        Args:
+            driver: The driver bound to the selected build tree.
+        """
+        options = _context.active_run_options()
+        driver.configure(fresh=options.fresh, defines=options.defines)
 
     def _install_python_modules_into_environment(
         self, model: ProjectModel, build_dir: Path
@@ -1032,8 +1325,13 @@ class Project:
             shutil.copyfile(stub, site_packages / stub.name)
         print(f"[cmakeless] Installed module {module.name!r} into {site_packages}")
 
-    def _prepare(self) -> _Prepared:
+    def _prepare(self, *, build_dir: Path | None = None) -> _Prepared:
         """Freeze, resolve, write outputs, and bind a driver to the result.
+
+        Args:
+            build_dir: A build tree overriding the preset's, used to build
+                the same configuration twice side by side; None for the
+                usual one.
 
         Returns:
             The driver, the resolved model, and the selected build
@@ -1048,7 +1346,7 @@ class Project:
         self._write_outputs(model)
         preset = self._selected_preset(model)
         provider = self._provider(model)
-        build_dir = self._build_dir(preset)
+        build_dir = build_dir if build_dir is not None else self._build_dir(preset)
         if provider is not None:
             build_type = self._resolve_build_type(model, preset)
             provider.pre_configure(
@@ -1057,7 +1355,8 @@ class Project:
                 build_type=build_type,
                 offline=_context.active_offline(),
             )
-        return _Prepared(self._driver(model, provider, preset=preset), model, build_dir)
+        driver = self._driver(model, provider, preset=preset, build_dir=build_dir)
+        return _Prepared(driver, model, build_dir)
 
     def _resolve_build_type(self, model: ProjectModel, preset: str | None) -> str:
         """Resolve the CMake build type a dependency backend should install for.
@@ -1118,9 +1417,14 @@ class Project:
             preset: The active preset name, or None for the default.
 
         Returns:
-            build/ for the default configuration, build/<preset> otherwise
-            (matching the binaryDir emitted into CMakePresets.json).
+            build/ for the default configuration, build/<preset> for a
+            preset (matching the binaryDir emitted into CMakePresets.json),
+            and build/<instrumentation> for an instrumented run, so coverage
+            or PGO never dirties the normal tree.
         """
+        instrumentation = _context.active_run_options().instrumentation
+        if preset is None and instrumentation:
+            return self._root / DEFAULT_BUILD_DIR_NAME / "-".join(instrumentation)
         if preset is None:
             return self._root / DEFAULT_BUILD_DIR_NAME
         return self._root / DEFAULT_BUILD_DIR_NAME / preset
@@ -1132,6 +1436,14 @@ class Project:
 
         Returns:
             The frozen but not yet validated ProjectModel.
+        """
+        return self._freeze_shipping(self._freeze_policy(self._freeze_core()))
+
+    def _freeze_core(self) -> ProjectModel:
+        """Freeze targets, dependencies, and settings: everything but what ships.
+
+        Returns:
+            The frozen core; _freeze_shipping() adds the install side.
         """
         return ProjectModel(
             name=self._name,
@@ -1153,16 +1465,53 @@ class Project:
             custom_targets=tuple(target._freeze() for target in self._custom_targets),
             modules=tuple(module._freeze() for module in self._modules),
             toolchains=tuple(toolchain._freeze() for toolchain in self._toolchains),
-            installs=tuple(
-                InstallModel(target=name, headers=headers) for name, headers in self._installs
-            ),
-            package_formats=self._package_formats,
-            cache=self.cache,
+            cache=bool(self.cache),
             optimize=self.optimize,
             lto=self.lto,
             raw_cmake_files=tuple(Path(raw_file) for raw_file in self._raw_cmake_files),
             lint_clang_tidy=self._lint_clang_tidy,
             lint_iwyu=self._lint_iwyu,
+            lint_cppcheck=self._lint_cppcheck,
+        )
+
+    def _freeze_policy(self, core: ProjectModel) -> ProjectModel:
+        """Add the build-policy settings (standards, profile, supply chain) to a core.
+
+        Args:
+            core: The model _freeze_core() produced.
+
+        Returns:
+            The model with compiler, profile, cache, and supply-chain policy set.
+        """
+        return dataclasses.replace(
+            core,
+            cache_backend=self.cache._freeze() if isinstance(self.cache, Cache) else None,
+            c_std=self.c_std,
+            warnings_as_errors=self.warnings_as_errors,
+            profile=self.profile._freeze() if self.profile is not None else None,
+            supply_chain=self.supply_chain,
+            allow_system=tuple(self._allow_system),
+            instrumentation=_context.active_run_options().instrumentation,
+            fuzz_targets=tuple(target._freeze(self._root) for target in self._fuzz_targets),
+        )
+
+    def _freeze_shipping(self, core: ProjectModel) -> ProjectModel:
+        """Add the install, packaging, export, and signing settings to a frozen core.
+
+        Args:
+            core: The model _freeze_core() produced.
+
+        Returns:
+            The complete frozen model.
+        """
+        return dataclasses.replace(
+            core,
+            installs=tuple(self._installs),
+            install_files=tuple(self._install_files),
+            package_formats=self._package_formats,
+            package_metadata=self._package_metadata,
+            signing=self._signing,
+            export=self._export,
         )
 
     def _freeze_subprojects(self) -> tuple[SubprojectModel, ...]:
@@ -1172,8 +1521,10 @@ class Project:
             One SubprojectModel per add_subproject() call, in call order.
         """
         return tuple(
-            SubprojectModel(directory=directory, project=child._freeze_without_validation())
-            for directory, child in self._subprojects
+            SubprojectModel(
+                directory=directory, project=child._freeze_without_validation(), when=when
+            )
+            for directory, child, when in self._subprojects
         )
 
     def _resolved_model(self) -> ProjectModel:
@@ -1183,9 +1534,31 @@ class Project:
             The model with every dependency pin filled; resolution also
             refreshes cmakeless.lock when the tree has dependencies.
         """
-        return resolve_dependencies(
-            self.freeze(), lock_path=self._root / LOCKFILE_NAME, offline=_context.active_offline()
+        model = resolve_dependencies(
+            self.freeze(), lock_path=self.lock_path, offline=_context.active_offline()
         )
+        for dependency in collect_tree_dependencies(model):
+            event = DependencyResolved(
+                step="resolve",
+                name=dependency.name,
+                version=dependency.version,
+                pin_source=dependency.pin_source,
+            )
+            publish(self._active_observers(), event)
+        return model
+
+    def _active_observers(self) -> list[Observer]:
+        """The observers this run notifies: JSON lines replace the console under --json.
+
+        Returns:
+            The observers, in registration order.
+        """
+        if not _context.active_run_options().json_events:
+            return self._observers
+        others = [
+            observer for observer in self._observers if not isinstance(observer, ConsoleObserver)
+        ]
+        return [JsonObserver(), *others]
 
     def _write_outputs(self, model: ProjectModel) -> list[Path]:
         """Write the emitted CMake tree and any backend manifest files.
@@ -1199,7 +1572,7 @@ class Project:
         files = emit_tree(model, tool_version=__version__)
         provider = self._provider(model)
         if provider is not None:
-            files.update(provider.manifest_files(model, read_lockfile(self._root / LOCKFILE_NAME)))
+            files.update(provider.manifest_files(model, read_lockfile(self.lock_path)))
         written: list[Path] = []
         for relative_path, text in files.items():
             output = self._root / relative_path
@@ -1265,6 +1638,7 @@ class Project:
         provider: DependencyProvider | None = None,
         *,
         preset: str | None = None,
+        build_dir: Path | None = None,
     ) -> CMakeDriver:
         """Build the driver for this project's source and build directories.
 
@@ -1274,27 +1648,69 @@ class Project:
                 configure step needs, or None for a dependency-free tree.
             preset: The active preset name, or None for the default
                 configuration.
+            build_dir: A build tree overriding the preset's, or None.
 
         Returns:
             A CMakeDriver honoring the project's or CLI's generator choice,
             the preset's build directory, and the cache setting.
         """
-        build_dir = self._build_dir(preset)
+        build_dir = build_dir if build_dir is not None else self._build_dir(preset)
         build_type = self._resolve_build_type(model, preset)
         extra = (
             provider.toolchain_args(build_dir, build_type=build_type)
             if provider is not None
             else ()
         )
+        backend = model.cache_backend
         return CMakeDriver(
             source_dir=self._root,
             build_dir=build_dir,
             generator=select_generator(self._generator or _context.active_generator()),
             extra_configure_args=extra,
             preset=preset,
-            use_cache=self.cache,
-            observers=self._observers,
+            use_cache=model.cache,
+            observers=self._active_observers(),
+            source_owners=_source_owners(model),
+            cache_tool=backend.tool if backend is not None else None,
+            cache_env=_expand_cache_env(backend.env) if backend is not None else None,
         )
+
+
+def _source_owners(model: ProjectModel) -> dict[str, str]:
+    """Map every compiled source to the target that compiles it.
+
+    Args:
+        model: The frozen project.
+
+    Returns:
+        Project-relative POSIX source path to "target 'x' (declared at
+        cmakelessfile.py:N)".
+    """
+    owners: dict[str, str] = {}
+    for target in model.all_targets():
+        line = target.properties.declared_line
+        where = f" (declared at {model.source_script}:{line})" if line is not None else ""
+        for source in target.sources:
+            owners.setdefault(source.as_posix(), f"target {target.name!r}{where}")
+    return owners
+
+
+def _expand_cache_env(env: Sequence[tuple[str, str]]) -> dict[str, str]:
+    """Resolve "$NAME" references in a cache backend's environment.
+
+    Args:
+        env: (name, value) pairs; a value starting with "$" copies another
+            environment variable, so secrets never live in the description.
+
+    Returns:
+        The environment to add for build steps; unset references are dropped.
+    """
+    resolved: dict[str, str] = {}
+    for name, value in env:
+        actual = os.environ.get(value[1:]) if value.startswith("$") else value
+        if actual is not None:
+            resolved[name] = actual
+    return resolved
 
 
 def _lint_tool_names(value: bool | Sequence[str], *, tool: str) -> tuple[str, ...]:
@@ -1433,6 +1849,31 @@ def _warn_unused_command_outputs(model: ProjectModel) -> None:
         _warn_unused_command_outputs(subproject.project)
 
 
+def _warn_unknown_suffixes(model: ProjectModel) -> None:
+    """Print a notice for a listed source no language compiles.
+
+    A notice rather than an error: CMake itself accepts such files as
+    non-compiled sources, so refusing them would break descriptions that
+    already build, but a typo like "main.cp" deserves to be seen.
+
+    Args:
+        model: The validated project model, subprojects included.
+    """
+    generated = {output for command in model.commands for output in command.outputs}
+    for target in model.all_targets():
+        for source in target.sources:
+            if source not in generated and not is_known_suffix(source):
+                known = ", ".join(sorted(NON_COMPILED_SUFFIXES)[:6])
+                print(
+                    f"[cmakeless] Warning: '{source.as_posix()}' in target {target.name!r} "
+                    f"({model.source_script}) has a suffix no enabled language compiles; it "
+                    f"is listed but not built. Rename it (.cpp, .c, .S, .cu, .f90, ...) "
+                    f"or drop it; headers and resources ({known}, ...) are fine."
+                )
+    for subproject in model.subprojects:
+        _warn_unknown_suffixes(subproject.project)
+
+
 def _consumed_paths(model: ProjectModel) -> set[Path]:
     """Collect every path a target's sources or a step's depends= names.
 
@@ -1453,23 +1894,36 @@ def _consumed_paths(model: ProjectModel) -> set[Path]:
     return consumed
 
 
-def _calling_script() -> Path | None:
-    """Find the user's script (usually cmakelessfile.py) that invoked the cmakeless API.
+def _install_files_model(
+    root: Path, paths: Sequence[str], destination: str, component: str | None, script: str
+) -> InstallFilesModel:
+    """Validate and freeze one install_files() call.
 
-    Walking the stack keeps Project's root defaulting to the directory of the
-    build description, not the process working directory, so 'python
-    somewhere/cmakelessfile.py' behaves identically to 'cmakeless build' run inside it.
+    Args:
+        root: The project root the paths are relative to.
+        paths: The paths as the user wrote them.
+        destination: The install-prefix-relative destination.
+        component: The CPack component, or None.
+        script: The build description name, for messages.
 
     Returns:
-        Absolute path of the first stack frame outside the cmakeless
-        package, or None when every frame is internal (REPL, embedding).
+        The frozen install rule; existence is checked on the model.
+
+    Raises:
+        ConfigurationError: When no path is given, or kinds are mixed.
     """
-    package_root = Path(__file__).resolve().parent.parent
-    for frame_info in inspect.stack():
-        filename = frame_info.filename
-        if not filename or filename.startswith("<"):
-            continue
-        candidate = Path(filename).resolve()
-        if not candidate.is_relative_to(package_root):
-            return candidate
-    return None
+    if not paths:
+        raise ConfigurationError(f"install_files() in {script} needs at least one path.")
+    directories = {(root / path).is_dir() for path in paths}
+    if len(directories) > 1:
+        raise ConfigurationError(
+            f"install_files({', '.join(repr(path) for path in paths)}) in {script} mixes "
+            f"files and directories; use one call per kind."
+        )
+    return InstallFilesModel(
+        paths=tuple(Path(path.rstrip("/")) for path in paths),
+        destination=destination,
+        component=component,
+        directory=directories == {True},
+        contents_only=all(path.endswith("/") for path in paths),
+    )
