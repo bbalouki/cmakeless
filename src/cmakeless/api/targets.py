@@ -11,7 +11,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from cmakeless._constants import MIN_PYTHON_VERSION
+from cmakeless.api._callsite import calling_frame
+from cmakeless.api._settings import _TargetSettings
 from cmakeless.api.commands import Command
+from cmakeless.api.system import SystemLibrary
 from cmakeless.api.when import When
 from cmakeless.errors import ConfigurationError
 from cmakeless.model.nodes import (
@@ -22,26 +25,29 @@ from cmakeless.model.nodes import (
     ExecutableModel,
     LibraryKind,
     LibraryModel,
+    LinkKind,
     LinkModel,
     LinkOptionsModel,
     PythonModuleModel,
     TestModel,
     WhenModel,
 )
+from cmakeless.model.properties import TestPropertiesModel
 
 if TYPE_CHECKING:
     from cmakeless.api.dependencies import Dependencies, Dependency
     from cmakeless.api.options import Option
 
-type LibraryKindName = Literal["static", "shared", "header_only"]
+type LibraryKindName = Literal["static", "shared", "header_only", "object", "plugin"]
 type TestFrameworkName = Literal["gtest", "catch2", "doctest", "none"]
 type PythonBindingName = Literal["pybind11", "nanobind"]
 type WhenArgument = str | When | Option | None
+type Linkable = Library | SystemLibrary
 
 _GLOB_CHARACTERS = frozenset("*?[")
 
 
-class _Target:
+class _Target(_TargetSettings):
     """Behavior shared by every target kind: sources, links, and settings.
 
     Attributes:
@@ -60,7 +66,9 @@ class _Target:
 
     Use raw_cmake() to emit CMake this API does not model, verbatim, after
     the target is defined. Use lint() to override project.lint()'s
-    clang-tidy/IWYU setting for this target alone.
+    clang-tidy/IWYU setting for this target alone. The output, ABI,
+    platform, and tooling settings (output_name, visibility, cpu, profile,
+    and the rest) are documented on the settings they come from.
     """
 
     def __init__(
@@ -97,12 +105,14 @@ class _Target:
         self._defines: list[DefineModel] = []
         self._compile_options: list[CompileOptionsModel] = []
         self._link_options: list[LinkOptionsModel] = []
-        self._links: list[tuple[Library, bool]] = []
+        self._links: list[tuple[Linkable, bool, WhenModel | None]] = []
         self._dependencies = dependencies
-        self._dependency_links: list[tuple[Dependency, bool]] = []
+        self._dependency_links: list[tuple[Dependency, bool, WhenModel | None]] = []
         self._raw_cmake: list[str] = []
         self._private_include_dirs: list[str] = []
         self._generated_sources: set[str] = set()
+        frame = calling_frame()
+        self._init_settings(frame[1] if frame is not None else None)
 
     @property
     def name(self) -> str:
@@ -262,6 +272,7 @@ class _Target:
         cmake_name: str | None = None,
         targets: Sequence[str] = (),
         public: bool = False,
+        when: WhenArgument = None,
     ) -> Dependency:
         """Require an external package and link its imported targets.
 
@@ -275,6 +286,9 @@ class _Target:
                 registry (for example ["fmt::fmt"]).
             public: True when this target's own headers expose the package,
                 so consumers inherit it.
+            when: A condition guarding the link edge (see When); the package
+                is still resolved and locked, so every configuration
+                reproduces the same tree.
 
         Returns:
             The registered Dependency, shared across targets that require
@@ -294,27 +308,37 @@ class _Target:
             cmake_name=cmake_name,
             targets=targets,
         )
-        self._dependency_links.append((dependency, public))
+        self._dependency_links.append((dependency, public, self._resolve_when(when)))
         return dependency
 
-    def _link(self, library: Library, public: bool) -> None:
+    def _link(self, library: Linkable, public: bool, when: WhenArgument) -> None:
         """Record a link edge after checking the linked object's type.
 
         Args:
-            library: The library to link against.
+            library: The library, system library, or imported target to link.
             public: Whether consumers of this target inherit the dependency.
+            when: A condition guarding the edge, or None.
 
         Raises:
-            ConfigurationError: When ``library`` is not a Library object.
+            ConfigurationError: When ``library`` is not linkable, or is a
+                plugin, which is loaded at runtime and never linked.
         """
-        if not isinstance(library, Library):
+        if not isinstance(library, Library | SystemLibrary):
             raise ConfigurationError(
-                f"Target {self._name!r} in {self._script} can only link Library "
-                f"objects created by add_library(), got {type(library).__name__}. "
-                f"For external packages use depends(), for example "
-                f'target.depends("fmt/10.2.1").'
+                f"Target {self._name!r} in {self._script} can only link a Library "
+                f"from add_library(), System.threads(), System.library(...), "
+                f"System.framework(...), or Imported(...), got "
+                f"{type(library).__name__}. For external packages use depends(), "
+                f'for example target.depends("fmt/10.2.1").'
             )
-        self._links.append((library, public))
+        if isinstance(library, Library) and library.kind == "plugin":
+            raise ConfigurationError(
+                f"Target {self._name!r} in {self._script} links plugin "
+                f"{library.name!r}, but a plugin is loaded at runtime with "
+                f'dlopen() or LoadLibrary(), never linked. Use kind="shared" to '
+                f"link it instead."
+            )
+        self._links.append((library, public, self._resolve_when(when)))
 
     def _resolve_when(self, when: WhenArgument) -> WhenModel | None:
         """Normalize a when= argument to the model's condition tree.
@@ -430,29 +454,33 @@ class _Target:
             One LinkModel per link() call in call order, then one per
             imported target of every depends() call.
         """
-        internal = [
-            LinkModel(target=library.name, public=public) for library, public in self._links
-        ]
+        internal = [_link_model(library, public, when) for library, public, when in self._links]
         external = [
-            LinkModel(target=target, public=public, external=True)
-            for dependency, public in self._dependency_links
+            LinkModel(target=target, public=public, external=True, when=when)
+            for dependency, public, when in self._dependency_links
             for target in dependency._link_targets()
         ]
-        return (*internal, *external)
+        qt = [
+            LinkModel(target=name, external=True, kind=LinkKind.IMPORTED)
+            for name in self._qt_link_targets()
+        ]
+        return (*internal, *external, *qt)
 
 
 class Executable(_Target):
     """A runnable target being described. Frozen into an ExecutableModel."""
 
-    def link(self, library: Library) -> None:
+    def link(self, library: Linkable, *, when: WhenArgument = None) -> None:
         """Link a library into this executable.
 
         Always private: nothing consumes an executable's headers.
 
         Args:
-            library: A library created by this project's add_library().
+            library: A library created by this project's add_library(), or
+                a System.*/Imported(...) link target.
+            when: A condition guarding the link (see When), or None.
         """
-        self._link(library, public=False)
+        self._link(library, public=False, when=when)
 
     def __repr__(self) -> str:
         """Developer-facing representation.
@@ -487,6 +515,7 @@ class Executable(_Target):
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
             cxx_modules=self._freeze_cxx_modules(root),
+            properties=self._freeze_properties(version=None, soversion=None),
         )
 
 
@@ -495,7 +524,19 @@ class Test(_Target):
 
     Created via Project.add_test(); the framework's package registration
     and link edge are handled there, so a Test builder only adds sources,
-    links, and settings like any other target.
+    links, and settings like any other target. CTest properties apply to
+    every case the test registers.
+
+    Attributes:
+        timeout: Seconds before CTest kills a case, or None for no limit.
+        labels: Labels for 'cmakeless test --label'.
+        env: Environment variables every case runs with.
+        working_directory: Project-relative directory cases run in.
+        serial: True to never run alongside other tests (hardware rigs).
+        will_fail: True when a failing exit code is the expected verdict.
+        fixtures_setup: Fixture names this test sets up.
+        fixtures_cleanup: Fixture names this test tears down.
+        fixtures_required: Fixture names that must be set up first.
     """
 
     # Tell pytest this builder is not a test case, despite the name.
@@ -532,21 +573,32 @@ class Test(_Target):
                 f"{self._script}. Pick one of: {frameworks}."
             )
         self._framework: str = framework
+        self.timeout: int | None = None
+        self.labels: Sequence[str] = []
+        self.env: dict[str, str] = {}
+        self.working_directory: str | None = None
+        self.serial: bool = False
+        self.will_fail: bool = False
+        self.fixtures_setup: Sequence[str] = []
+        self.fixtures_cleanup: Sequence[str] = []
+        self.fixtures_required: Sequence[str] = []
 
     @property
     def framework(self) -> str:
         """The test framework: "gtest", "catch2", "doctest", or "none"."""
         return self._framework
 
-    def link(self, library: Library) -> None:
+    def link(self, library: Linkable, *, when: WhenArgument = None) -> None:
         """Link a library into this test.
 
         Always private: nothing consumes a test's headers.
 
         Args:
-            library: A library created by this project's add_library().
+            library: A library created by this project's add_library(), or
+                a System.*/Imported(...) link target.
+            when: A condition guarding the link (see When), or None.
         """
-        self._link(library, public=False)
+        self._link(library, public=False, when=when)
 
     def __repr__(self) -> str:
         """Developer-facing representation.
@@ -556,6 +608,26 @@ class Test(_Target):
         """
         return (
             f"Test(name={self._name!r}, framework={self._framework!r}, sources={self._sources!r})"
+        )
+
+    def _freeze_test_properties(self) -> TestPropertiesModel:
+        """Freeze the CTest attributes; validation happens on the model.
+
+        Returns:
+            The frozen test properties.
+        """
+        return TestPropertiesModel(
+            timeout=self.timeout,
+            labels=tuple(self.labels),
+            env=tuple(sorted(self.env.items())),
+            working_directory=(
+                Path(self.working_directory) if self.working_directory is not None else None
+            ),
+            serial=self.serial,
+            will_fail=self.will_fail,
+            fixtures_setup=tuple(self.fixtures_setup),
+            fixtures_cleanup=tuple(self.fixtures_cleanup),
+            fixtures_required=tuple(self.fixtures_required),
         )
 
     def _freeze(self, root: Path) -> TestModel:
@@ -571,6 +643,7 @@ class Test(_Target):
             name=self._name,
             sources=self._freeze_sources(root),
             framework=self._framework,
+            test_properties=self._freeze_test_properties(),
             defines=tuple(self._defines),
             compile_options=tuple(self._compile_options),
             link_options=tuple(self._link_options),
@@ -584,6 +657,7 @@ class Test(_Target):
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
             cxx_modules=self._freeze_cxx_modules(root),
+            properties=self._freeze_properties(version=None, soversion=None),
         )
 
 
@@ -652,15 +726,17 @@ class PythonModule(_Target):
         """The binding backend: "pybind11" or "nanobind"."""
         return self._binding
 
-    def link(self, library: Library) -> None:
+    def link(self, library: Linkable, *, when: WhenArgument = None) -> None:
         """Link a library into this module.
 
         Always private: nothing consumes a module's headers.
 
         Args:
-            library: A library created by this project's add_library().
+            library: A library created by this project's add_library(), or
+                a System.*/Imported(...) link target.
+            when: A condition guarding the link (see When), or None.
         """
-        self._link(library, public=False)
+        self._link(library, public=False, when=when)
 
     def __repr__(self) -> str:
         """Developer-facing representation.
@@ -702,14 +778,19 @@ class PythonModule(_Target):
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
             cxx_modules=self._freeze_cxx_modules(root),
+            properties=self._freeze_properties(version=None, soversion=None),
         )
 
 
 class Library(_Target):
-    """A static, shared, or header-only library being described.
+    """A static, shared, object, plugin, or header-only library being described.
 
     Attributes:
         kind: The library kind as its string name (read-only property).
+        version: A shared library's full ABI version (for example "2.3.1"),
+            or None; plain attribute.
+        soversion: A shared library's ABI compatibility version (for
+            example "2"), or None; plain attribute.
     """
 
     def __init__(
@@ -720,6 +801,8 @@ class Library(_Target):
         public_headers: str | Sequence[str] = (),
         kind: LibraryKindName = "static",
         modules: Sequence[str] = (),
+        version: str | None = None,
+        soversion: str | None = None,
         script: str,
         dependencies: Dependencies,
     ) -> None:
@@ -730,9 +813,13 @@ class Library(_Target):
             sources: Source files or glob patterns; empty for header-only.
             public_headers: Directory (or directories) whose headers
                 consumers may include.
-            kind: "static", "shared", or "header_only".
+            kind: "static", "shared", "object" (objects linked straight
+                into consumers), "plugin" (loaded at runtime, never linked),
+                or "header_only".
             modules: C++20 module interface units this library exports, or
                 glob patterns matching them.
+            version: A shared library's full ABI version, or None.
+            soversion: A shared library's ABI compatibility version, or None.
             script: Display name of the owning build description, used in
                 error messages.
             dependencies: The owning project's dependency collection, where
@@ -742,6 +829,8 @@ class Library(_Target):
             ConfigurationError: When ``kind`` is not a known library kind.
         """
         super().__init__(name, sources, modules=modules, script=script, dependencies=dependencies)
+        self.version = version
+        self.soversion = soversion
         self._kind = self._resolve_kind(kind)
         headers = [public_headers] if isinstance(public_headers, str) else list(public_headers)
         self._public_headers: list[str] = headers
@@ -751,15 +840,17 @@ class Library(_Target):
         """The library kind: "static", "shared", or "header_only"."""
         return self._kind.value
 
-    def link(self, library: Library, *, public: bool = False) -> None:
+    def link(self, library: Linkable, *, public: bool = False, when: WhenArgument = None) -> None:
         """Link another library into this one.
 
         Args:
-            library: A library created by this project's add_library().
+            library: A library created by this project's add_library(), or
+                a System.*/Imported(...) link target.
             public: True when this library's own headers expose the linked
                 one, so consumers inherit the dependency.
+            when: A condition guarding the link (see When), or None.
         """
-        self._link(library, public=public)
+        self._link(library, public=public, when=when)
 
     def __repr__(self) -> str:
         """Developer-facing representation.
@@ -817,7 +908,30 @@ class Library(_Target):
             clang_tidy=self._lint_clang_tidy,
             iwyu=self._lint_iwyu,
             cxx_modules=self._freeze_cxx_modules(root),
+            properties=self._freeze_properties(version=self.version, soversion=self.soversion),
         )
+
+
+def _link_model(library: Linkable, public: bool, when: WhenModel | None) -> LinkModel:
+    """Translate one recorded link edge into its model node.
+
+    Args:
+        library: The linked library or system link target.
+        public: Whether consumers inherit the edge.
+        when: The edge's guard, or None.
+
+    Returns:
+        The LinkModel; anything that is not this project's Library is external.
+    """
+    if isinstance(library, Library):
+        return LinkModel(target=library.name, public=public, when=when)
+    return LinkModel(
+        target=library.name,
+        public=public,
+        external=True,
+        kind=library.kind,
+        when=when,
+    )
 
 
 def _lint_tool_names(value: bool | Sequence[str], *, tool: str) -> tuple[str, ...]:
